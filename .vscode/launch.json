@@ -1,0 +1,12 @@
+{
+  "configurations": [
+    {
+      "type": "bashdb",
+      "request": "launch",
+      "terminalKind": "integrated",
+      "name": "Bash-Debug: tf-select-env",
+      "cwd": "${workspaceFolder}",
+      "program": "debug.sh"
+    }
+  ]
+}
