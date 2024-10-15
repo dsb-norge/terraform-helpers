@@ -1,7 +1,6 @@
-#!/bin/env bash
+#!/usr/bin/env bash
 
-set -eo pipefail
-shopt -s extglob # enable extended globbing
+# shopt -s extglob # enable extended globbing
 
 # TODO: wanted functionality
 #   tf-logout         -> az logout
@@ -62,8 +61,11 @@ _dsb-tf-check-az-cli() {
 }
 
 _dsb-tf-check-gh-cli() {
+  logVerbose=${_dsbTfLogVerbose:-0}
   if ! gh --version &>/dev/null; then
-    _dsb-err "GitHub CLI is not installed. Please install it from https://cli.github.com/"
+    if [ "${logVerbose}" == "1" ]; then
+      _dsb-err "GitHub CLI is not installed. Please install it from https://cli.github.com/"
+    fi
     return 1
   fi
 }
@@ -98,14 +100,14 @@ _dsb-tf-check-golang() {
 
 _dsb-tf-check-hcledit() {
   if ! hcledit version &>/dev/null; then
-    _dsb-err "hcledit is not installed. Please install it with: 'go install github.com/minamijoyo/hcledit@latest; export PATH=\$PATH:$(go env GOPATH)/bin'"
+    _dsb-err "hcledit is not installed. Please install it with: 'go install github.com/minamijoyo/hcledit@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
     return 1
   fi
 }
 
 _dsb-tf-check-terraform-docs() {
   if ! terraform-docs --version &>/dev/null; then
-    _dsb-err "terraform-docs is not installed. Please install it with: 'go install github.com/terraform-docs/terraform-docs@v0.19.0; export PATH=\$PATH:$(go env GOPATH)/bin'"
+    _dsb-err "terraform-docs is not installed. Please install it with: 'go install github.com/terraform-docs/terraform-docs@v0.19.0; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
     return 1
   fi
 }
@@ -136,17 +138,65 @@ _dsb-tf-check-tools() {
 _dsb-tf-check-gh-auth() {
   local returnCode=0
 
+  if ! (_dsbTfLogVerbose=0 _dsb-tf-check-gh-cli); then
+    return 1
+  fi
   if ! gh auth status &>/dev/null; then
     _dsb-err "You are not authenticated with GitHub. Please run 'gh auth login' to authenticate."
     return 1
   fi
 }
 
-_dsb-tf-resolve-root-directories() {
+_dsb-tf-resolve-directories() {
   _dsbTfRootDir="$(realpath .)"
+  # DEBUG
+  # _dsbTfRootDir=/home/peder/code/github/dsb-norge/azure-ad
   _dsbTfModulesDir="${_dsbTfRootDir}/modules"
   _dsbTfMainDir="${_dsbTfRootDir}/main"
   _dsbTfEnvsDir="${_dsbTfRootDir}/envs"
+
+  unset _dsbTfModulesDirList
+  declare -A _dsbTfModulesDirList
+  if [ -d "${_dsbTfModulesDir}" ]; then
+    for dir in "${_dsbTfRootDir}"/modules/*; do
+      _dsbTfModulesDirList[$(basename "${dir}")]="${dir}"
+    done
+  fi
+
+  unset _dsbTfEnvsDirList
+  unset _dsbTfAvailableEnvs
+  declare -A _dsbTfEnvsDirList
+  declare -a _dsbTfAvailableEnvs
+  if [ -d "${_dsbTfEnvsDir}" ]; then
+    for dir in "${_dsbTfRootDir}"/envs/!(_*)/; do # this excludes directories starting with _
+      _dsbTfEnvsDirList[$(basename "${dir}")]="${dir}"
+      _dsbTfAvailableEnvs+=("$(basename "${dir}")")
+    done
+  fi
+
+  # DEBUG
+  # echo "Root dir: ${_dsbTfRootDir}"
+  # echo "Modules dir: ${_dsbTfModulesDir}"
+  # echo "Main dir: ${_dsbTfMainDir}"
+  # echo "Envs dir: ${_dsbTfEnvsDir}"
+  # echo "Modules dir list:"
+  # for key in "${!_dsbTfModulesDirList[@]}"; do
+  #   echo "  - ${key}: ${_dsbTfModulesDirList[$key]}"
+  # done
+  # echo "Envs dir list:"
+  # for key in "${!_dsbTfEnvsDirList[@]}"; do
+  #   echo "  - ${key}: ${_dsbTfEnvsDirList[$key]}"
+  # done
+  # echo "Available envs:"
+  # for dir in "${_dsbTfAvailableEnvs[@]}"; do
+  #   echo "  - ${dir}"
+  # done
+}
+
+_dsb-tf-get-rel-dir() {
+  local dirName
+  dirName=$1
+  realpath --relative-to="${_dsbTfRootDir}" "${dirName}"
 }
 
 _dsb-tf-look-for-main-dir() {
@@ -169,41 +219,87 @@ _dsb-tf-check-working-dir() {
   if ! _dsb-tf-look-for-main-dir; then returnCode=1; fi
   if ! _dsb-tf-look-for-envs-dir; then returnCode=1; fi
 
-  if [ $returnCode -eq 0 ]; then
-    _dsb-ok "Valid Terraform project structure."
-  else
-    _dsb-err "Not a valid Terraform project structure."
+  return $returnCode
+}
+
+_dsb-tf-check-prereqs() {
+  local logVerbose returnCode
+  logVerbose=${_dsbTfLogVerbose:-0}
+  returnCode=0
+
+  _dsb-tf-resolve-directories
+
+  if [ "${logVerbose}" == "1" ]; then _dsb-i "Checking tools ..."; fi
+  set +e
+  _dsb-tf-check-tools
+  toolsStatus=$?
+  set -e
+
+  if [ "${logVerbose}" == "1" ]; then _dsb-i "Checking GitHub authentication ..."; fi
+  set +e
+  _dsb-tf-check-gh-auth
+  ghAuthStatus=$?
+  set -e
+
+  if [ "${logVerbose}" == "1" ]; then _dsb-i "Checking working directory ..."; fi
+  set +e
+  _dsb-tf-check-working-dir
+  workingDirStatus=$?
+  set -e
+
+  returnCode=$((toolsStatus + ghAuthStatus + workingDirStatus))
+
+  if [ "${logVerbose}" == "1" ]; then
+    _dsb-ok ""
+    _dsb-ok "Pre-requisites check summary:"
+    if [ $toolsStatus -eq 0 ]; then
+      _dsb-ok "  ☑  Tools check passed."
+    else
+      _dsb-err "  ☐  Tools check failed."
+    fi
+    if [ $ghAuthStatus -eq 0 ]; then
+      _dsb-ok "  ☑  GitHub authentication check passed."
+    else
+      _dsb-err "  ☐  GitHub authentication check failed."
+    fi
+    if [ $workingDirStatus -eq 0 ]; then
+      _dsb-ok "  ☑  Working directory check passed."
+    else
+      _dsb-err "  ☐  Working directory check failed."
+    fi
+    if [ $returnCode -gt 0 ]; then
+      _dsb-err "Pre-reqs check(s) failed."
+    else
+      _dsb-ok "All pre-reqs checks passed."
+    fi
   fi
 
   return $returnCode
 }
 
-_dsb-tf-check-prereqs() {
-  local logVerbose=${_dsbTfLogVerbose:-0}
-
-  if [ "$logVerbose" -eq 1 ]; then _dsb-i "Checking tools ..."; fi
-  if ! _dsb-tf-check-tools; then
-    _dsb-err "Tools check failed."
-  else
-    if [ "$logVerbose" -eq 1 ]; then _dsb-ok "All required tools are installed."; fi
-  fi
-  if [ "$logVerbose" -eq 1 ]; then _dsb-i "Checking GitHub authentication ..."; fi
-  if ! _dsb-tf-check-gh-auth; then
-    _dsb-err "GitHub authentication check failed."
-  else
-    if [ "$logVerbose" -eq 1 ]; then _dsb-ok "Authenticated with GitHub."; fi
-  fi
-  if [ "$logVerbose" -eq 1 ]; then _dsb-i "Checking working directory ..."; fi
-  if ! _dsb-tf-check-working-dir; then
-    _dsb-err "Working directory check failed."
-  else
-    if [ "$logVerbose" -eq 1 ]; then _dsb-ok "Valid Terraform project structure."; fi
-  fi
-}
-
+# exposed function, wrapper for internal function
 tf-check-prereqs() {
-  _dsbTfLogVerbose=1
-  _dsb-tf-resolve-root-directories
-  _dsb-tf-check-prereqs
-  unset _dsbTfLogVerbose
+  local old_opts history_state old_shopt_extglob
+
+  history_state=$(shopt -o history) # Save current history recording state
+  set +o history                    # Disable history recording
+
+  old_opts=$(set +o) # Save current shell options
+  set -eo pipefail   # Enable strict mode
+
+  old_shopt_extglob=$(shopt -p extglob) # Save current extglob state
+  shopt -s extglob                      # Enable extended globbing
+
+  _dsbTfLogVerbose=1 _dsb-tf-check-prereqs || :
+
+  eval "$old_opts"          # Restore previous shell options
+  eval "$old_shopt_extglob" # Restore previous extglob state
+
+  # Restore previous history recording state
+  if [[ $history_state == "history         off" ]]; then
+    set +o history
+  else
+    set -o history
+  fi
+
 }
