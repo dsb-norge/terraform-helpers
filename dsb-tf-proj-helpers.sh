@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-# shopt -s extglob # enable extended globbing
-
 # TODO: wanted functionality
 #   tf-logout         -> az logout
 #   tf-login          -> az login --use-device-code
@@ -97,63 +95,94 @@ _dsb-tf-get-rel-dir() {
 
 _dsb-tf-check-az-cli() {
   if ! az --version &>/dev/null; then
-    _dsb-err "Azure CLI is not installed. Please install it from https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
+    _dsb-err "Azure CLI not found."
+    _dsb-err "  checked command: az --version"
+    _dsb-err "  make sure az is available in your PATH"
+    _dsb-err "  for installation instructions see: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
     return 1
   fi
 }
 
 _dsb-tf-check-gh-cli() {
   if ! gh --version &>/dev/null; then
-    _dsb-err "GitHub CLI is not installed. Please install it from https://cli.github.com/"
+    _dsb-err "GitHub CLI not found."
+    _dsb-err "  checked command: gh --version"
+    _dsb-err "  make sure gh is available in your PATH"
+    _dsb-err "  for installation instructions see: https://github.com/cli/cli#installation"
     return 1
   fi
 }
 
 _dsb-tf-check-terraform() {
   if ! terraform -version &>/dev/null; then
-    _dsb-err "Terraform is not installed. Please install it from https://learn.hashicorp.com/tutorials/terraform/install-cli"
+    _dsb-err "Terraform not found."
+    _dsb-err "  checked command: terraform -version"
+    _dsb-err "  make sure terraform is available in your PATH"
+    _dsb-err "  for installation instructions see: https://learn.hashicorp.com/tutorials/terraform/install-cli"
     return 1
   fi
 }
 
 _dsb-tf-check-jq() {
   if ! jq --version &>/dev/null; then
-    _dsb-err "jq is not installed. Please install it from https://stedolan.github.io/jq/download/"
+    _dsb-err "jq not found."
+    _dsb-err "  checked command: jq --version"
+    _dsb-err "  make sure jq is available in your PATH"
+    _dsb-err "  for installation instructions see: https://stedolan.github.io/jq/download/"
     return 1
   fi
 }
 
 _dsb-tf-check-yq() {
   if ! yq --version &>/dev/null; then
-    _dsb-err "yq is not installed. Please install it from https://github.com/mikefarah/yq"
+    _dsb-err "yq not found."
+    _dsb-err "  checked command: yq --version"
+    _dsb-err "  make sure yq is available in your PATH"
+    _dsb-err "  for installation instructions see: https://mikefarah.gitbook.io/yq#install"
     return 1
   fi
 }
 
 _dsb-tf-check-golang() {
   if ! go version &>/dev/null; then
-    _dsb-err "Go is not installed. Please install it from https://golang.org/doc/install"
+    _dsb-err "Go not found."
+    _dsb-err "  checked command: go version"
+    _dsb-err "  make sure go is available in your PATH"
+    _dsb-err "  for installation instructions see: https://go.dev/doc/install"
     return 1
   fi
 }
 
 _dsb-tf-check-hcledit() {
   if ! hcledit version &>/dev/null; then
-    _dsb-err "hcledit is not installed. Please install it with: 'go install github.com/minamijoyo/hcledit@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
+    _dsb-err "hcledit not found."
+    _dsb-err "  checked command: hcledit version"
+    _dsb-err "  make sure hcledit is available in your PATH"
+    _dsb-err "  for installation instructions see: https://github.com/minamijoyo/hcledit?tab=readme-ov-file#install"
+    _dsb-err "  or install it with: 'go install github.com/minamijoyo/hcledit@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
     return 1
   fi
 }
 
 _dsb-tf-check-terraform-docs() {
   if ! terraform-docs --version &>/dev/null; then
-    _dsb-err "terraform-docs is not installed. Please install it with: 'go install github.com/terraform-docs/terraform-docs@v0.19.0; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
+    _dsb-err "terraform-docs not found."
+    _dsb-err "  checked command: terraform-docs --version"
+    _dsb-err "  make sure terraform-docs is available in your PATH"
+    _dsb-err "  for installation instructions see: https://terraform-docs.io/user-guide/installation/"
+    _dsb-err "  or install it with: 'go install github.com/terraform-docs/terraform-docs@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
     return 1
   fi
 }
 
 _dsb-tf-check-realpath() {
   if ! realpath --version &>/dev/null; then
-    _dsb-err "realpath is not installed. Please install it with: 'sudo apt install realpath'"
+    _dsb-err "realpath not found."
+    _dsb-err "  checked command: realpath --version"
+    _dsb-err "  make sure realpath is available in your PATH"
+    _dsb-err "  install it with one of:"
+    _dsb-err "    - Ubuntu: 'sudo apt-get install coreutils'"
+    _dsb-err "    - OS X  : 'brew install coreutils'"
     return 1
   fi
 }
@@ -177,9 +206,9 @@ _dsb-tf-check-tools() {
 _dsb-tf-check-gh-auth() {
   local returnCode=0
 
-  # fail check if gh cli is not installed
+  # allow check to pass if gh cli is not installed
   if ! (_dsbTfLogErrors=0 _dsb-tf-check-gh-cli); then
-    return 1
+    return 0
   fi
 
   if ! gh auth status &>/dev/null; then
@@ -204,7 +233,7 @@ _dsb-tf-check-current-dir() {
   returnCode=0
 
   _dsb-tf-enumerate-directories
-  _dsb-tf-error-stop-trapping
+  _dsb_tf_error_stop_trapping
 
   _dsb-i "Checking main dir  ..."
   _dsb-tf-look-for-main-dir
@@ -228,26 +257,26 @@ _dsb-tf-check-current-dir() {
   _dsb-i "Directory check summary:"
 
   if [ "${mainDirStatus}" -eq 0 ]; then
-    _dsb-i "  \e[32m☑\e[0m  Main directory check passed."
+    _dsb-i "  \e[32m☑\e[0m  Main directory check: passed."
   else
-    _dsb-i "  \e[31m☒\e[0m  Main directory check failed."
+    _dsb-i "  \e[31m☒\e[0m  Main directory check: failed."
   fi
 
   if [ "${envsDirStatus}" -eq 0 ]; then
-    _dsb-i "  \e[32m☑\e[0m  Environments directory check passed."
+    _dsb-i "  \e[32m☑\e[0m  Environments directory check: passed."
   else
-    _dsb-i "  \e[31m☒\e[0m  Environments directory check failed."
+    _dsb-i "  \e[31m☒\e[0m  Environments directory check: failed."
   fi
 
   selectedEnv="${_dsbTfSelectedEnv:-}"
   if [ "${lockFileStatus}" -eq 0 ]; then
     if [ -z "${selectedEnvDir}" ]; then
-      _dsb-i "  ☐  N/A - no environment selected."
+      _dsb-i "  ☐  Lock file check: N/A, no environment selected, please run 'tf-select-env'"
     else
-      _dsb-i "  \e[32m☑\e[0m  Lock file check passed."
+      _dsb-i "  \e[32m☑\e[0m  Lock file check: passed."
     fi
   else
-    _dsb-i "  \e[31m☒\e[0m  Lock file check failed."
+    _dsb-i "  \e[31m☒\e[0m  Lock file check: failed."
   fi
 
   _dsb-i ""
@@ -270,7 +299,7 @@ _dsb-tf-check-prereqs() {
   returnCode=0
 
   _dsb-tf-enumerate-directories
-  _dsb-tf-error-stop-trapping
+  _dsb_tf_error_stop_trapping
 
   _dsb-i-nonewline "Checking tools ..."
   _dsb-tf-check-tools
@@ -294,27 +323,30 @@ _dsb-tf-check-prereqs() {
   _dsb-i ""
   _dsb-i "Pre-requisites check summary:"
   if [ $toolsStatus -eq 0 ]; then
-    _dsb-i "  \e[32m☑\e[0m  Tools check passed."
+    _dsb-i "  \e[32m☑\e[0m  Tools check: passed."
   else
-    _dsb-i "  \e[31m☒\e[0m  Tools check failed"
+    _dsb-i "  \e[31m☒\e[0m  Tools check: failed, please run 'tf-check-tools'"
   fi
   if [ $ghAuthStatus -eq 0 ]; then
-    _dsb-i "  \e[32m☑\e[0m  GitHub authentication check passed."
+    if ! (_dsbTfLogErrors=0 _dsb-tf-check-gh-cli); then
+      _dsb-i "  ☐  GitHub authentication check: N/A, please run 'tf-check-tools'"
+    else
+      _dsb-i "  \e[32m☑\e[0m  GitHub authentication check: passed."
+    fi
   else
-    _dsb-i "  \e[31m☒\e[0m  GitHub authentication check failed."
+    _dsb-i "  \e[31m☒\e[0m  GitHub authentication check: failed."
   fi
   if [ $workingDirStatus -eq 0 ]; then
-    _dsb-i "  \e[32m☑\e[0m  Working directory check passed."
+    _dsb-i "  \e[32m☑\e[0m  Working directory check: passed."
   else
-    _dsb-i "  \e[31m☒\e[0m  Working directory check failed, please run 'tf-check-dir'"
+    _dsb-i "  \e[31m☒\e[0m  Working directory check: failed, please run 'tf-check-dir'"
   fi
 
   _dsb-i ""
   if [ $returnCode -eq 0 ]; then
     _dsb-i "\e[32mAll pre-reqs check passed.\e[0m"
   else
-    _dsb-err "\e[31mPre-reqs check failed.\e[0m"
-    _dsb-err "  for more information see above."
+    _dsb-err "\e[31mPre-reqs check failed, for more information see above.\e[0m"
   fi
 
   _dsbTfReturnCode=$returnCode
@@ -327,11 +359,6 @@ _dsb-tf-check-prereqs() {
 ###################################################################################################
 
 _dsb-tf-enumerate-directories() {
-  local old_shopt_extglob
-
-  old_shopt_extglob=$(shopt -p extglob) # Save current extglob state
-  shopt -s extglob                      # Enable extended globbing
-
   _dsbTfRootDir="$(realpath .)"
   # DEBUG
   # _dsbTfRootDir=/home/peder/code/github/dsb-norge/azure-ad
@@ -351,10 +378,17 @@ _dsb-tf-enumerate-directories() {
   unset _dsbTfAvailableEnvs
   declare -A _dsbTfEnvsDirList   # Associative array
   declare -a _dsbTfAvailableEnvs # Indexed array
+  local item
   if [ -d "${_dsbTfEnvsDir}" ]; then
-    for dir in "${_dsbTfRootDir}"/envs/!(_*)/; do # this excludes directories starting with _
-      _dsbTfEnvsDirList[$(basename "${dir}")]="${dir}"
-      _dsbTfAvailableEnvs+=("$(basename "${dir}")")
+    for item in "${_dsbTfRootDir}"/envs/*; do
+      if [ -d "${item}" ]; then # is a directory
+        # this exclude directories starting with _
+        if [[ "$(basename "${item}")" =~ ^_ ]]; then
+          continue
+        fi
+        _dsbTfEnvsDirList[$(basename "${item}")]="${item}"
+        _dsbTfAvailableEnvs+=("$(basename "${item}")")
+      fi
     done
 
     local selectedEnv envFound
@@ -408,8 +442,6 @@ _dsb-tf-enumerate-directories() {
   # for dir in "${_dsbTfAvailableEnvs[@]}"; do
   #   echo "  - ${dir}"
   # done
-
-  eval "$old_shopt_extglob" # Restore previous extglob state
 }
 
 _dsb-tf-look-for-main-dir() {
@@ -437,6 +469,8 @@ _dsb-tf-look-for-lock-file() {
 
   # expect _dsbTfSelectedEnvDir to be set if an environment is selected
   if [ -z "${selectedEnvDir}" ]; then
+    _dsbTfLogErrors=1
+    _dsb-tf-error-start-trapping
     _dsb-err "Internal error: environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
     _dsb-err "  Selected environment: ${selectedEnv}"
     return 1
@@ -444,6 +478,8 @@ _dsb-tf-look-for-lock-file() {
 
   # expect _dsbTfSelectedEnvDir to be a directory
   if [ ! -d "${selectedEnvDir}" ]; then
+    _dsbTfLogErrors=1
+    _dsb-tf-error-start-trapping
     _dsb-err "Internal error: environment set in '_dsbTfSelectedEnv', but directory not found."
     _dsb-err "  Selected environment: ${selectedEnv}"
     _dsb-err "  Expected directory: ${selectedEnvDir}"
@@ -461,6 +497,79 @@ _dsb-tf-look-for-lock-file() {
 
 ###################################################################################################
 #
+# Environment
+#
+###################################################################################################
+
+_dsb-tf-select-env() {
+  local dirCheckStatus selectedEnv selectedEnvDir
+
+  _dsbTfLogErrors=0
+  _dsbTfLogInfo=1
+
+  _dsb-tf-enumerate-directories
+
+  _dsb_tf_error_stop_trapping
+  _dsb-tf-check-directories
+  dirCheckStatus=$?
+  if [ "${dirCheckStatus}" -ne 0 ]; then
+    _dsbTfLogErrors=1
+    _dsb-err "Directory check(s) fails, please run 'tf-check-dir'"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsb-tf-error-start-trapping
+  local envIdx
+  envIdx=0
+  _dsb-i "Available environments:"
+  for dir in "${_dsbTfAvailableEnvs[@]}"; do
+    _dsb-i "  - $((envIdx + 1)) ${dir}"
+  done
+
+  local -a validChoices
+  mapfile -t validChoices < <(seq 1 ${envIdx})
+
+  local gotValidInput userInput idx
+  gotValidInput=0
+  while [ "${gotValidInput}" -ne 1 ]; do
+    read -r -p "Enter index of environment to set: " userInput
+    for idx in "${validChoices[@]}"; do
+      if [ "${idx}" == "${userInput}" ]; then
+        gotValidInput=1
+        echo "DEBUG: idx = ${idx} is valid"
+        break
+      fi
+    done
+  done
+
+  # TODO: create internal function _dsb-tf-set-env and exposed function tf-set-env
+
+  # selectedEnv="${_dsbTfAvailableEnvs[$((userInput - 1))]}"
+  # selectedEnvDir="${_dsbTfEnvsDirList[$selectedEnv]}"
+
+  _dsb-i "Selected environment: ${selectedEnv}"
+  _dsb-i "Selected environment directory: ${selectedEnvDir}"
+
+  _dsbTfSelectedEnv="${selectedEnv}"
+  _dsbTfSelectedEnvDir="${_dsbTfEnvsDir}/${selectedEnv}"
+
+  # check if the selected environment is valid
+  _dsbTfLogErrors=0
+  _dsb_tf_error_stop_trapping
+  dsb-tf-look-for-lock-file
+  _dsbTfReturnCode=$? # caller reads this
+
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsbTfLogErrors=1
+    _dsb-err "Lock file check failed, please run 'tf-check-dir'"
+  fi
+
+  return 0 # caller reads _dsbTfReturnCode
+}
+
+###################################################################################################
+#
 # Error handling
 #
 ###################################################################################################
@@ -469,7 +578,7 @@ _dsb-tf-error-handler() {
   # Remove error trapping to prevent the error handler from being triggered
   _dsbTfReturnCode=${1:-$?}
 
-  _dsb-tf-error-stop-trapping
+  _dsb_tf_error_stop_trapping
 
   if [ "${_dsbTfReturnCode}" -ne 0 ]; then
     _dsb-err "Error occured:"
@@ -499,7 +608,7 @@ _dsb-tf-error-start-trapping() {
   trap '_dsb-tf-error-handler $?' ERR SIGHUP SIGINT
 }
 
-_dsb-tf-error-stop-trapping() {
+_dsb_tf_error_stop_trapping() {
   set +Eo pipefail
   trap - ERR SIGHUP SIGINT
 }
@@ -508,8 +617,7 @@ _dsb-tf-configure-shell() {
   _dsbTfShellHistoryState=$(shopt -o history) # Save current history recording state
   set +o history                              # Disable history recording
 
-  _dsbTfShellOldOpts=$(set +o)                   # Save current shell options
-  _dsbTfShellOldShoptExtglob=$(shopt -p extglob) # Save current extglob state
+  _dsbTfShellOldOpts=$(set +o) # Save current shell options
 
   # -u: Treat unset variables as an error and exit immediately
   set -u
@@ -528,8 +636,7 @@ _dsb-tf-restore-shell() {
   # Remove error trapping to prevent the error handler from being triggered
   trap - ERR SIGHUP SIGINT
 
-  eval "$_dsbTfShellOldOpts"         # Restore previous shell options
-  eval "$_dsbTfShellOldShoptExtglob" # Restore previous extglob state
+  eval "$_dsbTfShellOldOpts" # Restore previous shell options
 
   # Restore previous history recording state
   if [[ $_dsbTfShellHistoryState =~ history[[:space:]]+off ]]; then
@@ -540,7 +647,6 @@ _dsb-tf-restore-shell() {
 
   # clear variables
   unset _dsbTfShellOldOpts
-  unset _dsbTfShellOldShoptExtglob
   unset _dsbTfShellHistoryState
   unset _dsbTfLogInfo
   unset _dsbTfLogWarnings
@@ -569,6 +675,16 @@ tf-check-prereqs() {
 
   _dsb-tf-configure-shell
   _dsb-tf-check-prereqs
+  returnCode="${_dsbTfReturnCode}"
+  _dsb-tf-restore-shell
+  return "${returnCode}"
+}
+
+tf-select-env() {
+  local selectedEnv
+
+  _dsb-tf-configure-shell
+  _dsb-tf-select-env
   returnCode="${_dsbTfReturnCode}"
   _dsb-tf-restore-shell
   return "${returnCode}"
