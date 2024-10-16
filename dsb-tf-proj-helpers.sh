@@ -37,6 +37,12 @@
 #   Future:
 #     tf-* functions for _terraform-state env
 
+###################################################################################################
+#
+# Utility functions
+#
+###################################################################################################
+
 _dsb-err() {
   echo -e "\e[31mERROR  : $1\e[0m"
 }
@@ -48,6 +54,18 @@ _dsb-i() {
 _dsb-w() {
   echo -e "\e[33mWARNING: $1\e[0m"
 }
+
+_dsb-tf-get-rel-dir() {
+  local dirName
+  dirName=$1
+  realpath --relative-to="${_dsbTfRootDir}" "${dirName}"
+}
+
+###################################################################################################
+#
+# Check functions
+#
+###################################################################################################
 
 _dsb-tf-check-az-cli() {
   if ! az --version &>/dev/null; then
@@ -143,88 +161,6 @@ _dsb-tf-check-gh-auth() {
   fi
 }
 
-_dsb-tf-enumerate-directories() {
-  local old_shopt_extglob
-
-  old_shopt_extglob=$(shopt -p extglob) # Save current extglob state
-  shopt -s extglob                      # Enable extended globbing
-
-  _dsbTfRootDir="$(realpath .)"
-  # DEBUG
-  # _dsbTfRootDir=/home/peder/code/github/dsb-norge/azure-ad
-  _dsbTfModulesDir="${_dsbTfRootDir}/modules"
-  _dsbTfMainDir="${_dsbTfRootDir}/main"
-  _dsbTfEnvsDir="${_dsbTfRootDir}/envs"
-
-  unset _dsbTfModulesDirList
-  declare -A _dsbTfModulesDirList
-  if [ -d "${_dsbTfModulesDir}" ]; then
-    for dir in "${_dsbTfRootDir}"/modules/*; do
-      _dsbTfModulesDirList[$(basename "${dir}")]="${dir}"
-    done
-  fi
-
-  unset _dsbTfEnvsDirList
-  unset _dsbTfAvailableEnvs
-  declare -A _dsbTfEnvsDirList
-  declare -a _dsbTfAvailableEnvs
-  if [ -d "${_dsbTfEnvsDir}" ]; then
-    for dir in "${_dsbTfRootDir}"/envs/!(_*)/; do # this excludes directories starting with _
-      _dsbTfEnvsDirList[$(basename "${dir}")]="${dir}"
-      _dsbTfAvailableEnvs+=("$(basename "${dir}")")
-    done
-  fi
-
-  # DEBUG
-  # echo "Root dir: ${_dsbTfRootDir}"
-  # echo "Modules dir: ${_dsbTfModulesDir}"
-  # echo "Main dir: ${_dsbTfMainDir}"
-  # echo "Envs dir: ${_dsbTfEnvsDir}"
-  # echo "Modules dir list:"
-  # for key in "${!_dsbTfModulesDirList[@]}"; do
-  #   echo "  - ${key}: ${_dsbTfModulesDirList[$key]}"
-  # done
-  # echo "Envs dir list:"
-  # for key in "${!_dsbTfEnvsDirList[@]}"; do
-  #   echo "  - ${key}: ${_dsbTfEnvsDirList[$key]}"
-  # done
-  # echo "Available envs:"
-  # for dir in "${_dsbTfAvailableEnvs[@]}"; do
-  #   echo "  - ${dir}"
-  # done
-
-  eval "$old_shopt_extglob" # Restore previous extglob state
-}
-
-_dsb-tf-get-rel-dir() {
-  local dirName
-  dirName=$1
-  realpath --relative-to="${_dsbTfRootDir}" "${dirName}"
-}
-
-_dsb-tf-look-for-main-dir() {
-  if [ -d "${_dsbTfMainDir}" ]; then
-    _dsb-err "Directory 'main' not found in current directory: ${_dsbTfRootDir}"
-    return 1
-  fi
-}
-
-_dsb-tf-look-for-envs-dir() {
-  if [ -d "${_dsbTfEnvsDir}" ]; then
-    _dsb-err "Directory 'envs' not found in current directory: ${_dsbTfRootDir}"
-    return 1
-  fi
-}
-
-_dsb-tf-check-working-dir() {
-  local returnCode=0
-
-  if ! _dsb-tf-look-for-main-dir; then returnCode=1; fi
-  if ! _dsb-tf-look-for-envs-dir; then returnCode=1; fi
-
-  return $returnCode
-}
-
 _dsb-tf-check-prereqs() {
   local logVerbose returnCode
 
@@ -232,25 +168,21 @@ _dsb-tf-check-prereqs() {
   returnCode=0
 
   _dsb-tf-enumerate-directories
+  _dsb-tf-error-stop-trapping
 
   if [ "${logVerbose}" == "1" ]; then _dsb-i "Checking tools ..."; fi
-  set +e
   _dsb-tf-check-tools
   toolsStatus=$?
-  set -e
 
   if [ "${logVerbose}" == "1" ]; then _dsb-i "Checking GitHub authentication ..."; fi
-  set +e
   _dsb-tf-check-gh-auth
   ghAuthStatus=$?
-  set -e
 
   if [ "${logVerbose}" == "1" ]; then _dsb-i "Checking working directory ..."; fi
-  set +e
   _dsb-tf-check-working-dir
   workingDirStatus=$?
-  set -e
 
+  _dsb-tf-error-start-trapping
   returnCode=$((toolsStatus + ghAuthStatus + workingDirStatus))
 
   if [ "${logVerbose}" == "1" ]; then
@@ -283,14 +215,164 @@ _dsb-tf-check-prereqs() {
 
 ###################################################################################################
 #
+# Directory enumeration
+#
+###################################################################################################
+
+_dsb-tf-enumerate-directories() {
+  local old_shopt_extglob
+
+  old_shopt_extglob=$(shopt -p extglob) # Save current extglob state
+  shopt -s extglob                      # Enable extended globbing
+
+  _dsbTfRootDir="$(realpath .)"
+  # DEBUG
+  # _dsbTfRootDir=/home/peder/code/github/dsb-norge/azure-ad
+  _dsbTfModulesDir="${_dsbTfRootDir}/modules"
+  _dsbTfMainDir="${_dsbTfRootDir}/main"
+  _dsbTfEnvsDir="${_dsbTfRootDir}/envs"
+
+  unset _dsbTfModulesDirList
+  declare -A _dsbTfModulesDirList
+  if [ -d "${_dsbTfModulesDir}" ]; then
+    for dir in "${_dsbTfRootDir}"/modules/*; do
+      _dsbTfModulesDirList[$(basename "${dir}")]="${dir}"
+    done
+  fi
+
+  unset _dsbTfEnvsDirList
+  unset _dsbTfAvailableEnvs
+  declare -A _dsbTfEnvsDirList   # Associative array
+  declare -a _dsbTfAvailableEnvs # Indexed array
+  if [ -d "${_dsbTfEnvsDir}" ]; then
+    for dir in "${_dsbTfRootDir}"/envs/!(_*)/; do # this excludes directories starting with _
+      _dsbTfEnvsDirList[$(basename "${dir}")]="${dir}"
+      _dsbTfAvailableEnvs+=("$(basename "${dir}")")
+    done
+
+    local selectedEnv envFound
+
+    # DEBUG
+    # unset _dsbTfSelectedEnv
+    # _dsbTfSelectedEnv="debug"
+    # _dsbTfSelectedEnv="test"
+
+    # checks if a selected environment is available in the list of environments.
+    # If found, enumerate the corresponding env directory.
+    # If not found, clear the selected environment and its corresponding env directory.
+    #
+    # Variables:
+    # - _dsbTfSelectedEnv: The environment selected by the user.
+    # - _dsbTfAvailableEnvs: An array of available environments.
+    # - _dsbTfEnvsDirList: An associative array mapping environments to their directories.
+    # - _dsbTfSelectedEnvDir: The directory of the selected environment.
+    selectedEnv="${_dsbTfSelectedEnv:-}"
+    envFound=0
+    if [ -n "${selectedEnv}" ]; then # string is not empty
+      for env in "${_dsbTfAvailableEnvs[@]}"; do
+        if [ "${env}" == "${selectedEnv}" ]; then
+          envFound=1
+          break
+        fi
+      done
+      if [ "${envFound}" -eq 1 ]; then
+        _dsbTfSelectedEnvDir="${_dsbTfEnvsDirList["${selectedEnv}"]}"
+      else
+        unset _dsbTfSelectedEnv
+        unset _dsbTfSelectedEnvDir
+      fi
+    fi
+  fi
+
+  # DEBUG
+  # echo "Root dir: ${_dsbTfRootDir}"
+  # echo "Modules dir: ${_dsbTfModulesDir}"
+  # echo "Main dir: ${_dsbTfMainDir}"
+  # echo "Envs dir: ${_dsbTfEnvsDir}"
+  # echo "Modules dir list:"
+  # for key in "${!_dsbTfModulesDirList[@]}"; do
+  #   echo "  - ${key}: ${_dsbTfModulesDirList[$key]}"
+  # done
+  # echo "Envs dir list:"
+  # for key in "${!_dsbTfEnvsDirList[@]}"; do
+  #   echo "  - ${key}: ${_dsbTfEnvsDirList[$key]}"
+  # done
+  # echo "Available envs:"
+  # for dir in "${_dsbTfAvailableEnvs[@]}"; do
+  #   echo "  - ${dir}"
+  # done
+
+  eval "$old_shopt_extglob" # Restore previous extglob state
+}
+
+_dsb-tf-look-for-main-dir() {
+  if [ ! -d "${_dsbTfMainDir}" ]; then
+    _dsb-err "Directory 'main' not found in current directory: ${_dsbTfRootDir}"
+    return 1
+  fi
+}
+
+_dsb-tf-look-for-envs-dir() {
+  if [ ! -d "${_dsbTfEnvsDir}" ]; then
+    _dsb-err "Directory 'envs' not found in current directory: ${_dsbTfRootDir}"
+    return 1
+  fi
+}
+
+_dsb-tf-look-for-lock-file() {
+  local selectedEnv
+
+  selectedEnv="${_dsbTfSelectedEnv:-}"
+  selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
+
+  # we allow the check to pass if no environment is selected
+  if [ -z "${selectedEnv}" ]; then return 0; fi
+
+  # expect _dsbTfSelectedEnvDir to be set if an environment is selected
+  if [ -z "${selectedEnvDir}" ]; then
+    _dsb-err "Internal error: environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
+    _dsb-err "  Selected environment: ${selectedEnv}"
+    return 1
+  fi
+
+  # expect _dsbTfSelectedEnvDir to be a directory
+  if [ ! -d "${selectedEnvDir}" ]; then
+    _dsb-err "Internal error: environment set in '_dsbTfSelectedEnv', but directory not found."
+    _dsb-err "  Selected environment: ${selectedEnv}"
+    _dsb-err "  Expected directory: ${selectedEnvDir}"
+    return 1
+  fi
+
+  # require that a lock file exists in the environment directory to be considered a valid environment
+  if [ ! -f "${selectedEnvDir}/.terraform.lock.hcl" ]; then
+    _dsb-err "Lock file not found in selected environment. A lock file is required for an environment to be considered valid."
+    _dsb-err "  Selected environment: ${selectedEnv}"
+    _dsb-err "  Expected lock file: ${selectedEnvDir}/.terraform.lock.hcl"
+    return 1
+  fi
+}
+
+_dsb-tf-check-working-dir() {
+  local returnCode=0
+
+  if ! _dsb-tf-look-for-main-dir; then returnCode=1; fi
+  if ! _dsb-tf-look-for-envs-dir; then returnCode=1; fi
+  if ! _dsb-tf-look-for-lock-file; then returnCode=1; fi
+
+  return $returnCode
+}
+
+###################################################################################################
+#
 # Error handling
 #
 ###################################################################################################
 
 _dsb-tf-error-handler() {
   # Remove error trapping to prevent the error handler from being triggered
-  trap - ERR SIGHUP SIGINT
   _dsbTfReturnCode=${1:-$?}
+
+  _dsb-tf-error-stop-trapping
 
   if [ "${_dsbTfReturnCode}" -ne 0 ]; then
     _dsb-err "Error occured:"
@@ -307,6 +389,25 @@ _dsb-tf-error-handler() {
   return "${_dsbTfReturnCode}"
 }
 
+_dsb-tf-error-start-trapping() {
+  # Enable strict mode with the following options:
+  # -E: Inherit ERR trap in subshells
+  # -e: Exit immediately if a command exits with a non-zero status
+  # -o pipefail: Return the exit status of the last command in the pipeline that failed
+  set -Eeo pipefail
+
+  # Signals:
+  # - ERR: This signal is triggered when a command fails. It is useful for error handling in scripts.
+  # - SIGHUP: This signal is sent to a process when its controlling terminal is closed. It is often used to reload configuration files.
+  # - SIGINT: This signal is sent when an interrupt is generated (usually by pressing Ctrl+C). It is used to stop a process gracefully.
+  trap '_dsb-tf-error-handler $?' ERR SIGHUP SIGINT
+}
+
+_dsb-tf-error-stop-trapping() {
+  set +Eeo pipefail
+  trap - ERR SIGHUP SIGINT
+}
+
 _dsb-tf-configure-shell() {
   _dsbTfShellHistoryState=$(shopt -o history) # Save current history recording state
   set +o history                              # Disable history recording
@@ -314,20 +415,10 @@ _dsb-tf-configure-shell() {
   _dsbTfShellOldOpts=$(set +o)                   # Save current shell options
   _dsbTfShellOldShoptExtglob=$(shopt -p extglob) # Save current extglob state
 
-  # Enable strict mode with the following options:
-  # -E: Inherit ERR trap in subshells
-  # -e: Exit immediately if a command exits with a non-zero status
   # -u: Treat unset variables as an error and exit immediately
-  # -o pipefail: Return the exit status of the last command in the pipeline that failed
-  set -Eeuo pipefail
+  set -u
 
-  # Start trapping errors
-  #
-  # Signals:
-  # - ERR: This signal is triggered when a command fails. It is useful for error handling in scripts.
-  # - SIGHUP: This signal is sent to a process when its controlling terminal is closed. It is often used to reload configuration files.
-  # - SIGINT: This signal is sent when an interrupt is generated (usually by pressing Ctrl+C). It is used to stop a process gracefully.
-  trap '_dsb-tf-error-handler $?' ERR SIGHUP SIGINT
+  _dsb-tf-error-start-trapping
 }
 
 _dsb-tf-restore-shell() {
