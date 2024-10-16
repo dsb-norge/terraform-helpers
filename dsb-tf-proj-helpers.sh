@@ -201,8 +201,6 @@ _dsb-tf-check-directories() {
 _dsb-tf-check-current-dir() {
   local returnCode selectedEnv
 
-  _dsbTfLogErrors=1
-  _dsbTfLogInfo=1
   returnCode=0
 
   _dsb-tf-enumerate-directories
@@ -211,17 +209,17 @@ _dsb-tf-check-current-dir() {
   _dsb-i "Checking main dir  ..."
   _dsb-tf-look-for-main-dir
   mainDirStatus=$?
-  [ $mainDirStatus -eq 0 ] && _dsb-i "  done."
+  [ "${mainDirStatus}" -eq 0 ] && _dsb-i "  done."
 
   _dsb-i "Checking envs dir  ..."
   _dsb-tf-look-for-envs-dir
   envsDirStatus=$?
-  [ $envsDirStatus -eq 0 ] && _dsb-i "  done."
+  [ "${envsDirStatus}" -eq 0 ] && _dsb-i "  done."
 
   _dsb-i "Checking lock file ..."
   _dsb-tf-look-for-lock-file
   lockFileStatus=$?
-  [ $lockFileStatus -eq 0 ] && _dsb-i "  done."
+  [ "${lockFileStatus}" -eq 0 ] && _dsb-i "  done."
 
   _dsb-tf-error-start-trapping
   returnCode=$((mainDirStatus + envsDirStatus + lockFileStatus))
@@ -229,20 +227,20 @@ _dsb-tf-check-current-dir() {
   _dsb-i ""
   _dsb-i "Directory check summary:"
 
-  if [ $mainDirStatus -eq 0 ]; then
+  if [ "${mainDirStatus}" -eq 0 ]; then
     _dsb-i "  \e[32m☑\e[0m  Main directory check passed."
   else
     _dsb-i "  \e[31m☒\e[0m  Main directory check failed."
   fi
 
-  if [ $envsDirStatus -eq 0 ]; then
+  if [ "${envsDirStatus}" -eq 0 ]; then
     _dsb-i "  \e[32m☑\e[0m  Environments directory check passed."
   else
     _dsb-i "  \e[31m☒\e[0m  Environments directory check failed."
   fi
 
   selectedEnv="${_dsbTfSelectedEnv:-}"
-  if [ $lockFileStatus -eq 0 ]; then
+  if [ "${lockFileStatus}" -eq 0 ]; then
     if [ -z "${selectedEnvDir}" ]; then
       _dsb-i "  ☐  N/A - no environment selected."
     else
@@ -253,7 +251,7 @@ _dsb-tf-check-current-dir() {
   fi
 
   _dsb-i ""
-  if [ $returnCode -eq 0 ]; then
+  if [ "${returnCode}" -eq 0 ]; then
     _dsb-i "\e[32mAll directory checks passed.\e[0m"
   else
     _dsb-err "Directory check(s) failed, the current directory does not seem to be a valid Terraform project."
@@ -265,52 +263,58 @@ _dsb-tf-check-current-dir() {
 }
 
 _dsb-tf-check-prereqs() {
-  local logVerbose returnCode
+  local returnCode
 
-  logVerbose=${_dsbTfLogVerbose:-0}
+  _dsbTfLogErrors=0
+  _dsbTfLogInfo=1
   returnCode=0
 
   _dsb-tf-enumerate-directories
   _dsb-tf-error-stop-trapping
 
-  if [ "${logVerbose}" == "1" ]; then _dsb-i "Checking tools ..."; fi
+  _dsb-i-nonewline "Checking tools ..."
   _dsb-tf-check-tools
   toolsStatus=$?
+  _dsb-i-append " done."
 
-  if [ "${logVerbose}" == "1" ]; then _dsb-i "Checking GitHub authentication ..."; fi
+  _dsb-i-nonewline "Checking GitHub authentication ..."
   _dsb-tf-check-gh-auth
   ghAuthStatus=$?
+  _dsb-i-append " done."
 
-  if [ "${logVerbose}" == "1" ]; then _dsb-i "Checking working directory ..."; fi
+  _dsb-i-nonewline "Checking working directory ..."
   _dsb-tf-check-directories
   workingDirStatus=$?
+  _dsb-i-append " done."
 
+  _dsbTfLogErrors=1
   _dsb-tf-error-start-trapping
   returnCode=$((toolsStatus + ghAuthStatus + workingDirStatus))
 
-  if [ "${logVerbose}" == "1" ]; then
-    _dsb-i ""
-    _dsb-i "Pre-requisites check summary:"
-    if [ $toolsStatus -eq 0 ]; then
-      _dsb-i "  \e[32m☑\e[0m  Tools check passed."
-    else
-      _dsb-i "  \e[31m☒\e[0m  Tools check failed"
-    fi
-    if [ $ghAuthStatus -eq 0 ]; then
-      _dsb-i "  \e[32m☑\e[0m  GitHub authentication check passed."
-    else
-      _dsb-i "  \e[31m☒\e[0m  GitHub authentication check failed."
-    fi
-    if [ $workingDirStatus -eq 0 ]; then
-      _dsb-i "  \e[32m☑\e[0m  Working directory check passed."
-    else
-      _dsb-i "  \e[31m☒\e[0m  Working directory check failed, for more information, run 'tf-check-dir'"
-    fi
-    if [ $returnCode -eq 0 ]; then
-      _dsb-i "\e[32mAll pre-reqs check passed.\e[0m"
-    else
-      _dsb-err "\e[31mPre-reqs check failed.\e[0m"
-    fi
+  _dsb-i ""
+  _dsb-i "Pre-requisites check summary:"
+  if [ $toolsStatus -eq 0 ]; then
+    _dsb-i "  \e[32m☑\e[0m  Tools check passed."
+  else
+    _dsb-i "  \e[31m☒\e[0m  Tools check failed"
+  fi
+  if [ $ghAuthStatus -eq 0 ]; then
+    _dsb-i "  \e[32m☑\e[0m  GitHub authentication check passed."
+  else
+    _dsb-i "  \e[31m☒\e[0m  GitHub authentication check failed."
+  fi
+  if [ $workingDirStatus -eq 0 ]; then
+    _dsb-i "  \e[32m☑\e[0m  Working directory check passed."
+  else
+    _dsb-i "  \e[31m☒\e[0m  Working directory check failed, please run 'tf-check-dir'"
+  fi
+
+  _dsb-i ""
+  if [ $returnCode -eq 0 ]; then
+    _dsb-i "\e[32mAll pre-reqs check passed.\e[0m"
+  else
+    _dsb-err "\e[31mPre-reqs check failed.\e[0m"
+    _dsb-err "  for more information see above."
   fi
 
   _dsbTfReturnCode=$returnCode
@@ -564,8 +568,7 @@ tf-check-prereqs() {
   local returnCode
 
   _dsb-tf-configure-shell
-  unset _dsbTfReturnCode
-  _dsbTfLogVerbose=1 _dsb-tf-check-prereqs
+  _dsb-tf-check-prereqs
   returnCode="${_dsbTfReturnCode}"
   _dsb-tf-restore-shell
   return "${returnCode}"
