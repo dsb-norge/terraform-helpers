@@ -42,11 +42,7 @@ _dsb-err() {
 }
 
 _dsb-i() {
-  echo -e "\e[34mINFO   : $1\e[0m"
-}
-
-_dsb-ok() {
-  echo -e "\e[32mSUCCESS: $1\e[0m"
+  echo -e "\e[34mINFO   : \e[0m$1"
 }
 
 _dsb-w() {
@@ -147,7 +143,12 @@ _dsb-tf-check-gh-auth() {
   fi
 }
 
-_dsb-tf-resolve-directories() {
+_dsb-tf-enumerate-directories() {
+  local old_shopt_extglob
+
+  old_shopt_extglob=$(shopt -p extglob) # Save current extglob state
+  shopt -s extglob                      # Enable extended globbing
+
   _dsbTfRootDir="$(realpath .)"
   # DEBUG
   # _dsbTfRootDir=/home/peder/code/github/dsb-norge/azure-ad
@@ -191,6 +192,8 @@ _dsb-tf-resolve-directories() {
   # for dir in "${_dsbTfAvailableEnvs[@]}"; do
   #   echo "  - ${dir}"
   # done
+
+  eval "$old_shopt_extglob" # Restore previous extglob state
 }
 
 _dsb-tf-get-rel-dir() {
@@ -224,10 +227,11 @@ _dsb-tf-check-working-dir() {
 
 _dsb-tf-check-prereqs() {
   local logVerbose returnCode
+
   logVerbose=${_dsbTfLogVerbose:-0}
   returnCode=0
 
-  _dsb-tf-resolve-directories
+  _dsb-tf-enumerate-directories
 
   if [ "${logVerbose}" == "1" ]; then _dsb-i "Checking tools ..."; fi
   set +e
@@ -250,56 +254,111 @@ _dsb-tf-check-prereqs() {
   returnCode=$((toolsStatus + ghAuthStatus + workingDirStatus))
 
   if [ "${logVerbose}" == "1" ]; then
-    _dsb-ok ""
-    _dsb-ok "Pre-requisites check summary:"
+    _dsb-i ""
+    _dsb-i "Pre-requisites check summary:"
     if [ $toolsStatus -eq 0 ]; then
-      _dsb-ok "  ☑  Tools check passed."
+      _dsb-i "  \e[32m☑\e[0m  Tools check passed."
     else
-      _dsb-err "  ☐  Tools check failed."
+      _dsb-i "  \e[31m☒\e[0m  Tools check failed."
     fi
     if [ $ghAuthStatus -eq 0 ]; then
-      _dsb-ok "  ☑  GitHub authentication check passed."
+      _dsb-i "  \e[32m☑\e[0m  GitHub authentication check passed."
     else
-      _dsb-err "  ☐  GitHub authentication check failed."
+      _dsb-i "  \e[31m☒\e[0m  GitHub authentication check failed."
     fi
     if [ $workingDirStatus -eq 0 ]; then
-      _dsb-ok "  ☑  Working directory check passed."
+      _dsb-i "  \e[32m☑\e[0m  Working directory check passed."
     else
-      _dsb-err "  ☐  Working directory check failed."
+      _dsb-i "  \e[31m☒\e[0m  Working directory check failed."
     fi
-    if [ $returnCode -gt 0 ]; then
-      _dsb-err "Pre-reqs check(s) failed."
+    if [ $returnCode -eq 0 ]; then
+      _dsb-i "\e[32mAll pre-reqs check passed.\e[0m"
     else
-      _dsb-ok "All pre-reqs checks passed."
+      _dsb-err "\e[31mPre-reqs check failed.\e[0m"
     fi
   fi
 
-  return $returnCode
+  _dsbTfReturnCode=$returnCode
 }
 
-# exposed function, wrapper for internal function
-tf-check-prereqs() {
-  local old_opts history_state old_shopt_extglob
+###################################################################################################
+#
+# Error handling
+#
+###################################################################################################
 
-  history_state=$(shopt -o history) # Save current history recording state
-  set +o history                    # Disable history recording
+_dsb-tf-error-handler() {
+  # Remove error trapping to prevent the error handler from being triggered
+  trap - ERR SIGHUP SIGINT
+  _dsbTfReturnCode=${1:-$?}
 
-  old_opts=$(set +o) # Save current shell options
-  set -eo pipefail   # Enable strict mode
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb-err "Error occured:"
+    _dsb-err "  file      : ${BASH_SOURCE[1]}"
+    _dsb-err "  line      : ${BASH_LINENO[0]}"
+    _dsb-err "  function  : ${FUNCNAME[1]}"
+    _dsb-err "  command   : ${BASH_COMMAND}"
+    _dsb-err "  exit code : ${_dsbTfReturnCode}"
+    _dsb-err "Operation aborted."
+  fi
 
-  old_shopt_extglob=$(shopt -p extglob) # Save current extglob state
-  shopt -s extglob                      # Enable extended globbing
+  _dsb-tf-restore-shell
 
-  _dsbTfLogVerbose=1 _dsb-tf-check-prereqs || :
+  return "${_dsbTfReturnCode}"
+}
 
-  eval "$old_opts"          # Restore previous shell options
-  eval "$old_shopt_extglob" # Restore previous extglob state
+_dsb-tf-configure-shell() {
+  _dsbTfShellHistoryState=$(shopt -o history) # Save current history recording state
+  set +o history                              # Disable history recording
+
+  _dsbTfShellOldOpts=$(set +o)                   # Save current shell options
+  _dsbTfShellOldShoptExtglob=$(shopt -p extglob) # Save current extglob state
+
+  # Enable strict mode with the following options:
+  # -E: Inherit ERR trap in subshells
+  # -e: Exit immediately if a command exits with a non-zero status
+  # -u: Treat unset variables as an error and exit immediately
+  # -o pipefail: Return the exit status of the last command in the pipeline that failed
+  set -Eeuo pipefail
+
+  # Start trapping errors
+  #
+  # Signals:
+  # - ERR: This signal is triggered when a command fails. It is useful for error handling in scripts.
+  # - SIGHUP: This signal is sent to a process when its controlling terminal is closed. It is often used to reload configuration files.
+  # - SIGINT: This signal is sent when an interrupt is generated (usually by pressing Ctrl+C). It is used to stop a process gracefully.
+  trap '_dsb-tf-error-handler $?' ERR SIGHUP SIGINT
+}
+
+_dsb-tf-restore-shell() {
+
+  # Remove error trapping to prevent the error handler from being triggered
+  trap - ERR SIGHUP SIGINT
+
+  eval "$_dsbTfShellOldOpts"         # Restore previous shell options
+  eval "$_dsbTfShellOldShoptExtglob" # Restore previous extglob state
 
   # Restore previous history recording state
-  if [[ $history_state == "history         off" ]]; then
+  if [[ $_dsbTfShellHistoryState =~ history[[:space:]]+off ]]; then
     set +o history
   else
     set -o history
   fi
+}
 
+###################################################################################################
+#
+# Exposed functions
+#
+###################################################################################################
+
+tf-check-prereqs() {
+  local returnCode
+
+  _dsb-tf-configure-shell
+  unset _dsbTfReturnCode
+  _dsbTfLogVerbose=1 _dsb-tf-check-prereqs
+  returnCode=$_dsbTfReturnCode
+  _dsb-tf-restore-shell
+  return $returnCode
 }
