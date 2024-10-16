@@ -44,15 +44,43 @@
 ###################################################################################################
 
 _dsb-err() {
-  echo -e "\e[31mERROR  : $1\e[0m"
+  local logErr
+  logErr=${_dsbTfLogErrors:-1}
+  if [ "${logErr}" == "1" ]; then
+    echo -e "\e[31mERROR  : $1\e[0m"
+  fi
+}
+
+_dsb-i-append() {
+  local logInfo logText
+  logInfo=${_dsbTfLogInfo:-1}
+  logText=${1:-}
+  if [ "${logInfo}" == "1" ]; then
+    echo -en "${logText}\n"
+  fi
+}
+
+_dsb-i-nonewline() {
+  local logInfo logText
+  logInfo=${_dsbTfLogInfo:-1}
+  logText=${1:-}
+  if [ "${logInfo}" == "1" ]; then
+    echo -en "\e[34mINFO   : \e[0m${logText}"
+  fi
 }
 
 _dsb-i() {
-  echo -e "\e[34mINFO   : \e[0m$1"
+  local logText
+  logText=${1:-}
+  _dsb-i-nonewline "${logText}\n"
 }
 
 _dsb-w() {
-  echo -e "\e[33mWARNING: $1\e[0m"
+  local logWarn
+  logWarn=${_dsbTfLogWarnings:-1}
+  if [ "${logWarn}" == "1" ]; then
+    echo -e "\e[33mWARNING: $1\e[0m"
+  fi
 }
 
 _dsb-tf-get-rel-dir() {
@@ -75,11 +103,8 @@ _dsb-tf-check-az-cli() {
 }
 
 _dsb-tf-check-gh-cli() {
-  logVerbose=${_dsbTfLogVerbose:-0}
   if ! gh --version &>/dev/null; then
-    if [ "${logVerbose}" == "1" ]; then
-      _dsb-err "GitHub CLI is not installed. Please install it from https://cli.github.com/"
-    fi
+    _dsb-err "GitHub CLI is not installed. Please install it from https://cli.github.com/"
     return 1
   fi
 }
@@ -152,13 +177,91 @@ _dsb-tf-check-tools() {
 _dsb-tf-check-gh-auth() {
   local returnCode=0
 
-  if ! (_dsbTfLogVerbose=0 _dsb-tf-check-gh-cli); then
+  # fail check if gh cli is not installed
+  if ! (_dsbTfLogErrors=0 _dsb-tf-check-gh-cli); then
     return 1
   fi
+
   if ! gh auth status &>/dev/null; then
     _dsb-err "You are not authenticated with GitHub. Please run 'gh auth login' to authenticate."
     return 1
   fi
+}
+
+_dsb-tf-check-directories() {
+  local returnCode=0
+
+  if ! _dsb-tf-look-for-main-dir; then returnCode=1; fi
+  if ! _dsb-tf-look-for-envs-dir; then returnCode=1; fi
+  if ! _dsb-tf-look-for-lock-file; then returnCode=1; fi
+
+  return $returnCode
+}
+
+_dsb-tf-check-current-dir() {
+  local returnCode selectedEnv
+
+  _dsbTfLogErrors=1
+  _dsbTfLogInfo=1
+  returnCode=0
+
+  _dsb-tf-enumerate-directories
+  _dsb-tf-error-stop-trapping
+
+  _dsb-i "Checking main dir  ..."
+  _dsb-tf-look-for-main-dir
+  mainDirStatus=$?
+  [ $mainDirStatus -eq 0 ] && _dsb-i "  done."
+
+  _dsb-i "Checking envs dir  ..."
+  _dsb-tf-look-for-envs-dir
+  envsDirStatus=$?
+  [ $envsDirStatus -eq 0 ] && _dsb-i "  done."
+
+  _dsb-i "Checking lock file ..."
+  _dsb-tf-look-for-lock-file
+  lockFileStatus=$?
+  [ $lockFileStatus -eq 0 ] && _dsb-i "  done."
+
+  _dsb-tf-error-start-trapping
+  returnCode=$((mainDirStatus + envsDirStatus + lockFileStatus))
+
+  _dsb-i ""
+  _dsb-i "Directory check summary:"
+
+  if [ $mainDirStatus -eq 0 ]; then
+    _dsb-i "  \e[32m☑\e[0m  Main directory check passed."
+  else
+    _dsb-i "  \e[31m☒\e[0m  Main directory check failed."
+  fi
+
+  if [ $envsDirStatus -eq 0 ]; then
+    _dsb-i "  \e[32m☑\e[0m  Environments directory check passed."
+  else
+    _dsb-i "  \e[31m☒\e[0m  Environments directory check failed."
+  fi
+
+  selectedEnv="${_dsbTfSelectedEnv:-}"
+  if [ $lockFileStatus -eq 0 ]; then
+    if [ -z "${selectedEnvDir}" ]; then
+      _dsb-i "  ☐  N/A - no environment selected."
+    else
+      _dsb-i "  \e[32m☑\e[0m  Lock file check passed."
+    fi
+  else
+    _dsb-i "  \e[31m☒\e[0m  Lock file check failed."
+  fi
+
+  _dsb-i ""
+  if [ $returnCode -eq 0 ]; then
+    _dsb-i "\e[32mAll directory checks passed.\e[0m"
+  else
+    _dsb-err "Directory check(s) failed, the current directory does not seem to be a valid Terraform project."
+    _dsb-err "  directory checked: ${_dsbTfRootDir}"
+    _dsb-err "  for more information see above."
+  fi
+
+  _dsbTfReturnCode=$returnCode
 }
 
 _dsb-tf-check-prereqs() {
@@ -179,7 +282,7 @@ _dsb-tf-check-prereqs() {
   ghAuthStatus=$?
 
   if [ "${logVerbose}" == "1" ]; then _dsb-i "Checking working directory ..."; fi
-  _dsb-tf-check-working-dir
+  _dsb-tf-check-directories
   workingDirStatus=$?
 
   _dsb-tf-error-start-trapping
@@ -191,7 +294,7 @@ _dsb-tf-check-prereqs() {
     if [ $toolsStatus -eq 0 ]; then
       _dsb-i "  \e[32m☑\e[0m  Tools check passed."
     else
-      _dsb-i "  \e[31m☒\e[0m  Tools check failed."
+      _dsb-i "  \e[31m☒\e[0m  Tools check failed"
     fi
     if [ $ghAuthStatus -eq 0 ]; then
       _dsb-i "  \e[32m☑\e[0m  GitHub authentication check passed."
@@ -201,7 +304,7 @@ _dsb-tf-check-prereqs() {
     if [ $workingDirStatus -eq 0 ]; then
       _dsb-i "  \e[32m☑\e[0m  Working directory check passed."
     else
-      _dsb-i "  \e[31m☒\e[0m  Working directory check failed."
+      _dsb-i "  \e[31m☒\e[0m  Working directory check failed, for more information, run 'tf-check-dir'"
     fi
     if [ $returnCode -eq 0 ]; then
       _dsb-i "\e[32mAll pre-reqs check passed.\e[0m"
@@ -352,16 +455,6 @@ _dsb-tf-look-for-lock-file() {
   fi
 }
 
-_dsb-tf-check-working-dir() {
-  local returnCode=0
-
-  if ! _dsb-tf-look-for-main-dir; then returnCode=1; fi
-  if ! _dsb-tf-look-for-envs-dir; then returnCode=1; fi
-  if ! _dsb-tf-look-for-lock-file; then returnCode=1; fi
-
-  return $returnCode
-}
-
 ###################################################################################################
 #
 # Error handling
@@ -392,9 +485,8 @@ _dsb-tf-error-handler() {
 _dsb-tf-error-start-trapping() {
   # Enable strict mode with the following options:
   # -E: Inherit ERR trap in subshells
-  # -e: Exit immediately if a command exits with a non-zero status
   # -o pipefail: Return the exit status of the last command in the pipeline that failed
-  set -Eeo pipefail
+  set -Eo pipefail
 
   # Signals:
   # - ERR: This signal is triggered when a command fails. It is useful for error handling in scripts.
@@ -404,7 +496,7 @@ _dsb-tf-error-start-trapping() {
 }
 
 _dsb-tf-error-stop-trapping() {
-  set +Eeo pipefail
+  set +Eo pipefail
   trap - ERR SIGHUP SIGINT
 }
 
@@ -419,6 +511,12 @@ _dsb-tf-configure-shell() {
   set -u
 
   _dsb-tf-error-start-trapping
+
+  # some default values
+  _dsbTfLogInfo=1
+  _dsbTfLogWarnings=1
+  _dsbTfLogErrors=1
+  unset _dsbTfReturnCode
 }
 
 _dsb-tf-restore-shell() {
@@ -435,6 +533,15 @@ _dsb-tf-restore-shell() {
   else
     set -o history
   fi
+
+  # clear variables
+  unset _dsbTfShellOldOpts
+  unset _dsbTfShellOldShoptExtglob
+  unset _dsbTfShellHistoryState
+  unset _dsbTfLogInfo
+  unset _dsbTfLogWarnings
+  unset _dsbTfLogErrors
+  unset _dsbTfReturnCode
 }
 
 ###################################################################################################
@@ -443,13 +550,23 @@ _dsb-tf-restore-shell() {
 #
 ###################################################################################################
 
+tf-check-dir() {
+  local returnCode
+
+  _dsb-tf-configure-shell
+  _dsb-tf-check-current-dir
+  returnCode="${_dsbTfReturnCode}"
+  _dsb-tf-restore-shell
+  return "${returnCode}"
+}
+
 tf-check-prereqs() {
   local returnCode
 
   _dsb-tf-configure-shell
   unset _dsbTfReturnCode
   _dsbTfLogVerbose=1 _dsb-tf-check-prereqs
-  returnCode=$_dsbTfReturnCode
+  returnCode="${_dsbTfReturnCode}"
   _dsb-tf-restore-shell
-  return $returnCode
+  return "${returnCode}"
 }
