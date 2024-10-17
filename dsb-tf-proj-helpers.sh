@@ -4,10 +4,8 @@
 # disable debug logging : unset _dsbTfLogDebug
 
 # DEBUG commands
-#   source ./dsb-tf-proj-helpers.sh ; pushd ./../azure-ad/ >/dev/null ; ( tf-select-env && popd >/dev/null  ) || popd >/dev/null ;
-#   source ./dsb-tf-proj-helpers.sh ;
-#   pushd ./../azure-ad/ >/dev/null ;
-#   source ~/code/github/dsb-norge/terraform-helpers/dsb-tf-proj-helpers.sh ;
+#   cd ~/code/github/dsb-norge/azure-ad ;
+#   source <(cat ~/code/github/dsb-norge/terraform-helpers/dsb-tf-proj-helpers.sh) ;
 
 # TODO: wanted functionality
 #   tf-logout         -> az logout
@@ -55,11 +53,6 @@
 
 _dsbTfShellOldOpts=""
 _dsbTfShellHistoryState=""
-
-# _dsbTfLogInfo=""
-# _dsbTfLogWarnings=""
-# _dsbTfLogErrors=""
-# _dsbTfReturnCode=""
 
 _dsbTfSelectedEnv=""
 _dsbTfSelectedEnvDir=""
@@ -277,17 +270,14 @@ _dsb_tf_check_current_dir() {
   _dsb_i "Checking main dir  ..."
   _dsb_tf_look_for_main_dir
   mainDirStatus=$?
-  [ "${mainDirStatus}" -eq 0 ] && _dsb_i "  done."
 
   _dsb_i "Checking envs dir  ..."
   _dsb_tf_look_for_envs_dir
   envsDirStatus=$?
-  [ "${envsDirStatus}" -eq 0 ] && _dsb_i "  done."
 
   _dsb_i "Checking lock file ..."
   _dsb_tf_look_for_lock_file
   lockFileStatus=$?
-  [ "${lockFileStatus}" -eq 0 ] && _dsb_i "  done."
 
   _dsb_tf_error_start_trapping
   returnCode=$((mainDirStatus + envsDirStatus + lockFileStatus))
@@ -418,9 +408,10 @@ _dsb_tf_enumerate_directories() {
   _dsbTfAvailableEnvs=()
   # declare -A _dsbTfEnvsDirList   # Associative array
   # declare -a _dsbTfAvailableEnvs # Indexed array
-  local item
   if [ -d "${_dsbTfEnvsDir}" ]; then
     _dsb_d "_dsb_tf_enumerate_directories(): Enumerating environments ..."
+
+    local item
     for item in "${_dsbTfRootDir}"/envs/*; do
       if [ -d "${item}" ]; then # is a directory
         # this exclude directories starting with _
@@ -433,7 +424,7 @@ _dsb_tf_enumerate_directories() {
       fi
     done
 
-    local envFound
+    _dsb_d "_dsb_tf_enumerate_directories(): number of environments found: ${#_dsbTfAvailableEnvs[@]}"
 
     # DEBUG
     # unset _dsbTfSelectedEnv
@@ -450,7 +441,7 @@ _dsb_tf_enumerate_directories() {
     # - _dsbTfEnvsDirList: An associative array mapping environments to their directories.
     # - _dsbTfSelectedEnvDir: The directory of the selected environment.
     local selectedEnv="${_dsbTfSelectedEnv:-}"
-    envFound=0
+    local envFound=0
     if [ -n "${selectedEnv}" ]; then # string is not empty
       for env in "${_dsbTfAvailableEnvs[@]}"; do
         if [ "${env}" == "${selectedEnv}" ]; then
@@ -463,8 +454,10 @@ _dsb_tf_enumerate_directories() {
         _dsbTfSelectedEnvDir="${_dsbTfEnvsDirList["${selectedEnv}"]}"
       else
         _dsb_d "_dsb_tf_enumerate_directories(): clearing '_dsbTfSelectedEnv' and '_dsbTfSelectedEnvDir'"
-        _dsbTfSelectedEnv=""
-        _dsbTfSelectedEnvDir=""
+        local logInfoOrig="${_dsbTfLogInfo:1}"
+        _dsbTfLogInfo=0
+        _dsb_tf_clear_env
+        _dsbTfLogInfo="${logInfoOrig}"
       fi
     fi
   fi
@@ -547,16 +540,18 @@ _dsb_tf_look_for_lock_file() {
 #
 ###################################################################################################
 
-# TODO
-#  _dsb_tf_list_envs
-#  _dsb_tf_set_env
-#  _dsb_tf_clear_env
+_dsb_tf_clear_env() {
+  _dsb_d "_dsb_tf_clear_env(): clearing _dsbTfSelectedEnv and _dsbTfSelectedEnvDir"
+  _dsbTfSelectedEnv=""
+  _dsbTfSelectedEnvDir=""
+  _dsb_i "Environment cleared."
+}
 
-_dsb_tf_select_env() {
+_dsb_tf_list_envs() {
   _dsbTfLogErrors=0
-  _dsbTfLogInfo=1
 
   _dsb_tf_enumerate_directories
+
   _dsb_tf_error_stop_trapping
 
   # check if the current root directory is a valid Terraform project
@@ -571,33 +566,164 @@ _dsb_tf_select_env() {
     return 0 # caller reads _dsbTfReturnCode
   fi
 
-  if [ -z "${_dsbTfAvailableEnvs[*]}" ]; then
+  if ! declare -p _dsbTfEnvsDir &>/dev/null; then
     _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_select_env, expected to find available environments."
-    _dsb_err "  expected in: _dsbTfAvailableEnvs"
-    _dsb_err "  for more information see above."
+    _dsb_err "Internal error: in _dsb_tf_list_envs, expected to find environments directory."
+    _dsb_err "  expected in: _dsbTfEnvsDir"
     return 1
+  fi
+
+  if ! declare -p _dsbTfAvailableEnvs &>/dev/null; then
+    _dsbTfLogErrors=1
+    _dsb_tf_error_start_trapping
+    _dsb_err "Internal error: in _dsb_tf_list_envs, expected to find available environments."
+    _dsb_err "  expected in: _dsbTfAvailableEnvs"
+    return 1
+  fi
+
+  local envsDir="${_dsbTfEnvsDir}"
+  local -a availableEnvs=("${_dsbTfAvailableEnvs[@]}")
+  local envCount=${#availableEnvs[@]}
+  _dsb_d "_dsb_tf_list_envs(): available envs count in availableEnvs: ${#availableEnvs[@]}"
+  _dsb_d "_dsb_tf_list_envs(): available envs: ${availableEnvs[*]}"
+
+  if [ "${envCount}" -eq 0 ]; then
+    _dsb_w "No environments found in: ${envsDir}"
+    _dsbTfReturnCode=1
+  else
+    local envIdx=1
+    _dsb_i "Available environments:"
+    local envDir
+    for envDir in "${availableEnvs[@]}"; do
+      _dsb_i "  $((envIdx++))) ${envDir}"
+    done
+    _dsbTfReturnCode=0
+  fi
+
+  return 0 # caller reads _dsbTfReturnCode
+}
+
+_dsb_tf_set_env() {
+  _dsbTfLogErrors=1
+  _dsbTfLogInfo=1
+
+  local envToSet="${1:-}"
+
+  _dsb_d "_dsb_tf_set_env(): envToSet: ${envToSet}"
+
+  if [ -z "${envToSet}" ]; then
+    _dsb_err "No environment specified."
+    _dsb_err "  usage: tf-set-env <env>"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsb_tf_enumerate_directories
+
+  _dsb_tf_error_stop_trapping
+
+  # check if the current root directory is a valid Terraform project
+  local dirCheckStatus=0
+  _dsb_tf_check_root_directory
+  dirCheckStatus=$?
+
+  if [ "${dirCheckStatus}" -ne 0 ]; then
+    _dsbTfLogErrors=1
+    _dsb_err "Directory check(s) fails, please run 'tf-check-dir'"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  if ! declare -p _dsbTfAvailableEnvs &>/dev/null; then
+    _dsbTfLogErrors=1
+    _dsb_tf_error_start_trapping
+    _dsb_err "Internal error: in _dsb_tf_set_env, expected to find available environments."
+    _dsb_err "  expected in: _dsbTfAvailableEnvs"
+    return 1
+  fi
+
+  if ! declare -p _dsbTfEnvsDirList &>/dev/null; then
+    _dsbTfLogErrors=1
+    _dsb_tf_error_start_trapping
+    _dsb_err "Internal error: in _dsb_tf_set_env, expected to find environments directory list."
+    _dsb_err "  expected in: _dsbTfEnvsDirList"
+    return 1
+  fi
+
+  local -a availableEnvs=("${_dsbTfAvailableEnvs[@]}")
+  _dsb_d "_dsb_tf_set_env(): available envs count in availableEnvs: ${#availableEnvs[@]}"
+  _dsb_d "_dsb_tf_set_env(): available envs: ${availableEnvs[*]}"
+
+  # check if the envToSet is available
+  local envFound=0
+  for env in "${availableEnvs[@]}"; do
+    if [ "${env}" == "${envToSet}" ]; then
+      envFound=1
+      break
+    fi
+  done
+
+  if [ "${envFound}" -ne 1 ]; then
+    _dsb_err "Environment '${envToSet}' not available."
+    _dsbTfLogErrors=1
+    _dsb_tf_list_envs
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsbTfSelectedEnv="${envToSet}"
+  _dsbTfSelectedEnvDir="${_dsbTfEnvsDirList["${_dsbTfSelectedEnv}"]}"
+
+  _dsb_i "Selected environment: ${_dsbTfSelectedEnv}"
+
+  _dsbTfLogErrors=0
+  _dsb_tf_error_stop_trapping
+
+  # check if the selected environment is valid
+  local lockFileStatus
+  _dsb_tf_look_for_lock_file
+  lockFileStatus=$?
+
+  if [ "${lockFileStatus}" -ne 0 ]; then
+    _dsbTfLogErrors=1
+    _dsb_err "Lock file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
+    _dsbTfReturnCode=1
+  else
+    _dsbTfReturnCode=0
+  fi
+
+  return 0 # caller reads _dsbTfReturnCode
+}
+
+_dsb_tf_select_env() {
+  _dsbTfLogErrors=0
+  _dsbTfLogInfo=1
+
+  local listEnvsStatus=0
+  _dsb_tf_list_envs
+  listEnvsStatus=${_dsbTfReturnCode}
+
+  _dsb_d "_dsb_tf_select_env(): listEnvsStatus: ${listEnvsStatus}"
+
+  if [ "${listEnvsStatus}" -ne 0 ]; then
+    return 0 # caller reads _dsbTfReturnCode
   fi
 
   _dsb_tf_error_start_trapping
 
   _dsb_d "_dsb_tf_select_env(): _dsbTfAvailableEnvs: ${_dsbTfAvailableEnvs[*]}"
 
-  local envIdx envDir
-  envIdx=1
-  _dsb_i "Available environments:"
-  for envDir in "${_dsbTfAvailableEnvs[@]}"; do
-    _dsb_i "  $((envIdx++))) ${envDir}"
-  done
-
+  local envCount=${#_dsbTfAvailableEnvs[@]}
   local -a validChoices
-  mapfile -t validChoices < <(seq 1 $((--envIdx)))
+  mapfile -t validChoices < <(seq 1 "${envCount}")
 
   local gotValidInput userInput idx
   gotValidInput=0
   while [ "${gotValidInput}" -ne 1 ]; do
     read -r -p "Enter index of environment to set: " userInput
+    # clear the current console line
+    echo -en "\033[1A\033[2K"
     for idx in "${validChoices[@]}"; do
       if [ "${idx}" == "${userInput}" ]; then
         gotValidInput=1
@@ -607,26 +733,8 @@ _dsb_tf_select_env() {
     done
   done
 
-  # TODO: create internal function _dsb_tf_set_env and exposed function tf-set-env
-
-  _dsbTfSelectedEnv="${_dsbTfAvailableEnvs[$((userInput - 1))]}"
-  _dsbTfSelectedEnvDir="${_dsbTfEnvsDirList["${_dsbTfSelectedEnv}"]}"
-
-  _dsb_i "Selected environment: ${_dsbTfSelectedEnv}"
-  # _dsb_i "Selected environment directory: ${_dsbTfSelectedEnvDir}"
-
-  # check if the selected environment is valid
-  _dsbTfLogErrors=0
-  _dsb_tf_error_stop_trapping
-  _dsb_tf_look_for_lock_file
-  _dsbTfReturnCode=$? # caller reads this, will be <> 0 if lock file check fails
-
-  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
-    _dsbTfLogErrors=1
-    _dsb_err "Lock file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
-    # _dsbTfSelectedEnv=""
-    # _dsbTfSelectedEnvDir=""
-  fi
+  _dsb_i ""
+  _dsb_tf_set_env "${_dsbTfAvailableEnvs[$((userInput - 1))]}"
 
   return 0 # caller reads _dsbTfReturnCode
 }
@@ -645,8 +753,8 @@ _dsb_tf_error_handler() {
 
   if [ "${_dsbTfReturnCode}" -ne 0 ]; then
     _dsb_err "Error occured:"
-    _dsb_err "  file      : ${BASH_SOURCE[1]}"
-    _dsb_err "  line      : ${BASH_LINENO[0]}"
+    _dsb_err "  file      : dsb-tf-proj-helpers.sh" # hardcoded because file will be sourced by curl
+    _dsb_err "  line      : ${BASH_LINENO[0]} (dsb-tf-proj-helpers.sh:${BASH_LINENO[0]})"
     _dsb_err "  function  : ${FUNCNAME[1]}"
     _dsb_err "  command   : ${BASH_COMMAND}"
     _dsb_err "  exit code : ${_dsbTfReturnCode}"
@@ -746,12 +854,47 @@ tf-check-prereqs() {
   return "${returnCode}"
 }
 
-tf-select-env() {
-  local selectedEnv
-
+tf-list-envs() {
   _dsb_tf_configure_shell
-  _dsb_tf_select_env
-  returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_list_envs
+  local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
 }
+
+tf-set-env() {
+  local envToSet="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_set_env "${envToSet}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-select-env() {
+  local envToSet="${1:-}"
+  _dsb_tf_configure_shell
+  if [ -n "${envToSet}" ]; then
+    _dsb_tf_set_env "${envToSet}"
+  else
+    _dsb_tf_select_env
+  fi
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-clear-env() {
+  _dsb_tf_configure_shell
+  _dsb_tf_clear_env # has no return code
+  _dsb_tf_restore_shell
+}
+
+###################################################################################################
+#
+# Code sourced message
+#
+###################################################################################################
+
+# TODO banner and eye candy
+_dsb_i "Code sourced: dsb-tf-proj-helpers.sh"
