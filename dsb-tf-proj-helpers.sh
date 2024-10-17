@@ -21,28 +21,28 @@
 # TODO: wanted functionality
 #
 # chekcs
-#   tf-check-env      -> check if selected env is valid
-#   tf-check-env [env]-> check if supplied env is valid
+#   tf-check-env        -> check if selected env is valid
+#   tf-check-env [env]  -> check if supplied env is valid
 #
 # info
-#   tf-status         -> checks + help + show az upn if logged in + show sub if selected
+#   tf-status       -> checks + help + show az upn if logged in + show sub if selected
 #
 # az
-#   tf-logout         -> az logout
-#   tf-login          -> az login --use-device-code
-#   tf-relog          -> az logout + az login --use-device-code
-#   tf-whoami         -> az account show
+#   tf-logout       -> az logout
+#   tf-login        -> az login --use-device-code
+#   tf-relog        -> az logout + az login --use-device-code
+#   tf-whoami       -> az account show
 #
 # tf operations
-#   tf-init-env             -> terraform init in chosen env
-#   tf-init-modules         -> terraform init of submodules (requires env to be selected in advance)
-#   tf-init                 -> terraform init in chosen env + submodules
-#   tf-fmt                  -> terraform fmt -check in chosen env
-#   tf-fmt-fix              -> terraform fmt in chosen env
-#   tf-validate             -> terraform validate in chosen env
-#   tf-plan                 -> terraform plan in chosen env
-#   tf-apply                -> terraform apply in chosen env
-#   tf-clean                -> rm .terraform everywhere, /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
+#   tf-init-env     -> terraform init in chosen env
+#   tf-init-modules -> terraform init of submodules (requires env to be selected in advance)
+#   tf-init         -> terraform init in chosen env + submodules
+#   tf-fmt          -> terraform fmt -check in chosen env
+#   tf-fmt-fix      -> terraform fmt in chosen env
+#   tf-validate     -> terraform validate in chosen env
+#   tf-plan         -> terraform plan in chosen env
+#   tf-apply        -> terraform apply in chosen env
+#   tf-clean        -> rm .terraform everywhere, /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
 #
 # upgrading
 #   tf-bump-providers       -> providers in chosen env
@@ -59,7 +59,7 @@
 #   tf-help help            -> show help for help
 #
 # future:
-#   tf-test         -> terraform test in chosen env
+#   tf-test         -> terraform test in chosen env, use poc from lock module
 #   tf-bump-modules -> upgrade modules in code everywhere
 #   tf-* functions for _terraform-state env
 #
@@ -113,56 +113,49 @@ declare -A _dsbTfModulesDirList # Associative array
 ###################################################################################################
 
 _dsb_err() {
-  local logErr
-  logErr=${_dsbTfLogErrors:-1}
+  local logErr=${_dsbTfLogErrors:-1}
   if [ "${logErr}" == "1" ]; then
     echo -e "\e[31mERROR  : $1\e[0m"
   fi
 }
 
 _dsb_i_append() {
-  local logInfo logText
-  logInfo=${_dsbTfLogInfo:-1}
-  logText=${1:-}
+  local logInfo=${_dsbTfLogInfo:-1}
+  local logText=${1:-}
   if [ "${logInfo}" == "1" ]; then
     echo -en "${logText}\n"
   fi
 }
 
 _dsb_i_nonewline() {
-  local logInfo logText
-  logInfo=${_dsbTfLogInfo:-1}
-  logText=${1:-}
+  local logInfo=${_dsbTfLogInfo:-1}
+  local logText=${1:-}
   if [ "${logInfo}" == "1" ]; then
     echo -en "\e[34mINFO   : \e[0m${logText}"
   fi
 }
 
 _dsb_i() {
-  local logText
-  logText=${1:-}
+  local logText=${1:-}
   _dsb_i_nonewline "${logText}\n"
 }
 
 _dsb_w() {
-  local logWarn
-  logWarn=${_dsbTfLogWarnings:-1}
+  local logWarn=${_dsbTfLogWarnings:-1}
   if [ "${logWarn}" == "1" ]; then
     echo -e "\e[33mWARNING: $1\e[0m"
   fi
 }
 
 _dsb_d() {
-  local logDebug
-  logDebug=${_dsbTfLogDebug:-0}
+  local logDebug=${_dsbTfLogDebug:-0}
   if [ "${logDebug}" == "1" ]; then
     echo -e "\e[35mDEBUG  : $1\e[0m"
   fi
 }
 
 _dsb_tf_get_rel_dir() {
-  local dirName
-  dirName=$1
+  local dirName=$1
   realpath --relative-to="${_dsbTfRootDir}" "${dirName}"
 }
 
@@ -306,27 +299,23 @@ _dsb_tf_check_root_directory() {
 }
 
 _dsb_tf_check_current_dir() {
-  local returnCode selectedEnv
-
-  returnCode=0
-
   _dsb_tf_enumerate_directories
   _dsb_tf_error_stop_trapping
 
   _dsb_i "Checking main dir  ..."
   _dsb_tf_look_for_main_dir
-  mainDirStatus=$?
+  local mainDirStatus=$?
 
   _dsb_i "Checking envs dir  ..."
   _dsb_tf_look_for_envs_dir
-  envsDirStatus=$?
+  local envsDirStatus=$?
 
   _dsb_i "Checking lock file ..."
   _dsb_tf_look_for_lock_file
-  lockFileStatus=$?
+  local lockFileStatus=$?
 
   _dsb_tf_error_start_trapping
-  returnCode=$((mainDirStatus + envsDirStatus + lockFileStatus))
+  local returnCode=$((mainDirStatus + envsDirStatus + lockFileStatus))
 
   _dsb_i ""
   _dsb_i "Directory check summary:"
@@ -343,7 +332,7 @@ _dsb_tf_check_current_dir() {
     _dsb_i "  \e[31m☒\e[0m  Environments directory check: failed."
   fi
 
-  selectedEnv="${_dsbTfSelectedEnv:-}"
+  local selectedEnv="${_dsbTfSelectedEnv:-}"
   _dsb_d "_dsb_tf_check_current_dir(): selectedEnv: ${selectedEnv}"
 
   if [ "${lockFileStatus}" -eq 0 ]; then
@@ -369,42 +358,39 @@ _dsb_tf_check_current_dir() {
 }
 
 _dsb_tf_check_prereqs() {
-  local returnCode
-
   _dsbTfLogErrors=0
   _dsbTfLogInfo=1
-  returnCode=0
 
   _dsb_tf_enumerate_directories
   _dsb_tf_error_stop_trapping
 
   _dsb_i_nonewline "Checking tools ..."
   _dsb_tf_check_tools
-  toolsStatus=$?
+  local toolsStatus=$?
   _dsb_i_append " done."
 
   _dsb_i_nonewline "Checking GitHub authentication ..."
   _dsb_tf_check_gh_auth
-  ghAuthStatus=$?
+  local ghAuthStatus=$?
   _dsb_i_append " done."
 
   _dsb_i_nonewline "Checking working directory ..."
   _dsb_tf_check_root_directory
-  workingDirStatus=$?
+  local workingDirStatus=$?
   _dsb_i_append " done."
 
   _dsbTfLogErrors=1
   _dsb_tf_error_start_trapping
-  returnCode=$((toolsStatus + ghAuthStatus + workingDirStatus))
+  local returnCode=$((toolsStatus + ghAuthStatus + workingDirStatus))
 
   _dsb_i ""
   _dsb_i "Pre-requisites check summary:"
-  if [ $toolsStatus -eq 0 ]; then
+  if [ ${toolsStatus} -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  Tools check: passed."
   else
     _dsb_i "  \e[31m☒\e[0m  Tools check: failed, please run 'tf-check-tools'"
   fi
-  if [ $ghAuthStatus -eq 0 ]; then
+  if [ ${ghAuthStatus} -eq 0 ]; then
     if ! (_dsbTfLogErrors=0 _dsb_tf_check_gh_cli); then
       _dsb_i "  ☐  GitHub authentication check: N/A, please run 'tf-check-tools'"
     else
@@ -413,17 +399,72 @@ _dsb_tf_check_prereqs() {
   else
     _dsb_i "  \e[31m☒\e[0m  GitHub authentication check: failed."
   fi
-  if [ $workingDirStatus -eq 0 ]; then
+  if [ ${workingDirStatus} -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  Working directory check: passed."
   else
     _dsb_i "  \e[31m☒\e[0m  Working directory check: failed, please run 'tf-check-dir'"
   fi
 
   _dsb_i ""
-  if [ $returnCode -eq 0 ]; then
+  if [ ${returnCode} -eq 0 ]; then
     _dsb_i "\e[32mAll pre-reqs check passed.\e[0m"
   else
     _dsb_err "\e[31mPre-reqs check failed, for more information see above.\e[0m"
+  fi
+
+  _dsbTfReturnCode=$returnCode
+}
+
+_dsb_tf_check_env() {
+  local envToCheck="${1:-}"
+
+  _dsbTfLogErrors=1
+  _dsbTfLogInfo=1
+
+  if [ -z "${envToCheck}" ]; then
+    _dsb_err "No environment specified."
+    _dsb_err "  usage: tf-check-env [env]"
+    _dsb_err "  example: tf-check-env test"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsb_tf_enumerate_directories
+  _dsb_tf_error_stop_trapping
+
+  _dsb_i "Looking for environment: ${envToCheck} ..."
+  _dsb_tf_look_for_env "${envToCheck}"
+  local envStatus=$?
+
+  local lockFileStatus=0
+  if [ ${envStatus} -eq 0 ]; then
+    _dsb_i "Checking lock file ..."
+    _dsb_tf_look_for_lock_file "${envToCheck}"
+    lockFileStatus=$?
+  fi
+
+  _dsb_tf_error_start_trapping
+  local returnCode=$((envStatus + lockFileStatus))
+
+  _dsb_i ""
+  _dsb_i "Environment check summary:"
+  if [ ${envStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  Environment: found."
+    if [ ${lockFileStatus} -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  Lock file check: passed."
+    else
+      _dsb_i "  \e[31m☒\e[0m  Lock file check: failed."
+    fi
+  else
+    _dsb_i "  \e[31m☒\e[0m  Environment: not found."
+    _dsb_i "  ☐  Lock file check: N/A, environment not found."
+  fi
+
+  _dsb_i ""
+  if [ ${returnCode} -eq 0 ]; then
+    _dsb_i "\e[32mAll checks passed.\e[0m"
+  else
+    _dsb_err "\e[31mChecks failed, for more information see above.\e[0m"
   fi
 
   _dsbTfReturnCode=$returnCode
@@ -445,6 +486,7 @@ _dsb_tf_enumerate_directories() {
 
   _dsbTfModulesDirList=()
   if [ -d "${_dsbTfModulesDir}" ]; then
+    local dir
     for dir in "${_dsbTfRootDir}"/modules/*; do
       _dsbTfModulesDirList[$(basename "${dir}")]="${dir}"
     done
@@ -489,6 +531,7 @@ _dsb_tf_enumerate_directories() {
     local selectedEnv="${_dsbTfSelectedEnv:-}"
     local envFound=0
     if [ -n "${selectedEnv}" ]; then # string is not empty
+      local env
       for env in "${_dsbTfAvailableEnvs[@]}"; do
         if [ "${env}" == "${selectedEnv}" ]; then
           envFound=1
@@ -542,24 +585,102 @@ _dsb_tf_look_for_envs_dir() {
   fi
 }
 
-_dsb_tf_look_for_lock_file() {
-  local selectedEnv="${_dsbTfSelectedEnv:-}"
-  local selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
+_dsb_tf_look_for_env() {
+  local suppliedEnv="${1:-}"
 
-  _dsb_d "_dsb_tf_look_for_lock_file(): selectedEnv: ${selectedEnv}"
-  _dsb_d "_dsb_tf_look_for_lock_file(): selectedEnvDir: ${selectedEnvDir}"
-
-  # we allow the check to pass if no environment is selected
-  if [ -z "${selectedEnv}" ]; then return 0; fi
-
-  # expect _dsbTfSelectedEnvDir to be set if an environment is selected
-  if [ -z "${selectedEnvDir}" ]; then
+  if [ -z "${suppliedEnv}" ]; then
     _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
-    _dsb_err "  Selected environment: ${selectedEnv}"
+    _dsb_err "Internal error: in _dsb_tf_look_for_env, no environment supplied."
     return 1
   fi
+
+  if ! declare -p _dsbTfAvailableEnvs &>/dev/null; then
+    _dsbTfLogErrors=1
+    _dsb_tf_error_start_trapping
+    _dsb_err "Internal error: in _dsb_tf_look_for_env, expected to find available environments."
+    _dsb_err "  expected in: _dsbTfAvailableEnvs"
+    return 1
+  fi
+
+  local env
+  local envFound=0
+  for env in "${_dsbTfAvailableEnvs[@]}"; do
+    if [ "${env}" == "${suppliedEnv}" ]; then
+      envFound=1
+      break
+    fi
+  done
+
+  if [ "${envFound}" -eq 1 ]; then
+    _dsb_d "_dsb_tf_look_for_env(): found suppliedEnv: ${suppliedEnv}"
+    return 0
+  else
+    _dsb_err "Environment not found."
+    _dsb_err "  environment: ${suppliedEnv}"
+    _dsb_err "  for available environments run 'tf-list-envs'"
+    return 1
+  fi
+}
+
+_dsb_tf_look_for_lock_file() {
+  local suppliedEnv="${1:-}"
+  local selectedEnv selectedEnvDir
+
+  # this function is used in two forms:
+  #   1. with a supplied environment name
+  #   2. with the globally selected environment name
+  if [ -n "${suppliedEnv}" ]; then # env was supplied
+
+    _dsb_tf_look_for_env "${suppliedEnv}"
+    local envFoundStatus=$?
+
+    if [ "${envFoundStatus}" -eq 0 ]; then
+      _dsb_d "_dsb_tf_look_for_lock_file(): found suppliedEnv: ${suppliedEnv}"
+
+      if ! declare -p _dsbTfEnvsDirList &>/dev/null; then
+        _dsbTfLogErrors=1
+        _dsb_tf_error_start_trapping
+        _dsb_err "Internal error: in _dsb_tf_look_for_lock_file, expected to find environments directory list."
+        _dsb_err "  expected in: _dsbTfEnvsDirList"
+        return 1
+      fi
+
+      if [ -z "${_dsbTfEnvsDirList["${suppliedEnv}"]}" ]; then
+        _dsbTfLogErrors=1
+        _dsb_tf_error_start_trapping
+        _dsb_err "Internal error: in _dsb_tf_look_for_lock_file, expected to find selected environment directory."
+        _dsb_err "  expected in: _dsbTfEnvsDirList"
+        return 1
+      fi
+
+      selectedEnvDir="${_dsbTfEnvsDirList["${suppliedEnv}"]}"
+      selectedEnv="${suppliedEnv}"
+    else
+      return 1
+    fi
+  else # env was not supplied
+    selectedEnv="${_dsbTfSelectedEnv:-}"
+
+    # we allow the check to pass if no environment is selected
+    _dsb_d "_dsb_tf_look_for_lock_file(): allow check to pass, no environment was selected"
+    if [ -z "${selectedEnv}" ]; then return 0; fi
+
+    # expect _dsbTfSelectedEnvDir to be set if an environment is selected
+    if [ -z "${_dsbTfSelectedEnvDir:-}" ]; then
+      _dsbTfLogErrors=1
+      _dsb_tf_error_start_trapping
+      _dsb_err "Internal error: environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
+      _dsb_err "  Selected environment: ${selectedEnv}"
+      return 1
+    fi
+
+    selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
+  fi
+
+  _dsb_d "_dsb_tf_look_for_lock_file(): suppliedEnv: ${suppliedEnv}"
+  _dsb_d "_dsb_tf_look_for_lock_file(): selectedEnv: ${selectedEnv}"
+  _dsb_d "_dsb_tf_look_for_lock_file(): selectedEnvDir: ${selectedEnvDir}"
 
   # expect _dsbTfSelectedEnvDir to be a directory
   if [ ! -d "${selectedEnvDir}" ]; then
@@ -601,9 +722,8 @@ _dsb_tf_list_envs() {
   _dsb_tf_error_stop_trapping
 
   # check if the current root directory is a valid Terraform project
-  local dirCheckStatus=0
   _dsb_tf_check_root_directory
-  dirCheckStatus=$?
+  local dirCheckStatus=$?
 
   if [ "${dirCheckStatus}" -ne 0 ]; then
     _dsbTfLogErrors=1
@@ -670,9 +790,8 @@ _dsb_tf_set_env() {
   _dsb_tf_error_stop_trapping
 
   # check if the current root directory is a valid Terraform project
-  local dirCheckStatus=0
   _dsb_tf_check_root_directory
-  dirCheckStatus=$?
+  local dirCheckStatus=$?
 
   if [ "${dirCheckStatus}" -ne 0 ]; then
     _dsbTfLogErrors=1
@@ -702,6 +821,7 @@ _dsb_tf_set_env() {
   _dsb_d "_dsb_tf_set_env(): available envs: ${availableEnvs[*]}"
 
   # check if the envToSet is available
+  local env
   local envFound=0
   for env in "${availableEnvs[@]}"; do
     if [ "${env}" == "${envToSet}" ]; then
@@ -727,9 +847,8 @@ _dsb_tf_set_env() {
   _dsb_tf_error_stop_trapping
 
   # check if the selected environment is valid
-  local lockFileStatus
   _dsb_tf_look_for_lock_file
-  lockFileStatus=$?
+  local lockFileStatus=$?
 
   if [ "${lockFileStatus}" -ne 0 ]; then
     _dsbTfLogErrors=1
@@ -746,9 +865,8 @@ _dsb_tf_select_env() {
   _dsbTfLogErrors=0
   _dsbTfLogInfo=1
 
-  local listEnvsStatus=0
   _dsb_tf_list_envs
-  listEnvsStatus=${_dsbTfReturnCode}
+  local listEnvsStatus=${_dsbTfReturnCode}
 
   _dsb_d "_dsb_tf_select_env(): listEnvsStatus: ${listEnvsStatus}"
 
@@ -764,8 +882,8 @@ _dsb_tf_select_env() {
   local -a validChoices
   mapfile -t validChoices < <(seq 1 "${envCount}")
 
-  local gotValidInput userInput idx
-  gotValidInput=0
+  local userInput idx
+  local gotValidInput=0
   while [ "${gotValidInput}" -ne 1 ]; do
     read -r -p "Enter index of environment to set: " userInput
     # clear the current console line
@@ -845,10 +963,9 @@ _dsb_tf_configure_shell() {
   _dsbTfLogInfo=1
   _dsbTfLogWarnings=1
   _dsbTfLogErrors=1
+  _dsbTfEnvsDirList=()
+  _dsbTfAvailableEnvs=()
   unset _dsbTfReturnCode
-
-  declare -A _dsbTfEnvsDirList   # Associative array
-  declare -a _dsbTfAvailableEnvs # Indexed array
 }
 
 _dsb_tf_restore_shell() {
@@ -879,6 +996,14 @@ _dsb_tf_restore_shell() {
 # Exposed functions
 #
 ###################################################################################################
+
+tf-enable-debug-logging() {
+  _dsbTfLogDebug=1
+}
+
+tf-disable-debug-logging() {
+  unset _dsbTfLogDebug
+}
 
 tf-check-dir() {
   local returnCode
@@ -936,6 +1061,15 @@ tf-clear-env() {
   _dsb_tf_restore_shell
 }
 
+tf-check-env() {
+  local envToCheck="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_check_env "${envToCheck}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
 ###################################################################################################
 #
 # Code sourced message
@@ -943,4 +1077,5 @@ tf-clear-env() {
 ###################################################################################################
 
 # TODO banner and eye candy
-_dsb_i "Code sourced: dsb-tf-proj-helpers.sh"
+_dsb_i "DSB terraform project helpers loaded."
+_dsb_i "  use 'tf-help' to get started."
