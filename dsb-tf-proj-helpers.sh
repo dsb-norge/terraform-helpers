@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 
+# enable debug logging  : _dsbTfLogDebug=1
+# disable debug logging : unset _dsbTfLogDebug
+
 # DEBUG commands
 #   source ./dsb-tf-proj-helpers.sh ; pushd ./../azure-ad/ >/dev/null ; ( tf-select-env && popd >/dev/null  ) || popd >/dev/null ;
+#   source ./dsb-tf-proj-helpers.sh ;
+#   pushd ./../azure-ad/ >/dev/null ;
+#   source ~/code/github/dsb-norge/terraform-helpers/dsb-tf-proj-helpers.sh ;
 
 # TODO: wanted functionality
 #   tf-logout         -> az logout
@@ -14,8 +20,9 @@
 #   tf-check-env      -> check if selected env is valid
 #   tf-check-env [env]-> check if supplied env is valid
 #   tf-status         -> checks + help + show az upn if logged in + show sub if selected
-#   tf-list-envs      -> list existing envs (exckude _*)
+#   tf-list-envs      -> list existing envs (exclude _*)
 #   tf-set-env        -> set env/sub
+#   tf-clear-env      -> unset env/sub
 #   tf-select-env     -> list + select env/sub
 #
 #   tf-init-env             -> terraform init in chosen env
@@ -46,17 +53,19 @@
 #
 ###################################################################################################
 
-export _dsbTfSelectedEnv=""
-export _dsbTfSelectedEnvDir=""
-
-declare -A _dsbTfEnvsDirList   # Associative array
-declare -a _dsbTfAvailableEnvs # Indexed array
 _dsbTfShellOldOpts=""
 _dsbTfShellHistoryState=""
-_dsbTfLogInfo=""
-_dsbTfLogWarnings=""
-_dsbTfLogErrors=""
-_dsbTfReturnCode=""
+
+# _dsbTfLogInfo=""
+# _dsbTfLogWarnings=""
+# _dsbTfLogErrors=""
+# _dsbTfReturnCode=""
+
+_dsbTfSelectedEnv=""
+_dsbTfSelectedEnvDir=""
+declare -A _dsbTfEnvsDirList    # Associative array
+declare -a _dsbTfAvailableEnvs  # Indexed array
+declare -A _dsbTfModulesDirList # Associative array
 
 ###################################################################################################
 #
@@ -101,6 +110,14 @@ _dsb_w() {
   logWarn=${_dsbTfLogWarnings:-1}
   if [ "${logWarn}" == "1" ]; then
     echo -e "\e[33mWARNING: $1\e[0m"
+  fi
+}
+
+_dsb_d() {
+  local logDebug
+  logDebug=${_dsbTfLogDebug:-0}
+  if [ "${logDebug}" == "1" ]; then
+    echo -e "\e[35mDEBUG  : $1\e[0m"
   fi
 }
 
@@ -240,12 +257,11 @@ _dsb_tf_check_gh_auth() {
   fi
 }
 
-_dsb_tf_check_directories() {
+_dsb_tf_check_root_directory() {
   local returnCode=0
 
   if ! _dsb_tf_look_for_main_dir; then returnCode=1; fi
   if ! _dsb_tf_look_for_envs_dir; then returnCode=1; fi
-  if ! _dsb_tf_look_for_lock_file; then returnCode=1; fi
 
   return $returnCode
 }
@@ -292,8 +308,7 @@ _dsb_tf_check_current_dir() {
   fi
 
   selectedEnv="${_dsbTfSelectedEnv:-}"
-  # DEBUG
-  echo "DEBUG: selectedEnv: ${selectedEnv}"
+  _dsb_d "_dsb_tf_check_current_dir(): selectedEnv: ${selectedEnv}"
 
   if [ "${lockFileStatus}" -eq 0 ]; then
     if [ -z "${selectedEnv}" ]; then
@@ -338,7 +353,7 @@ _dsb_tf_check_prereqs() {
   _dsb_i_append " done."
 
   _dsb_i_nonewline "Checking working directory ..."
-  _dsb_tf_check_directories
+  _dsb_tf_check_root_directory
   workingDirStatus=$?
   _dsb_i_append " done."
 
@@ -392,38 +407,33 @@ _dsb_tf_enumerate_directories() {
   _dsbTfMainDir="${_dsbTfRootDir}/main"
   _dsbTfEnvsDir="${_dsbTfRootDir}/envs"
 
-  unset _dsbTfModulesDirList
-  declare -A _dsbTfModulesDirList
+  _dsbTfModulesDirList=()
   if [ -d "${_dsbTfModulesDir}" ]; then
     for dir in "${_dsbTfRootDir}"/modules/*; do
       _dsbTfModulesDirList[$(basename "${dir}")]="${dir}"
     done
   fi
 
-  # unset _dsbTfEnvsDirList
-  # unset _dsbTfAvailableEnvs
   _dsbTfEnvsDirList=()
   _dsbTfAvailableEnvs=()
   # declare -A _dsbTfEnvsDirList   # Associative array
   # declare -a _dsbTfAvailableEnvs # Indexed array
   local item
   if [ -d "${_dsbTfEnvsDir}" ]; then
-    # DEBUG
-    # echo "DEBUG: Enumerating environments ..."
+    _dsb_d "_dsb_tf_enumerate_directories(): Enumerating environments ..."
     for item in "${_dsbTfRootDir}"/envs/*; do
       if [ -d "${item}" ]; then # is a directory
         # this exclude directories starting with _
         if [[ "$(basename "${item}")" =~ ^_ ]]; then
           continue
         fi
-        # DEBUG
-        # echo "DEBUG: Found environment: $(basename "${item}")"
+        _dsb_d "_dsb_tf_enumerate_directories(): Found environment: $(basename "${item}")"
         _dsbTfEnvsDirList[$(basename "${item}")]="${item}"
         _dsbTfAvailableEnvs+=("$(basename "${item}")")
       fi
     done
 
-    local selectedEnv envFound
+    local envFound
 
     # DEBUG
     # unset _dsbTfSelectedEnv
@@ -439,7 +449,7 @@ _dsb_tf_enumerate_directories() {
     # - _dsbTfAvailableEnvs: An array of available environments.
     # - _dsbTfEnvsDirList: An associative array mapping environments to their directories.
     # - _dsbTfSelectedEnvDir: The directory of the selected environment.
-    selectedEnv="${_dsbTfSelectedEnv:-}"
+    local selectedEnv="${_dsbTfSelectedEnv:-}"
     envFound=0
     if [ -n "${selectedEnv}" ]; then # string is not empty
       for env in "${_dsbTfAvailableEnvs[@]}"; do
@@ -449,15 +459,10 @@ _dsb_tf_enumerate_directories() {
         fi
       done
       if [ "${envFound}" -eq 1 ]; then
-        # DEBUG
-        echo "DEBUG: in _dsb_tf_enumerate_directories : found selectedEnv: ${selectedEnv}"
+        _dsb_d "_dsb_tf_enumerate_directories(): found selectedEnv: ${selectedEnv}"
         _dsbTfSelectedEnvDir="${_dsbTfEnvsDirList["${selectedEnv}"]}"
       else
-        # DEBUG
-        echo "DEBUG: in _dsb_tf_enumerate_directories : unset _dsbTfSelectedEnv"
-        echo "DEBUG: in _dsb_tf_enumerate_directories : unset _dsbTfSelectedEnvDir"
-        # unset _dsbTfSelectedEnv
-        # unset _dsbTfSelectedEnvDir
+        _dsb_d "_dsb_tf_enumerate_directories(): clearing '_dsbTfSelectedEnv' and '_dsbTfSelectedEnvDir'"
         _dsbTfSelectedEnv=""
         _dsbTfSelectedEnvDir=""
       fi
@@ -465,22 +470,22 @@ _dsb_tf_enumerate_directories() {
   fi
 
   # DEBUG
-  # echo "Root dir: ${_dsbTfRootDir}"
-  # echo "Modules dir: ${_dsbTfModulesDir}"
-  # echo "Main dir: ${_dsbTfMainDir}"
-  # echo "Envs dir: ${_dsbTfEnvsDir}"
-  # echo "Modules dir list:"
+  # _dsb_d "_dsb_tf_enumerate_directories(): Root dir: ${_dsbTfRootDir}"
+  # _dsb_d "_dsb_tf_enumerate_directories(): Modules dir: ${_dsbTfModulesDir}"
+  # _dsb_d "_dsb_tf_enumerate_directories(): Main dir: ${_dsbTfMainDir}"
+  # _dsb_d "_dsb_tf_enumerate_directories(): Envs dir: ${_dsbTfEnvsDir}"
+  # _dsb_d "_dsb_tf_enumerate_directories(): Modules dir list:"
   # for key in "${!_dsbTfModulesDirList[@]}"; do
-  #   echo "  - ${key}: ${_dsbTfModulesDirList[$key]}"
+  #   _dsb_d "_dsb_tf_enumerate_directories():   - ${key}: ${_dsbTfModulesDirList[$key]}"
   # done
-  # echo "Envs dir list:"
+  # _dsb_d "_dsb_tf_enumerate_directories(): Envs dir list:"
   # for key in "${!_dsbTfEnvsDirList[@]}"; do
-  #   echo "  - ${key}: ${_dsbTfEnvsDirList[$key]}"
+  #   _dsb_d "_dsb_tf_enumerate_directories():   - ${key}: ${_dsbTfEnvsDirList[$key]}"
   # done
-  # echo "DEBUG: in _dsb_tf_enumerate_directories : _dsbTfAvailableEnvs: ${_dsbTfAvailableEnvs[*]}"
-  # echo "Available envs:"
+  # _dsb_d "_dsb_tf_enumerate_directories(): _dsbTfAvailableEnvs: ${_dsbTfAvailableEnvs[*]}"
+  # _dsb_d "_dsb_tf_enumerate_directories(): Available envs:"
   # for dir in "${_dsbTfAvailableEnvs[@]}"; do
-  #   echo "  - ${dir}"
+  #   _dsb_d "_dsb_tf_enumerate_directories():   - ${dir}"
   # done
 }
 
@@ -499,15 +504,11 @@ _dsb_tf_look_for_envs_dir() {
 }
 
 _dsb_tf_look_for_lock_file() {
-  local selectedEnv selectedEnvDir
+  local selectedEnv="${_dsbTfSelectedEnv:-}"
+  local selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
 
-  selectedEnv="${_dsbTfSelectedEnv:-}"
-  selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
-
-  # DEBUG
-  echo "DEBUG: in _dsb_tf_look_for_lock_file : _dsbTfSelectedEnv: ${_dsbTfSelectedEnv}"
-  echo "DEBUG: in _dsb_tf_look_for_lock_file : selectedEnv: ${selectedEnv}"
-  echo "DEBUG: in _dsb_tf_look_for_lock_file : selectedEnvDir: ${selectedEnvDir}"
+  _dsb_d "_dsb_tf_look_for_lock_file(): selectedEnv: ${selectedEnv}"
+  _dsb_d "_dsb_tf_look_for_lock_file(): selectedEnvDir: ${selectedEnvDir}"
 
   # we allow the check to pass if no environment is selected
   if [ -z "${selectedEnv}" ]; then return 0; fi
@@ -546,23 +547,23 @@ _dsb_tf_look_for_lock_file() {
 #
 ###################################################################################################
 
-_dsb_tf_select_env() {
-  local dirCheckStatus
+# TODO
+#  _dsb_tf_list_envs
+#  _dsb_tf_set_env
+#  _dsb_tf_clear_env
 
+_dsb_tf_select_env() {
   _dsbTfLogErrors=0
   _dsbTfLogInfo=1
 
-  # DEBUG
-  # echo "DEBUG: in _dsb_tf_select_env before enumerate _dsbTfAvailableEnvs: ${_dsbTfAvailableEnvs[*]}"
-
   _dsb_tf_enumerate_directories
-
-  # DEBUG
-  # echo "DEBUG: in _dsb_tf_select_env after enumerate _dsbTfAvailableEnvs: ${_dsbTfAvailableEnvs[*]}"
-
   _dsb_tf_error_stop_trapping
-  _dsb_tf_check_directories
+
+  # check if the current root directory is a valid Terraform project
+  local dirCheckStatus=0
+  _dsb_tf_check_root_directory
   dirCheckStatus=$?
+
   if [ "${dirCheckStatus}" -ne 0 ]; then
     _dsbTfLogErrors=1
     _dsb_err "Directory check(s) fails, please run 'tf-check-dir'"
@@ -581,8 +582,7 @@ _dsb_tf_select_env() {
 
   _dsb_tf_error_start_trapping
 
-  # DEBUG
-  # echo "DEBUG: _dsbTfAvailableEnvs: ${_dsbTfAvailableEnvs[*]}"
+  _dsb_d "_dsb_tf_select_env(): _dsbTfAvailableEnvs: ${_dsbTfAvailableEnvs[*]}"
 
   local envIdx envDir
   envIdx=1
@@ -601,8 +601,7 @@ _dsb_tf_select_env() {
     for idx in "${validChoices[@]}"; do
       if [ "${idx}" == "${userInput}" ]; then
         gotValidInput=1
-        # DEBUG
-        # echo "DEBUG: idx = ${idx} is valid"
+        _dsb_d "_dsb_tf_select_env(): idx = ${idx} is valid"
         break
       fi
     done
@@ -620,11 +619,13 @@ _dsb_tf_select_env() {
   _dsbTfLogErrors=0
   _dsb_tf_error_stop_trapping
   _dsb_tf_look_for_lock_file
-  _dsbTfReturnCode=$? # caller reads this
+  _dsbTfReturnCode=$? # caller reads this, will be <> 0 if lock file check fails
 
   if [ "${_dsbTfReturnCode}" -ne 0 ]; then
     _dsbTfLogErrors=1
     _dsb_err "Lock file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
+    # _dsbTfSelectedEnv=""
+    # _dsbTfSelectedEnvDir=""
   fi
 
   return 0 # caller reads _dsbTfReturnCode
@@ -654,7 +655,7 @@ _dsb_tf_error_handler() {
 
   _dsb_tf_restore_shell
 
-  return ${_dsbTfReturnCode}
+  return "${_dsbTfReturnCode}"
 }
 
 _dsb_tf_error_start_trapping() {
