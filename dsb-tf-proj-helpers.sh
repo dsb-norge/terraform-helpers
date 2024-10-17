@@ -17,21 +17,16 @@
 #   tf-clear-env        -> unset env/sub
 #   tf-select-env       -> list + select env/sub + set env/sub
 #   tf-select-env [env] -> set env/sub ie. same as tf-set-env
+#   tf-check-env        -> check if selected env is valid
+#   tf-check-env [env]  -> check if supplied env is valid
+#   az-logout           -> az logout
+#   az-login            -> az login --use-device-code
+#   az-whoami           -> az account show
 #
 # TODO: wanted functionality
 #
-# chekcs
-#   tf-check-env        -> check if selected env is valid
-#   tf-check-env [env]  -> check if supplied env is valid
-#
 # info
 #   tf-status       -> checks + help + show az upn if logged in + show sub if selected
-#
-# az
-#   tf-logout       -> az logout
-#   tf-login        -> az login --use-device-code
-#   tf-relog        -> az logout + az login --use-device-code
-#   tf-whoami       -> az account show
 #
 # tf operations
 #   tf-init-env     -> terraform init in chosen env
@@ -88,6 +83,12 @@ for functionName in ${functionNames}; do
   unset -f "${functionName}" || :
 done
 
+# unset all functions starting with 'az-'
+functionNames=$(declare -F | grep -e ' az-' | cut --fields 3 --delimiter=' ') || functionNames=''
+for functionName in ${functionNames}; do
+  unset -f "${functionName}" || :
+done
+
 unset -v varNames varName
 unset -v functionNames functionName
 
@@ -105,6 +106,8 @@ _dsbTfSelectedEnvDir=""
 declare -A _dsbTfEnvsDirList    # Associative array
 declare -a _dsbTfAvailableEnvs  # Indexed array
 declare -A _dsbTfModulesDirList # Associative array
+
+_dsbTfAzureUpn=""
 
 ###################################################################################################
 #
@@ -168,7 +171,7 @@ _dsb_tf_get_rel_dir() {
 _dsb_tf_check_az_cli() {
   if ! az --version &>/dev/null; then
     _dsb_err "Azure CLI not found."
-    _dsb_err "  checked command: az --version"
+    _dsb_err "  checked with command: az --version"
     _dsb_err "  make sure az is available in your PATH"
     _dsb_err "  for installation instructions see: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
     return 1
@@ -178,7 +181,7 @@ _dsb_tf_check_az_cli() {
 _dsb_tf_check_gh_cli() {
   if ! gh --version &>/dev/null; then
     _dsb_err "GitHub CLI not found."
-    _dsb_err "  checked command: gh --version"
+    _dsb_err "  checked with command: gh --version"
     _dsb_err "  make sure gh is available in your PATH"
     _dsb_err "  for installation instructions see: https://github.com/cli/cli#installation"
     return 1
@@ -188,7 +191,7 @@ _dsb_tf_check_gh_cli() {
 _dsb_tf_check_terraform() {
   if ! terraform -version &>/dev/null; then
     _dsb_err "Terraform not found."
-    _dsb_err "  checked command: terraform -version"
+    _dsb_err "  checked with command: terraform -version"
     _dsb_err "  make sure terraform is available in your PATH"
     _dsb_err "  for installation instructions see: https://learn.hashicorp.com/tutorials/terraform/install-cli"
     return 1
@@ -198,7 +201,7 @@ _dsb_tf_check_terraform() {
 _dsb_tf_check_jq() {
   if ! jq --version &>/dev/null; then
     _dsb_err "jq not found."
-    _dsb_err "  checked command: jq --version"
+    _dsb_err "  checked with command: jq --version"
     _dsb_err "  make sure jq is available in your PATH"
     _dsb_err "  for installation instructions see: https://stedolan.github.io/jq/download/"
     return 1
@@ -208,7 +211,7 @@ _dsb_tf_check_jq() {
 _dsb_tf_check_yq() {
   if ! yq --version &>/dev/null; then
     _dsb_err "yq not found."
-    _dsb_err "  checked command: yq --version"
+    _dsb_err "  checked with command: yq --version"
     _dsb_err "  make sure yq is available in your PATH"
     _dsb_err "  for installation instructions see: https://mikefarah.gitbook.io/yq#install"
     return 1
@@ -218,7 +221,7 @@ _dsb_tf_check_yq() {
 _dsb_tf_check_golang() {
   if ! go version &>/dev/null; then
     _dsb_err "Go not found."
-    _dsb_err "  checked command: go version"
+    _dsb_err "  checked with command: go version"
     _dsb_err "  make sure go is available in your PATH"
     _dsb_err "  for installation instructions see: https://go.dev/doc/install"
     return 1
@@ -228,7 +231,7 @@ _dsb_tf_check_golang() {
 _dsb_tf_check_hcledit() {
   if ! hcledit version &>/dev/null; then
     _dsb_err "hcledit not found."
-    _dsb_err "  checked command: hcledit version"
+    _dsb_err "  checked with command: hcledit version"
     _dsb_err "  make sure hcledit is available in your PATH"
     _dsb_err "  for installation instructions see: https://github.com/minamijoyo/hcledit?tab=readme-ov-file#install"
     _dsb_err "  or install it with: 'go install github.com/minamijoyo/hcledit@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
@@ -239,7 +242,7 @@ _dsb_tf_check_hcledit() {
 _dsb_tf_check_terraform_docs() {
   if ! terraform-docs --version &>/dev/null; then
     _dsb_err "terraform-docs not found."
-    _dsb_err "  checked command: terraform-docs --version"
+    _dsb_err "  checked with command: terraform-docs --version"
     _dsb_err "  make sure terraform-docs is available in your PATH"
     _dsb_err "  for installation instructions see: https://terraform-docs.io/user-guide/installation/"
     _dsb_err "  or install it with: 'go install github.com/terraform-docs/terraform-docs@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
@@ -250,7 +253,7 @@ _dsb_tf_check_terraform_docs() {
 _dsb_tf_check_realpath() {
   if ! realpath --version &>/dev/null; then
     _dsb_err "realpath not found."
-    _dsb_err "  checked command: realpath --version"
+    _dsb_err "  checked with command: realpath --version"
     _dsb_err "  make sure realpath is available in your PATH"
     _dsb_err "  install it with one of:"
     _dsb_err "    - Ubuntu: 'sudo apt-get install coreutils'"
@@ -408,6 +411,7 @@ _dsb_tf_check_prereqs() {
   _dsb_i ""
   if [ ${returnCode} -eq 0 ]; then
     _dsb_i "\e[32mAll pre-reqs check passed.\e[0m"
+    _dsb_i "  now try 'tf-select-env' to select an environment."
   else
     _dsb_err "\e[31mPre-reqs check failed, for more information see above.\e[0m"
   fi
@@ -421,22 +425,32 @@ _dsb_tf_check_env() {
   _dsbTfLogErrors=1
   _dsbTfLogInfo=1
 
+  # this function is used in two forms:
+  #   1. with a supplied environment name
+  #   2. with the globally selected environment name
+  local selectedEnv="${_dsbTfSelectedEnv:-}"
+  local lockFileStatus=0
   if [ -z "${envToCheck}" ]; then
-    _dsb_err "No environment specified."
-    _dsb_err "  usage: tf-check-env [env]"
-    _dsb_err "  example: tf-check-env test"
-    _dsbTfReturnCode=1
-    return 0 # caller reads _dsbTfReturnCode
+    if [ -z "${selectedEnv}" ]; then
+      _dsb_err "No environment specified and no environment selected."
+      _dsb_err "  either specify environment: tf-check-env [env]"
+      _dsb_err "  other options: tf-select-env, tf-set-env [env], tf-list-envs"
+      _dsbTfReturnCode=1
+      return 0 # caller reads _dsbTfReturnCode
+    fi
+
+    envToCheck="${selectedEnv}"
   fi
+
+  _dsb_i "Environment: ${envToCheck}"
 
   _dsb_tf_enumerate_directories
   _dsb_tf_error_stop_trapping
 
-  _dsb_i "Looking for environment: ${envToCheck} ..."
+  _dsb_i "Looking for environment ..."
   _dsb_tf_look_for_env "${envToCheck}"
   local envStatus=$?
 
-  local lockFileStatus=0
   if [ ${envStatus} -eq 0 ]; then
     _dsb_i "Checking lock file ..."
     _dsb_tf_look_for_lock_file "${envToCheck}"
@@ -595,6 +609,14 @@ _dsb_tf_look_for_env() {
     return 1
   fi
 
+  if ! declare -p _dsbTfEnvsDir &>/dev/null; then
+    _dsbTfLogErrors=1
+    _dsb_tf_error_start_trapping
+    _dsb_err "Internal error: in _dsb_tf_look_for_env, expected to find environments directory."
+    _dsb_err "  expected in: _dsbTfEnvsDir"
+    return 1
+  fi
+
   if ! declare -p _dsbTfAvailableEnvs &>/dev/null; then
     _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
@@ -618,6 +640,7 @@ _dsb_tf_look_for_env() {
   else
     _dsb_err "Environment not found."
     _dsb_err "  environment: ${suppliedEnv}"
+    _dsb_err "  look in: ${_dsbTfEnvsDir}"
     _dsb_err "  for available environments run 'tf-list-envs'"
     return 1
   fi
@@ -756,6 +779,8 @@ _dsb_tf_list_envs() {
 
   if [ "${envCount}" -eq 0 ]; then
     _dsb_w "No environments found in: ${envsDir}"
+    _dsb_i "  this probably means the directory is empty."
+    _dsb_i "  either create an environment or run the command from a different root directory."
     _dsbTfReturnCode=1
   else
     local envIdx=1
@@ -905,6 +930,127 @@ _dsb_tf_select_env() {
 
 ###################################################################################################
 #
+# Azure CLI
+#
+###################################################################################################
+
+_dsb_tf_az_enumerate_account() {
+  _dsb_tf_error_stop_trapping
+  _dsb_tf_check_az_cli
+
+  # if az cli is not installed, do not fail
+  local azCliStatus=$?
+  if [ "${azCliStatus}" -ne 0 ]; then
+    return 0
+  fi
+
+  local showOutput
+  showOutput=$(az account show 2>&1)
+  local showStatus=$?
+
+  _dsb_d "_dsb_tf_az_enumerate_account(): showOutput: ${showOutput}"
+
+  local azUpn
+  azUpn=$(az account show --query "user.name" --output tsv 2>/dev/null)
+  local queryStatus=$?
+
+  _dsb_d "_dsb_tf_az_enumerate_account(): azUpn: ${azUpn}"
+  _dsb_d "_dsb_tf_az_enumerate_account(): queryStatus: ${queryStatus}"
+  _dsb_d "_dsb_tf_az_enumerate_account(): showStatus: ${showStatus}"
+
+  # _dsbTfAzureUpn=""
+  if [ "${showStatus}" -eq 0 ] && [ "${queryStatus}" -eq 0 ]; then
+    _dsb_i "Logged in with Azure CLI as: ${azUpn}"
+    _dsbTfAzureUpn="${azUpn}"
+  elif [ "${showStatus}" -ne 0 ] && [ "${queryStatus}" -ne 0 ]; then
+    _dsb_i "Not logged in with Azure CLI."
+    _dsbTfAzureUpn=""
+  else
+    _dsbTfLogErrors=1
+    _dsb_tf_error_start_trapping
+    _dsb_err "Internal error: in _dsb_tf_az_enumerate_account:"
+    _dsb_err "  'az account show' returns status: ${showStatus}"
+    _dsb_err "  'az account show --query \"user.name\" --output tsv' returns status: ${queryStatus}"
+    _dsb_err "  please troubleshoot with:"
+    _dsb_err "    'az account show --debug'"
+    _dsb_err "    'az account show --query \"user.name\" --output tsv --debug'"
+    return 1
+  fi
+}
+
+_dsb_tf_az_whoami() {
+  _dsb_tf_az_enumerate_account
+  _dsbTfReturnCode=$?
+}
+
+_dsb_tf_az_logout() {
+
+  _dsb_tf_error_stop_trapping
+  _dsb_tf_check_az_cli
+  local azCliStatus=$?
+
+  if [ "${azCliStatus}" -ne 0 ]; then
+    _dsb_i "  💡 you can also check other prerequisites by running 'tf-check-prereqs'"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  local clearOutput
+  clearOutput=$(az account clear 2>&1)
+  local clearStatus=$?
+
+  _dsb_d "_dsb_tf_az_logout(): clearOutput: ${clearOutput}"
+
+  if [ "${clearStatus}" -ne 0 ]; then
+    _dsb_err "Failed to clear subscriptions from local cache."
+    _dsb_err "  please run 'az account clear --debug' manually"
+    _dsbTfReturnCode=1
+  else
+    _dsb_i "Logged out from Azure CLI."
+    _dsbTfReturnCode=0
+  fi
+
+  _dsbTfLogErrors=0
+  _dsbTfLogInfo=0
+  _dsb_tf_error_stop_trapping
+  _dsb_tf_az_enumerate_account
+}
+
+_dsb_tf_az_login() {
+
+  _dsb_tf_error_stop_trapping
+  _dsb_tf_check_az_cli
+  local azCliStatus=$?
+
+  if [ "${azCliStatus}" -ne 0 ]; then
+    _dsb_i "  💡 you can also check other prerequisites by running 'tf-check-prereqs'"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  az account clear &>/dev/null
+
+  local loginOutput
+  loginOutput=$(az login --use-device-code)
+  local loginStatus=$?
+
+  _dsb_tf_error_start_trapping
+
+  _dsb_d "_dsb_tf_az_login(): loginOutput: ${loginOutput}"
+
+  if [ "${loginStatus}" -ne 0 ]; then
+    _dsb_err "Failed to login with Azure CLI."
+    _dsb_err "  please run 'az login --debug' manually"
+    _dsbTfReturnCode=1
+  else
+    _dsb_tf_error_stop_trapping
+    _dsb_tf_az_enumerate_account
+    _dsbTfReturnCode=$? # caller reads _dsbTfReturnCode
+  fi
+}
+
+###################################################################################################
+#
 # Error handling
 #
 ###################################################################################################
@@ -997,6 +1143,8 @@ _dsb_tf_restore_shell() {
 #
 ###################################################################################################
 
+# Utility functions
+# -----------------
 tf-enable-debug-logging() {
   _dsbTfLogDebug=1
 }
@@ -1005,6 +1153,8 @@ tf-disable-debug-logging() {
   unset _dsbTfLogDebug
 }
 
+# Check functions
+# ---------------
 tf-check-dir() {
   local returnCode
 
@@ -1025,6 +1175,8 @@ tf-check-prereqs() {
   return "${returnCode}"
 }
 
+# Environment functions
+# ---------------------
 tf-list-envs() {
   _dsb_tf_configure_shell
   _dsb_tf_list_envs
@@ -1065,6 +1217,31 @@ tf-check-env() {
   local envToCheck="${1:-}"
   _dsb_tf_configure_shell
   _dsb_tf_check_env "${envToCheck}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# Azure CLI functions
+# -------------------
+az-whoami() {
+  _dsb_tf_configure_shell
+  _dsb_tf_az_whoami
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+}
+
+az-logout() {
+  _dsb_tf_configure_shell
+  _dsb_tf_az_logout
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+az-login() {
+  _dsb_tf_configure_shell
+  _dsb_tf_az_login
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
