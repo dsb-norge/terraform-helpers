@@ -7,22 +7,33 @@
 #   cd ~/code/github/dsb-norge/azure-ad ;
 #   source <(cat ~/code/github/dsb-norge/terraform-helpers/dsb-tf-proj-helpers.sh) ;
 
+# Implemented functionality
+#   tf-check-tools      -> az cli, gh cli, terraform, jq, yq, golang, hcledit, terraform-docs, realpath
+#   tf-check-gh-auth    -> need to be logged in to gh
+#   tf-check-dir        -> check if in valid tf project structure
+#   tf-check-prereqs    -> all checks
+#   tf-list-envs        -> list existing envs (exclude _*)
+#   tf-set-env [env]    -> set env/sub
+#   tf-clear-env        -> unset env/sub
+#   tf-select-env       -> list + select env/sub + set env/sub
+#   tf-select-env [env] -> set env/sub ie. same as tf-set-env
+#
 # TODO: wanted functionality
+#
+# chekcs
+#   tf-check-env      -> check if selected env is valid
+#   tf-check-env [env]-> check if supplied env is valid
+#
+# info
+#   tf-status         -> checks + help + show az upn if logged in + show sub if selected
+#
+# az
 #   tf-logout         -> az logout
 #   tf-login          -> az login --use-device-code
 #   tf-relog          -> az logout + az login --use-device-code
-#   tf-check-tools    -> need az cli, gh cli, terraform, jq, yq, golang, hcledit, terraform-docs, realpath
-#   tf-check-gh-auth  -> need to be logged in to gh
-#   tf-check-dir      -> check if in valid tf project structure
-#   tf-check-prereqs  -> all checks
-#   tf-check-env      -> check if selected env is valid
-#   tf-check-env [env]-> check if supplied env is valid
-#   tf-status         -> checks + help + show az upn if logged in + show sub if selected
-#   tf-list-envs      -> list existing envs (exclude _*)
-#   tf-set-env        -> set env/sub
-#   tf-clear-env      -> unset env/sub
-#   tf-select-env     -> list + select env/sub
+#   tf-whoami         -> az account show
 #
+# tf operations
 #   tf-init-env             -> terraform init in chosen env
 #   tf-init-modules         -> terraform init of submodules (requires env to be selected in advance)
 #   tf-init                 -> terraform init in chosen env + submodules
@@ -31,19 +42,54 @@
 #   tf-validate             -> terraform validate in chosen env
 #   tf-plan                 -> terraform plan in chosen env
 #   tf-apply                -> terraform apply in chosen env
-#   tf-clean                -> rm .terraform
+#   tf-clean                -> rm .terraform everywhere, /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
 #
+# upgrading
 #   tf-bump-providers       -> providers in chosen env
 #   tf-bump-tflint-plugins  -> tflint-plugins in chosen env
 #   tf-bump                 -> providers og tflint-plugins in chosen env
+#   tf-bump-gh              -> terraform and tflint in GitHub workflows
+#   tf-bump-all             -> providers og tflint-plugins in alle env + terraform and tflint in GitHub workflows
 #
-#   tf-init-modules   -> terraform init in chosen envs submodules
-#   tf-clean-all      -> /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
-#   tf-bump-gh        -> terraform and tflint in GitHub workflows
-#   tf-bump-all       -> providers og tflint-plugins in alle env + terraform and tflint in GitHub workflows
+# help
+#   tf-help                 -> show general help
+#   tf-help short           -> show short help
+#   tf-help extensive       -> show extensive help
+#   tf-help [command]       -> show help for command
+#   tf-help help            -> show help for help
 #
-#   Future:
-#     tf-* functions for _terraform-state env
+# future:
+#   tf-test         -> terraform test in chosen env
+#   tf-bump-modules -> upgrade modules in code everywhere
+#   tf-* functions for _terraform-state env
+#
+
+###################################################################################################
+#
+# Remove any old code
+#
+###################################################################################################
+
+# unset all variables starting with '_dsbTf'
+varNames=$(typeset -p | awk '$3 ~ /^_dsbTf/ { sub(/=.*/, "", $3); print $3 }') || varNames=''
+for varName in ${varNames}; do
+  unset -v "${varName}" || :
+done
+
+# unset all functions starting with '_dsb_'
+functionNames=$(declare -F | grep -e ' _dsb_' | cut --fields 3 --delimiter=' ') || functionNames=''
+for functionName in ${functionNames}; do
+  unset -f "${functionName}" || :
+done
+
+# unset all functions starting with 'tf-'
+functionNames=$(declare -F | grep -e ' tf-' | cut --fields 3 --delimiter=' ') || functionNames=''
+for functionName in ${functionNames}; do
+  unset -f "${functionName}" || :
+done
+
+unset -v varNames varName
+unset -v functionNames functionName
 
 ###################################################################################################
 #
