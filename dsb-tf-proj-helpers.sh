@@ -21,12 +21,14 @@
 #   tf-check-env [env]  -> check if supplied env is valid
 #   az-logout           -> az logout
 #   az-login            -> az login --use-device-code
+#   az-relog            -> same as az-login
 #   az-whoami           -> az account show
+#   tf-status           -> checks + help + show az upn if logged in + show sub if selected
 #
-# TODO: wanted functionality
+# TODO: functionality
 #
-# info
-#   tf-status       -> checks + help + show az upn if logged in + show sub if selected
+# other
+#   require az sub hint file, look at how lock file is handled
 #
 # tf operations
 #   tf-init-env     -> terraform init in chosen env
@@ -37,10 +39,27 @@
 #   tf-validate     -> terraform validate in chosen env
 #   tf-plan         -> terraform plan in chosen env
 #   tf-apply        -> terraform apply in chosen env
-#   tf-clean        -> rm .terraform everywhere, /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
+#   tf-clean        -> rm .terraform everywhere /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
+#
+# linting
+#   tf-lint         -> tflint in chosen env, using tflint-wrapper, download and store locally? in root/.tflint ?
+#   tf-lint-clean   -> rm .tflint everywhere
 #
 # upgrading
-#   tf-bump-providers       -> providers in chosen env
+#  look into:
+#   tfupdate :
+#     install  : go install github.com/minamijoyo/tfupdate@latest
+#     providers:
+#       - read 'version' from lock file
+#       - use tfupdate: tfupdate release latest --source-type tfregistryProvider 'hashicorp/azurerm'
+#       - show possible upgrades
+#     modules  :
+#       - read 'source' from tf files
+#       - use tfupdate: tfupdate release latest --source-type tfregistryModule "Azure/naming/azurerm"
+#       - show possible upgrades
+#     note: there is also a list command: fupdate release list --source-type tfregistryModule --max-length 3 "Azure/naming/azurerm"
+#  proposed commands:
+#   tf-bump-providers       -> upgrade within given constraints: terraform init -upgrade in chosen env
 #   tf-bump-tflint-plugins  -> tflint-plugins in chosen env
 #   tf-bump                 -> providers og tflint-plugins in chosen env
 #   tf-bump-gh              -> terraform and tflint in GitHub workflows
@@ -53,7 +72,8 @@
 #   tf-help [command]       -> show help for command
 #   tf-help help            -> show help for help
 #
-# future:
+# TODO: future functionality
+#
 #   tf-test         -> terraform test in chosen env, use poc from lock module
 #   tf-bump-modules -> upgrade modules in code everywhere
 #   tf-* functions for _terraform-state env
@@ -103,6 +123,7 @@ _dsbTfShellHistoryState=""
 
 _dsbTfSelectedEnv=""
 _dsbTfSelectedEnvDir=""
+_dsbTfSelectedEnvLockFile=""
 declare -A _dsbTfEnvsDirList    # Associative array
 declare -a _dsbTfAvailableEnvs  # Indexed array
 declare -A _dsbTfModulesDirList # Associative array
@@ -160,6 +181,116 @@ _dsb_d() {
 _dsb_tf_get_rel_dir() {
   local dirName=$1
   realpath --relative-to="${_dsbTfRootDir}" "${dirName}"
+}
+
+_dsb_tf_get_github_cli_account() {
+  local ghAccount
+  ghAccount=$(gh auth status --hostname github.com | grep "Logged in to github.com account" | sed 's/.*Logged in to github.com account //' | awk '{print $1}')
+  echo "${ghAccount}"
+}
+
+_dsb_tf_report_status() {
+  _dsbTfLogInfo=0
+  _dsbTfLogErrors=0
+  _dsb_tf_error_stop_trapping
+
+  _dsb_tf_check_prereqs
+  local prereqStatus="${_dsbTfReturnCode}"
+
+  local githubStatus=1
+  local githubAccount="  ☐  Logged in to github.com as : N/A, github cli not available, please run 'tf-check-tools'"
+  if _dsbTfLogErrors=0 _dsb_tf_check_gh_cli; then
+    githubAccount="  \e[32m☑\e[0m  Logged in to github.com as: $(_dsb_tf_get_github_cli_account)"
+    githubStatus=0
+  fi
+
+  local azureStatus=1
+  local azureAccount="  ☐  Logged in to Azure as     : N/A, azure cli not available, please run 'tf-check-tools'"
+  if _dsb_tf_check_az_cli; then
+    if _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
+      local azUpn="${_dsbTfAzureUpn:-}"
+      if [ -z "${azUpn}" ]; then
+        _dsbTfLogErrors=1
+        _dsb_err "Internal error: in _dsb_tf_report_status(): Azure UPN not found."
+        _dsb_err "  expected in _dsbTfAzureUpn, which is: ${_dsbTfAzureUpn:-}"
+        _dsb_err "  azUpn is: ${azUpn}"
+        return 1
+      fi
+      azureAccount="  \e[32m☑\e[0m  Logged in to Azure as     : ${_dsbTfAzureUpn}"
+      azureStatus=0
+    else
+      azureAccount="  \e[31m☒\e[0m  Logged in to Azure as     : N/A, please run 'az-whoami'"
+    fi
+  fi
+
+  local envsDir="${_dsbTfEnvsDir:-}"
+  local -a availableEnvs=("${_dsbTfAvailableEnvs[@]}")
+  local selectedEnv="${_dsbTfSelectedEnv:-}"
+  local selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
+
+  local envStatus=1
+  local lockFileStatus=$?
+  if [ -n "${selectedEnv}" ]; then
+    _dsb_tf_look_for_env "${selectedEnv}"
+    envStatus=$?
+
+    _dsb_tf_look_for_lock_file "${selectedEnv}"
+    lockFileStatus=$?
+  fi
+
+  _dsbTfLogInfo=1
+  _dsbTfLogErrors=1
+  _dsb_tf_error_start_trapping
+  local returnCode=$((prereqStatus + githubStatus + azureStatus + envStatus + lockFileStatus))
+
+  _dsb_i "Overall:"
+
+  _dsb_d "_dsb_tf_report_status(): returnCode: ${returnCode}"
+  _dsb_d "_dsb_tf_report_status(): prereqStatus: ${prereqStatus}"
+  _dsb_d "_dsb_tf_report_status(): githubStatus: ${githubStatus}"
+  _dsb_d "_dsb_tf_report_status(): azureStatus: ${azureStatus}"
+
+  if [ ${prereqStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  Pre-requisites check: passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  Pre-requisites check: fails, please run 'tf-check-prereqs'"
+  fi
+  _dsb_i ""
+  _dsb_i "Auth:"
+  _dsb_i "${githubAccount}"
+  _dsb_i "${azureAccount}"
+  _dsb_i ""
+  _dsb_i "File system:"
+  _dsb_i "  Root directory        : ${_dsbTfRootDir}"
+  _dsb_i "  Environments directory: ${envsDir}"
+  _dsb_i "  Available environments: ${availableEnvs[*]}"
+  _dsb_i ""
+  _dsb_i "Environment:"
+  if [ -z "${selectedEnv}" ]; then
+    _dsb_i "  ☐  Selected environment  : N/A, please run 'tf-select-env'"
+    _dsb_i "  ☐  Environment directory : N/A, please run 'tf-select-env'"
+    _dsb_i "  ☐  Lock file             : N/A, please run 'tf-select-env'"
+  else
+    if [ ${envStatus} -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  Selected environment  : ${selectedEnv}"
+      _dsb_i "  \e[32m☑\e[0m  Environment directory : ${selectedEnvDir}"
+      if [ ${lockFileStatus} -eq 0 ]; then
+        _dsb_i "  \e[32m☑\e[0m  Lock file             : ${_dsbTfSelectedEnvLockFile}"
+      else
+        _dsb_i "  \e[31m☒\e[0m  Lock file             : not found, please run 'tf-check-env ${selectedEnv}'"
+      fi
+    else
+      _dsb_i "  \e[31m☒\e[0m  Selected environment  : ${selectedEnv}, does not exist, please run 'tf-select-env'"
+      _dsb_i "  ☐  Environment directory : N/A, please select existing environment."
+      _dsb_i "  ☐  Lock file             : N/A, please select existing environment."
+    fi
+  fi
+  if [ ${returnCode} -ne 0 ]; then
+    _dsb_i ""
+    _dsb_w "not all green, 🧐"
+  fi
+
+  _dsbTfReturnCode=$returnCode
 }
 
 ###################################################################################################
@@ -263,17 +394,92 @@ _dsb_tf_check_realpath() {
 }
 
 _dsb_tf_check_tools() {
-  local returnCode=0
 
-  if ! _dsb_tf_check_az_cli; then returnCode=1; fi
-  if ! _dsb_tf_check_gh_cli; then returnCode=1; fi
-  if ! _dsb_tf_check_terraform; then returnCode=1; fi
-  if ! _dsb_tf_check_jq; then returnCode=1; fi
-  if ! _dsb_tf_check_yq; then returnCode=1; fi
-  if ! _dsb_tf_check_golang; then returnCode=1; fi
-  if ! _dsb_tf_check_hcledit; then returnCode=1; fi
-  if ! _dsb_tf_check_terraform_docs; then returnCode=1; fi
-  if ! _dsb_tf_check_realpath; then returnCode=1; fi
+  _dsb_i "Checking Azure CLI ..."
+  _dsb_tf_check_az_cli
+  local azCliStatus=$?
+
+  _dsb_i "Checking GitHub CLI ..."
+  _dsb_tf_check_gh_cli
+  local ghCliStatus=$?
+
+  _dsb_i "Checking Terraform ..."
+  _dsb_tf_check_terraform
+  local terraformStatus=$?
+
+  _dsb_i "Checking jq ..."
+  _dsb_tf_check_jq
+  local jqStatus=$?
+
+  _dsb_i "Checking yq ..."
+  _dsb_tf_check_yq
+  local yqStatus=$?
+
+  _dsb_i "Checking Go ..."
+  _dsb_tf_check_golang
+  local golangStatus=$?
+
+  _dsb_i "Checking hcledit ..."
+  _dsb_tf_check_hcledit
+  local hcleditStatus=$?
+
+  _dsb_i "Checking terraform-docs ..."
+  _dsb_tf_check_terraform_docs
+  local terraformDocsStatus=$?
+
+  _dsb_i "Checking realpath ..."
+  _dsb_tf_check_realpath
+  local realpathStatus=$?
+
+  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformDocsStatus + realpathStatus))
+
+  _dsb_i ""
+  _dsb_i "Tools check summary:"
+  if [ ${azCliStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  Azure CLI check: passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  Azure CLI check: fails, see above for more information."
+  fi
+  if [ ${ghCliStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  GitHub CLI check: passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  GitHub CLI check: fails, see above for more information."
+  fi
+  if [ ${terraformStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  Terraform check: passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  Terraform check: fails, see above for more information."
+  fi
+  if [ ${jqStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  jq check: passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  jq check: fails, see above for more information."
+  fi
+  if [ ${yqStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  yq check: passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  yq check: fails, see above for more information."
+  fi
+  if [ ${golangStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  Go check: passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  Go check: fails, see above for more information."
+  fi
+  if [ ${hcleditStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  hcledit check: passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  hcledit check: fails, see above for more information."
+  fi
+  if [ ${terraformDocsStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  terraform-docs check: passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  terraform-docs check: fails, see above for more information."
+  fi
+  if [ ${realpathStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  realpath check: passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  realpath check: fails, see above for more information."
+  fi
 
   return $returnCode
 }
@@ -281,9 +487,9 @@ _dsb_tf_check_tools() {
 _dsb_tf_check_gh_auth() {
   local returnCode=0
 
-  # allow check to pass if gh cli is not installed
-  if ! (_dsbTfLogErrors=0 _dsb_tf_check_gh_cli); then
-    return 0
+  # check fails if gh cli is not installed
+  if ! _dsbTfLogErrors=0 _dsb_tf_check_gh_cli; then
+    return 1
   fi
 
   if ! gh auth status &>/dev/null; then
@@ -361,15 +567,19 @@ _dsb_tf_check_current_dir() {
 }
 
 _dsb_tf_check_prereqs() {
-  _dsbTfLogErrors=0
-  _dsbTfLogInfo=1
+  local prevLogInfo="${_dsbTfLogInfo}"
+  local prevLogErrors="${_dsbTfLogErrors}"
 
   _dsb_tf_enumerate_directories
   _dsb_tf_error_stop_trapping
 
   _dsb_i_nonewline "Checking tools ..."
+  _dsbTfLogInfo=0
+  _dsbTfLogErrors=0
   _dsb_tf_check_tools
   local toolsStatus=$?
+  _dsbTfLogInfo="${prevLogInfo}"
+  _dsbTfLogErrors="${prevLogErrors}"
   _dsb_i_append " done."
 
   _dsb_i_nonewline "Checking GitHub authentication ..."
@@ -382,9 +592,14 @@ _dsb_tf_check_prereqs() {
   local workingDirStatus=$?
   _dsb_i_append " done."
 
-  _dsbTfLogErrors=1
+  # _dsbTfLogErrors=1
   _dsb_tf_error_start_trapping
   local returnCode=$((toolsStatus + ghAuthStatus + workingDirStatus))
+
+  _dsb_d "_dsb_tf_check_prereqs(): returnCode: ${returnCode}"
+  _dsb_d "_dsb_tf_check_prereqs(): toolsStatus: ${toolsStatus}"
+  _dsb_d "_dsb_tf_check_prereqs(): ghAuthStatus: ${ghAuthStatus}"
+  _dsb_d "_dsb_tf_check_prereqs(): workingDirStatus: ${workingDirStatus}"
 
   _dsb_i ""
   _dsb_i "Pre-requisites check summary:"
@@ -394,13 +609,13 @@ _dsb_tf_check_prereqs() {
     _dsb_i "  \e[31m☒\e[0m  Tools check: failed, please run 'tf-check-tools'"
   fi
   if [ ${ghAuthStatus} -eq 0 ]; then
-    if ! (_dsbTfLogErrors=0 _dsb_tf_check_gh_cli); then
+    _dsb_i "  \e[32m☑\e[0m  GitHub authentication check: passed."
+  else
+    if ! _dsbTfLogErrors=0 _dsb_tf_check_gh_cli; then
       _dsb_i "  ☐  GitHub authentication check: N/A, please run 'tf-check-tools'"
     else
-      _dsb_i "  \e[32m☑\e[0m  GitHub authentication check: passed."
+      _dsb_i "  \e[31m☒\e[0m  GitHub authentication check: failed."
     fi
-  else
-    _dsb_i "  \e[31m☒\e[0m  GitHub authentication check: failed."
   fi
   if [ ${workingDirStatus} -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  Working directory check: passed."
@@ -415,6 +630,8 @@ _dsb_tf_check_prereqs() {
   else
     _dsb_err "\e[31mPre-reqs check failed, for more information see above.\e[0m"
   fi
+
+  _dsb_d "_dsb_tf_check_prereqs(): returnCode: ${returnCode}"
 
   _dsbTfReturnCode=$returnCode
 }
@@ -650,6 +867,9 @@ _dsb_tf_look_for_lock_file() {
   local suppliedEnv="${1:-}"
   local selectedEnv selectedEnvDir
 
+  # clear global variable
+  _dsbTfSelectedEnvLockFile=""
+
   # this function is used in two forms:
   #   1. with a supplied environment name
   #   2. with the globally selected environment name
@@ -722,6 +942,8 @@ _dsb_tf_look_for_lock_file() {
     _dsb_err "  Expected lock file: ${selectedEnvDir}/.terraform.lock.hcl"
     return 1
   fi
+
+  _dsbTfSelectedEnvLockFile="${selectedEnvDir}/.terraform.lock.hcl"
 }
 
 ###################################################################################################
@@ -935,10 +1157,10 @@ _dsb_tf_select_env() {
 ###################################################################################################
 
 _dsb_tf_az_enumerate_account() {
-  _dsb_tf_error_stop_trapping
-  _dsb_tf_check_az_cli
 
   # if az cli is not installed, do not fail
+  _dsb_tf_error_stop_trapping
+  _dsb_tf_check_az_cli
   local azCliStatus=$?
   if [ "${azCliStatus}" -ne 0 ]; then
     return 0
@@ -1169,8 +1391,37 @@ tf-check-prereqs() {
   local returnCode
 
   _dsb_tf_configure_shell
+  _dsbTfLogErrors=0
+  _dsbTfLogInfo=1
   _dsb_tf_check_prereqs
   returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-check-tools() {
+  _dsb_tf_configure_shell
+  _dsbTfLogErrors=1
+  _dsbTfLogInfo=1
+
+  _dsb_tf_error_stop_trapping
+  _dsb_tf_check_tools
+  local returnCode=$?
+
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_err "Tools check failed."
+  else
+    _dsb_i "Tools check passed."
+  fi
+
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-status() {
+  _dsb_tf_configure_shell
+  _dsb_tf_report_status
+  local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
 }
@@ -1245,6 +1496,10 @@ az-login() {
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
+}
+
+az-relog() { # just an alias
+  az-login
 }
 
 ###################################################################################################
