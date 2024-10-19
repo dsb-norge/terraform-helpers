@@ -25,10 +25,19 @@
 #   az-whoami           -> az account show
 #   tf-status           -> checks + help + show az upn if logged in + show sub if selected
 #
+#   other:
+#     tab completion
+#     require az sub hint file
+#
 # TODO: functionality
 #
-# other
-#   require az sub hint file, look at how lock file is handled
+# help
+#   tf-help                 -> show short help, will list most used commands and command groups
+#   tf-help [group]         -> show help for command group
+#   tf-help general         -> show general help
+#   tf-help all             -> show all help
+#   tf-help [command]       -> show help for command
+#   tf-help help            -> show help for help
 #
 # tf operations
 #   tf-init-env     -> terraform init in chosen env
@@ -64,13 +73,6 @@
 #   tf-bump                 -> providers og tflint-plugins in chosen env
 #   tf-bump-gh              -> terraform and tflint in GitHub workflows
 #   tf-bump-all             -> providers og tflint-plugins in alle env + terraform and tflint in GitHub workflows
-#
-# help
-#   tf-help                 -> show general help
-#   tf-help short           -> show short help
-#   tf-help extensive       -> show extensive help
-#   tf-help [command]       -> show help for command
-#   tf-help help            -> show help for help
 #
 # TODO: future functionality
 #
@@ -131,19 +133,19 @@ unset -v varNames varName
 #
 ###################################################################################################
 
-_dsbTfShellOldOpts=""
-_dsbTfShellHistoryState=""
+declare -g _dsbTfShellOldOpts=""
+declare -g _dsbTfShellHistoryState=""
 
-_dsbTfSelectedEnv=""
-_dsbTfSelectedEnvDir=""
-_dsbTfSelectedEnvLockFile=""
-_dsbTfSelectedEnvSubscriptionHintFile=""
-_dsbTfSelectedEnvSubscriptionHintContent=""
-declare -A _dsbTfEnvsDirList    # Associative array
-declare -a _dsbTfAvailableEnvs  # Indexed array
-declare -A _dsbTfModulesDirList # Associative array
+declare -g _dsbTfSelectedEnv=""
+declare -g _dsbTfSelectedEnvDir=""
+declare -g _dsbTfSelectedEnvLockFile=""
+declare -g _dsbTfSelectedEnvSubscriptionHintFile=""
+declare -g _dsbTfSelectedEnvSubscriptionHintContent=""
+declare -gA _dsbTfEnvsDirList    # Associative array
+declare -ga _dsbTfAvailableEnvs  # Indexed array
+declare -gA _dsbTfModulesDirList # Associative array
 
-_dsbTfAzureUpn=""
+declare -g _dsbTfAzureUpn=""
 
 ###################################################################################################
 #
@@ -898,12 +900,38 @@ _dsb_tf_look_for_env() {
   fi
 }
 
-_dsb_tf_look_for_lock_file() {
+_dsb_tf_look_for_environment_file() {
   local suppliedEnv="${1:-}"
-  local selectedEnv selectedEnvDir
+  local suppliedFileType="${2:-}"
+  local suppliedGlobalToSavePathTo="${3:-}"
+  local selectedEnv selectedEnvDir lookForFilename
 
-  # clear global variable
-  _dsbTfSelectedEnvLockFile=""
+  case "${suppliedFileType}" in
+  "lock")
+    lookForFilename=".terraform.lock.hcl"
+    ;;
+  "subscriptionHint")
+    lookForFilename=".az-subscription"
+    ;;
+  *)
+    _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, expected suppliedFileType to be one of 'lock', 'subscriptionHint'."
+    _dsb_err "  suppliedFileType: ${suppliedFileType}"
+    return 1
+    ;;
+  esac
+
+  if [ -z "${suppliedGlobalToSavePathTo}" ]; then
+    _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, expected suppliedGlobalToSavePathTo to be set."
+    _dsb_err "  suppliedGlobalToSavePathTo: '${suppliedGlobalToSavePathTo}'"
+    return 1
+  fi
+
+  # make sure the global variable supplied in suppliedGlobalToSavePathTo is declared
+  if ! declare -p "${suppliedGlobalToSavePathTo}" &>/dev/null; then
+    _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, the supplied global variable is not declared."
+    _dsb_err "  expected in suppliedGlobalToSavePathTo: ${suppliedGlobalToSavePathTo}"
+    return 1
+  fi
 
   # this function is used in two forms:
   #   1. with a supplied environment name
@@ -914,12 +942,12 @@ _dsb_tf_look_for_lock_file() {
     local envFoundStatus=$?
 
     if [ "${envFoundStatus}" -eq 0 ]; then
-      _dsb_d "_dsb_tf_look_for_lock_file(): found suppliedEnv: ${suppliedEnv}"
+      _dsb_d "_dsb_tf_look_for_environment_file(): found suppliedEnv: ${suppliedEnv}"
 
       if ! declare -p _dsbTfEnvsDirList &>/dev/null; then
         _dsbTfLogErrors=1
         _dsb_tf_error_start_trapping
-        _dsb_err "Internal error: in _dsb_tf_look_for_lock_file, expected to find environments directory list."
+        _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, expected to find environments directory list."
         _dsb_err "  expected in: _dsbTfEnvsDirList"
         return 1
       fi
@@ -927,7 +955,7 @@ _dsb_tf_look_for_lock_file() {
       if [ -z "${_dsbTfEnvsDirList["${suppliedEnv}"]}" ]; then
         _dsbTfLogErrors=1
         _dsb_tf_error_start_trapping
-        _dsb_err "Internal error: in _dsb_tf_look_for_lock_file, expected to find selected environment directory."
+        _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, expected to find selected environment directory."
         _dsb_err "  expected in: _dsbTfEnvsDirList"
         return 1
       fi
@@ -941,14 +969,14 @@ _dsb_tf_look_for_lock_file() {
     selectedEnv="${_dsbTfSelectedEnv:-}"
 
     # we allow the check to pass if no environment is selected
-    _dsb_d "_dsb_tf_look_for_lock_file(): allow check to pass, no environment was selected"
+    _dsb_d "_dsb_tf_look_for_environment_file(): allow check to pass, no environment was selected"
     if [ -z "${selectedEnv}" ]; then return 0; fi
 
     # expect _dsbTfSelectedEnvDir to be set if an environment is selected
     if [ -z "${_dsbTfSelectedEnvDir:-}" ]; then
       _dsbTfLogErrors=1
       _dsb_tf_error_start_trapping
-      _dsb_err "Internal error: in _dsb_tf_look_for_lock_file, environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
+      _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
       _dsb_err "  selected environment: ${selectedEnv}"
       return 1
     fi
@@ -956,114 +984,54 @@ _dsb_tf_look_for_lock_file() {
     selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
   fi
 
-  _dsb_d "_dsb_tf_look_for_lock_file(): suppliedEnv: ${suppliedEnv}"
-  _dsb_d "_dsb_tf_look_for_lock_file(): selectedEnv: ${selectedEnv}"
-  _dsb_d "_dsb_tf_look_for_lock_file(): selectedEnvDir: ${selectedEnvDir}"
+  _dsb_d "_dsb_tf_look_for_environment_file(): suppliedEnv: ${suppliedEnv}"
+  _dsb_d "_dsb_tf_look_for_environment_file(): selectedEnv: ${selectedEnv}"
+  _dsb_d "_dsb_tf_look_for_environment_file(): selectedEnvDir: ${selectedEnvDir}"
 
   # expect _dsbTfSelectedEnvDir to be a directory
   if [ ! -d "${selectedEnvDir}" ]; then
     _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_look_for_lock_file, environment set in '_dsbTfSelectedEnv', but directory not found."
+    _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, environment set in '_dsbTfSelectedEnv', but directory not found."
     _dsb_err "  Selected environment: ${selectedEnv}"
     _dsb_err "  Expected directory: ${selectedEnvDir}"
     return 1
   fi
 
-  # require that a lock file exists in the environment directory to be considered a valid environment
-  if [ ! -f "${selectedEnvDir}/.terraform.lock.hcl" ]; then
-    _dsb_err "Lock file not found in selected environment. A lock file is required for an environment to be considered valid."
+  # require that a file exists in the environment directory to be considered a valid environment
+  if [ ! -f "${selectedEnvDir}/${lookForFilename}" ]; then
+    _dsb_err "File not found in selected environment. A '${suppliedFileType}' file is required for an environment to be considered valid."
     _dsb_err "  selected environment: ${selectedEnv}"
-    _dsb_err "  expected lock file: ${selectedEnvDir}/.terraform.lock.hcl"
+    _dsb_err "  expected ${suppliedFileType} file: ${selectedEnvDir}/${lookForFilename}"
     return 1
   fi
 
-  _dsbTfSelectedEnvLockFile="${selectedEnvDir}/.terraform.lock.hcl"
+  declare -g "${suppliedGlobalToSavePathTo}=${selectedEnvDir}/${lookForFilename}"
+}
+
+_dsb_tf_look_for_lock_file() {
+  local suppliedEnv="${1:-}"
+
+  # clear global variable
+  _dsbTfSelectedEnvLockFile=""
+  _dsb_tf_look_for_environment_file "${suppliedEnv}" 'lock' '_dsbTfSelectedEnvLockFile'
 }
 
 _dsb_tf_look_for_subscription_hint_file() {
   local suppliedEnv="${1:-}"
-  local selectedEnv selectedEnvDir
 
-  # clear global variable
+  # clear global variables
   _dsbTfSelectedEnvSubscriptionHintFile=""
   _dsbTfSelectedEnvSubscriptionHintContent=""
+  _dsb_tf_look_for_environment_file "${suppliedEnv}" 'subscriptionHint' '_dsbTfSelectedEnvSubscriptionHintFile'
 
-  # this function is used in two forms:
-  #   1. with a supplied environment name
-  #   2. with the globally selected environment name
-  if [ -n "${suppliedEnv}" ]; then # env was supplied
-
-    _dsb_tf_look_for_env "${suppliedEnv}"
-    local envFoundStatus=$?
-
-    if [ "${envFoundStatus}" -eq 0 ]; then
-      _dsb_d "_dsb_tf_look_for_subscription_hint_file(): found suppliedEnv: ${suppliedEnv}"
-
-      if ! declare -p _dsbTfEnvsDirList &>/dev/null; then
-        _dsbTfLogErrors=1
-        _dsb_tf_error_start_trapping
-        _dsb_err "Internal error: in _dsb_tf_look_for_subscription_hint_file, expected to find environments directory list."
-        _dsb_err "  expected in: _dsbTfEnvsDirList"
-        return 1
-      fi
-
-      if [ -z "${_dsbTfEnvsDirList["${suppliedEnv}"]}" ]; then
-        _dsbTfLogErrors=1
-        _dsb_tf_error_start_trapping
-        _dsb_err "Internal error: in _dsb_tf_look_for_subscription_hint_file, expected to find selected environment directory."
-        _dsb_err "  expected in: _dsbTfEnvsDirList"
-        return 1
-      fi
-
-      selectedEnvDir="${_dsbTfEnvsDirList["${suppliedEnv}"]}"
-      selectedEnv="${suppliedEnv}"
-    else
-      return 1
-    fi
-  else # env was not supplied
-    selectedEnv="${_dsbTfSelectedEnv:-}"
-
-    # we allow the check to pass if no environment is selected
-    _dsb_d "_dsb_tf_look_for_subscription_hint_file(): allow check to pass, no environment was selected"
-    if [ -z "${selectedEnv}" ]; then return 0; fi
-
-    # expect _dsbTfSelectedEnvDir to be set if an environment is selected
-    if [ -z "${_dsbTfSelectedEnvDir:-}" ]; then
-      _dsbTfLogErrors=1
-      _dsb_tf_error_start_trapping
-      _dsb_err "Internal error: in _dsb_tf_look_for_subscription_hint_file, environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
-      _dsb_err "  Selected environment: ${selectedEnv}"
-      return 1
-    fi
-
-    selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
-  fi
-
-  _dsb_d "_dsb_tf_look_for_subscription_hint_file(): suppliedEnv: ${suppliedEnv}"
-  _dsb_d "_dsb_tf_look_for_subscription_hint_file(): selectedEnv: ${selectedEnv}"
-  _dsb_d "_dsb_tf_look_for_subscription_hint_file(): selectedEnvDir: ${selectedEnvDir}"
-
-  # expect _dsbTfSelectedEnvDir to be a directory
-  if [ ! -d "${selectedEnvDir}" ]; then
-    _dsbTfLogErrors=1
-    _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_look_for_subscription_hint_file, environment set in '_dsbTfSelectedEnv', but directory not found."
-    _dsb_err "  Selected environment: ${selectedEnv}"
-    _dsb_err "  Expected directory: ${selectedEnvDir}"
+  if [ -f "${_dsbTfSelectedEnvSubscriptionHintFile}" ]; then
+    _dsbTfSelectedEnvSubscriptionHintContent=$(cat "${_dsbTfSelectedEnvSubscriptionHintFile}")
+  else
+    _dsb_err "Internal error: in _dsb_tf_look_for_subscription_hint_file, expected to find subscription hint file."
+    _dsb_err "  expected in: _dsbTfSelectedEnvSubscriptionHintFile"
     return 1
   fi
-
-  # require that a subscription hint file exists in the environment directory to be considered a valid environment
-  if [ ! -f "${selectedEnvDir}/.az-subscription" ]; then
-    _dsb_err "Subscription hint file not found in selected environment. A subscription hint file is required for an environment to be considered valid."
-    _dsb_err "  selected environment: ${selectedEnv}"
-    _dsb_err "  expected subscription hint file: ${selectedEnvDir}/.az-subscription"
-    return 1
-  fi
-
-  _dsbTfSelectedEnvSubscriptionHintFile="${selectedEnvDir}/.az-subscription"
-  _dsbTfSelectedEnvSubscriptionHintContent="$(cat "${_dsbTfSelectedEnvSubscriptionHintFile}")"
 }
 
 ###################################################################################################
@@ -1410,6 +1378,10 @@ _dsb_tf_error_handler() {
     _dsb_err "  function  : ${FUNCNAME[1]}"
     _dsb_err "  command   : ${BASH_COMMAND}"
     _dsb_err "  exit code : ${_dsbTfReturnCode}"
+    _dsb_err "Call stack:"
+    for ((i = 1; i < ${#FUNCNAME[@]}; i++)); do
+      _dsb_err "  ${FUNCNAME[$i]} called at (dsb-tf-proj-helpers.sh:${BASH_LINENO[$((i - 1))]})"
+    done
     _dsb_err "Operation aborted."
   fi
 
@@ -1448,11 +1420,12 @@ _dsb_tf_configure_shell() {
   _dsb_tf_error_start_trapping
 
   # some default values
-  _dsbTfLogInfo=1
-  _dsbTfLogWarnings=1
-  _dsbTfLogErrors=1
-  _dsbTfEnvsDirList=()
-  _dsbTfAvailableEnvs=()
+  declare -g _dsbTfLogInfo=1
+  declare -g _dsbTfLogWarnings=1
+  declare -g _dsbTfLogErrors=1
+  declare -gA _dsbTfEnvsDirList=()
+  declare -ga _dsbTfAvailableEnvs=()
+  declare -gA _dsbTfModulesDirList=()
   unset _dsbTfReturnCode
 }
 
@@ -1471,8 +1444,6 @@ _dsb_tf_restore_shell() {
   fi
 
   # clear variables
-  # unset _dsbTfShellOldOpts
-  # unset _dsbTfShellHistoryState
   unset _dsbTfLogInfo
   unset _dsbTfLogWarnings
   unset _dsbTfLogErrors
@@ -1485,6 +1456,8 @@ _dsb_tf_restore_shell() {
 #
 ###################################################################################################
 
+# for _dsbTfAvailableEnvs
+# --------------------------------------------------
 _dsb_tf_completions_for_avalable_envs() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=()
@@ -1498,21 +1471,15 @@ _dsb_tf_completions_for_avalable_envs() {
   fi
 }
 
-# for _dsbTfAvailableEnvs
-# ------------------------
 _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_avalable_envs tf-set-env
   complete -F _dsb_tf_completions_for_avalable_envs tf-check-env
   complete -F _dsb_tf_completions_for_avalable_envs tf-select-env
 }
-_dsb_tf_unregister_completions_for_available_envs() {
-  complete -r tf-set-env
-  complete -r tf-check-env
-  complete -r tf-select-env
-}
 
 # make it easier to configure the shell
 _dsb_tf_register_all_completions() {
+  _dsb_tf_enumerate_directories || :
   _dsb_tf_register_completions_for_available_envs
 }
 
