@@ -1028,8 +1028,6 @@ _dsb_tf_look_for_subscription_hint_file() {
   if [ -f "${_dsbTfSelectedEnvSubscriptionHintFile}" ]; then
     _dsbTfSelectedEnvSubscriptionHintContent=$(cat "${_dsbTfSelectedEnvSubscriptionHintFile}")
   else
-    _dsb_err "Internal error: in _dsb_tf_look_for_subscription_hint_file, expected to find subscription hint file."
-    _dsb_err "  expected in: _dsbTfSelectedEnvSubscriptionHintFile"
     return 1
   fi
 }
@@ -1182,16 +1180,24 @@ _dsb_tf_set_env() {
   _dsb_tf_error_stop_trapping
 
   # check if the selected environment is valid
+
   _dsb_tf_look_for_lock_file
   local lockFileStatus=$?
+
+  _dsb_tf_look_for_subscription_hint_file
+  local subscriptionHintFileStatus=$?
 
   if [ "${lockFileStatus}" -ne 0 ]; then
     _dsbTfLogErrors=1
     _dsb_err "Lock file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
-    _dsbTfReturnCode=1
-  else
-    _dsbTfReturnCode=0
   fi
+
+  if [ "${subscriptionHintFileStatus}" -ne 0 ]; then
+    _dsbTfLogErrors=1
+    _dsb_err "Subscription hint file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
+  fi
+
+  _dsbTfReturnCode=$((lockFileStatus + subscriptionHintFileStatus))
 
   return 0 # caller reads _dsbTfReturnCode
 }
