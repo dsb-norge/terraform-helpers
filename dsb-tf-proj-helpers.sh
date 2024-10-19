@@ -81,36 +81,49 @@
 
 ###################################################################################################
 #
-# Remove any old code
+# Remove any old code remnants
 #
 ###################################################################################################
 
-# unset all variables starting with '_dsbTf'
+# variables starting with '_dsbTf'
 varNames=$(typeset -p | awk '$3 ~ /^_dsbTf/ { sub(/=.*/, "", $3); print $3 }') || varNames=''
 for varName in ${varNames}; do
   unset -v "${varName}" || :
 done
 
-# unset all functions starting with '_dsb_'
-functionNames=$(declare -F | grep -e ' _dsb_' | cut --fields 3 --delimiter=' ') || functionNames=''
-for functionName in ${functionNames}; do
-  unset -f "${functionName}" || :
-done
+unsetFunctionsWithPrefix() {
+  local prefix="${1}"
+  local functionNames
+  functionNames=$(declare -F | grep -e " ${prefix}" | cut --fields 3 --delimiter=' ') || functionNames=''
+  for functionName in ${functionNames}; do
+    unset -f "${functionName}" || :
+  done
+}
 
-# unset all functions starting with 'tf-'
-functionNames=$(declare -F | grep -e ' tf-' | cut --fields 3 --delimiter=' ') || functionNames=''
-for functionName in ${functionNames}; do
-  unset -f "${functionName}" || :
-done
+# functions with knonw prefixes
+unsetFunctionsWithPrefix '_dsb_'
+unsetFunctionsWithPrefix 'tf-'
+unsetFunctionsWithPrefix 'az-'
 
-# unset all functions starting with 'az-'
-functionNames=$(declare -F | grep -e ' az-' | cut --fields 3 --delimiter=' ') || functionNames=''
-for functionName in ${functionNames}; do
-  unset -f "${functionName}" || :
-done
+unsetCompletionsWithPrefix() {
+  local prefix="${1}"
+  local completions
+  completions=$(
+    complete -p |
+      grep -o "complete -F [^ ]* ${prefix}[^ ]*" |
+      awk '{print $NF}'
+  ) || completions=''
+  for completion in ${completions}; do
+    complete -r "${completion}" || :
+  done
+}
 
+# tab completion with known prefixes
+unsetCompletionsWithPrefix 'tf-'
+unsetCompletionsWithPrefix 'az-'
+
+unset -f unsetFunctionsWithPrefix unsetCompletionsWithPrefix
 unset -v varNames varName
-unset -v functionNames functionName
 
 ###################################################################################################
 #
@@ -124,6 +137,8 @@ _dsbTfShellHistoryState=""
 _dsbTfSelectedEnv=""
 _dsbTfSelectedEnvDir=""
 _dsbTfSelectedEnvLockFile=""
+_dsbTfSelectedEnvSubscriptionHintFile=""
+_dsbTfSelectedEnvSubscriptionHintContent=""
 declare -A _dsbTfEnvsDirList    # Associative array
 declare -a _dsbTfAvailableEnvs  # Indexed array
 declare -A _dsbTfModulesDirList # Associative array
@@ -225,23 +240,33 @@ _dsb_tf_report_status() {
 
   local envsDir="${_dsbTfEnvsDir:-}"
   local -a availableEnvs=("${_dsbTfAvailableEnvs[@]}")
+  local availableEnvsCommaSeparated # declare and assign separately to avoid shellcheck warning
+  availableEnvsCommaSeparated=$(
+    IFS=,
+    echo "${availableEnvs[*]}"
+  )
+  availableEnvsCommaSeparated=${availableEnvsCommaSeparated//,/, }
   local selectedEnv="${_dsbTfSelectedEnv:-}"
   local selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
 
   local envStatus=1
-  local lockFileStatus=$?
+  local lockFileStatus=1
+  local subHintFileStatus=1
   if [ -n "${selectedEnv}" ]; then
     _dsb_tf_look_for_env "${selectedEnv}"
     envStatus=$?
 
     _dsb_tf_look_for_lock_file "${selectedEnv}"
     lockFileStatus=$?
+
+    _dsb_tf_look_for_subscription_hint_file "${selectedEnv}"
+    subHintFileStatus=$?
   fi
 
   _dsbTfLogInfo=1
   _dsbTfLogErrors=1
   _dsb_tf_error_start_trapping
-  local returnCode=$((prereqStatus + githubStatus + azureStatus + envStatus + lockFileStatus))
+  local returnCode=$((prereqStatus + githubStatus + azureStatus + envStatus + lockFileStatus + subHintFileStatus))
 
   _dsb_i "Overall:"
 
@@ -249,6 +274,9 @@ _dsb_tf_report_status() {
   _dsb_d "_dsb_tf_report_status(): prereqStatus: ${prereqStatus}"
   _dsb_d "_dsb_tf_report_status(): githubStatus: ${githubStatus}"
   _dsb_d "_dsb_tf_report_status(): azureStatus: ${azureStatus}"
+  _dsb_d "_dsb_tf_report_status(): envStatus: ${envStatus}"
+  _dsb_d "_dsb_tf_report_status(): lockFileStatus: ${lockFileStatus}"
+  _dsb_d "_dsb_tf_report_status(): subHintFileStatus: ${subHintFileStatus}"
 
   if [ ${prereqStatus} -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  Pre-requisites check: passed."
@@ -263,13 +291,14 @@ _dsb_tf_report_status() {
   _dsb_i "File system:"
   _dsb_i "  Root directory        : ${_dsbTfRootDir}"
   _dsb_i "  Environments directory: ${envsDir}"
-  _dsb_i "  Available environments: ${availableEnvs[*]}"
+  _dsb_i "  Available environments: ${availableEnvsCommaSeparated}"
   _dsb_i ""
   _dsb_i "Environment:"
   if [ -z "${selectedEnv}" ]; then
     _dsb_i "  ☐  Selected environment  : N/A, please run 'tf-select-env'"
-    _dsb_i "  ☐  Environment directory : N/A, please run 'tf-select-env'"
-    _dsb_i "  ☐  Lock file             : N/A, please run 'tf-select-env'"
+    _dsb_i "  ☐  Environment directory : N/A"
+    _dsb_i "  ☐  Lock file             : N/A"
+    _dsb_i "  ☐  Subscription hint file: N/A"
   else
     if [ ${envStatus} -eq 0 ]; then
       _dsb_i "  \e[32m☑\e[0m  Selected environment  : ${selectedEnv}"
@@ -279,15 +308,24 @@ _dsb_tf_report_status() {
       else
         _dsb_i "  \e[31m☒\e[0m  Lock file             : not found, please run 'tf-check-env ${selectedEnv}'"
       fi
+      if [ ${subHintFileStatus} -eq 0 ]; then
+        _dsb_i "  \e[32m☑\e[0m  Subscription hint file: ${_dsbTfSelectedEnvSubscriptionHintFile}"
+        _dsb_i "  \e[32m☑\e[0m  Subscription hint     : ${_dsbTfSelectedEnvSubscriptionHintContent:-}"
+      else
+        _dsb_i "  \e[31m☒\e[0m  Subscription hint file: not found, please run 'tf-check-env ${selectedEnv}'"
+        _dsb_i "  \e[31m☒\e[0m  Subscription hint     : N/A"
+      fi
     else
       _dsb_i "  \e[31m☒\e[0m  Selected environment  : ${selectedEnv}, does not exist, please run 'tf-select-env'"
-      _dsb_i "  ☐  Environment directory : N/A, please select existing environment."
-      _dsb_i "  ☐  Lock file             : N/A, please select existing environment."
+      _dsb_i "  ☐  Environment directory : N/A"
+      _dsb_i "  ☐  Lock file             : N/A"
+      _dsb_i "  ☐  Subscription hint file: N/A"
+      _dsb_i "  ☐  Subscription hint     : N/A"
     fi
   fi
   if [ ${returnCode} -ne 0 ]; then
     _dsb_i ""
-    _dsb_w "not all green, 🧐"
+    _dsb_w "not all green 🧐"
   fi
 
   _dsbTfReturnCode=$returnCode
@@ -436,49 +474,49 @@ _dsb_tf_check_tools() {
   _dsb_i ""
   _dsb_i "Tools check summary:"
   if [ ${azCliStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Azure CLI check: passed."
+    _dsb_i "  \e[32m☑\e[0m  Azure CLI check      : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Azure CLI check: fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  Azure CLI check      : fails, see above for more information."
   fi
   if [ ${ghCliStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  GitHub CLI check: passed."
+    _dsb_i "  \e[32m☑\e[0m  GitHub CLI check     : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  GitHub CLI check: fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  GitHub CLI check     : fails, see above for more information."
   fi
   if [ ${terraformStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Terraform check: passed."
+    _dsb_i "  \e[32m☑\e[0m  Terraform check      : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Terraform check: fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  Terraform check      : fails, see above for more information."
   fi
   if [ ${jqStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  jq check: passed."
+    _dsb_i "  \e[32m☑\e[0m  jq check             : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  jq check: fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  jq check             : fails, see above for more information."
   fi
   if [ ${yqStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  yq check: passed."
+    _dsb_i "  \e[32m☑\e[0m  yq check             : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  yq check: fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  yq check             : fails, see above for more information."
   fi
   if [ ${golangStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Go check: passed."
+    _dsb_i "  \e[32m☑\e[0m  Go check             : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Go check: fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  Go check             : fails, see above for more information."
   fi
   if [ ${hcleditStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  hcledit check: passed."
+    _dsb_i "  \e[32m☑\e[0m  hcledit check        : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  hcledit check: fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  hcledit check        : fails, see above for more information."
   fi
   if [ ${terraformDocsStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  terraform-docs check: passed."
+    _dsb_i "  \e[32m☑\e[0m  terraform-docs check : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  terraform-docs check: fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  terraform-docs check : fails, see above for more information."
   fi
   if [ ${realpathStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  realpath check: passed."
+    _dsb_i "  \e[32m☑\e[0m  realpath check       : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  realpath check: fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  realpath check       : fails, see above for more information."
   fi
 
   return $returnCode
@@ -519,40 +557,26 @@ _dsb_tf_check_current_dir() {
   _dsb_tf_look_for_envs_dir
   local envsDirStatus=$?
 
-  _dsb_i "Checking lock file ..."
-  _dsb_tf_look_for_lock_file
-  local lockFileStatus=$?
-
   _dsb_tf_error_start_trapping
-  local returnCode=$((mainDirStatus + envsDirStatus + lockFileStatus))
+  local returnCode=$((mainDirStatus + envsDirStatus))
 
   _dsb_i ""
   _dsb_i "Directory check summary:"
 
   if [ "${mainDirStatus}" -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Main directory check: passed."
+    _dsb_i "  \e[32m☑\e[0m  Main directory check         : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Main directory check: failed."
+    _dsb_i "  \e[31m☒\e[0m  Main directory check         : failed."
   fi
 
   if [ "${envsDirStatus}" -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Environments directory check: passed."
+    _dsb_i "  \e[32m☑\e[0m  Environments directory check : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Environments directory check: failed."
+    _dsb_i "  \e[31m☒\e[0m  Environments directory check : failed."
   fi
 
   local selectedEnv="${_dsbTfSelectedEnv:-}"
   _dsb_d "_dsb_tf_check_current_dir(): selectedEnv: ${selectedEnv}"
-
-  if [ "${lockFileStatus}" -eq 0 ]; then
-    if [ -z "${selectedEnv}" ]; then
-      _dsb_i "  ☐  Lock file check: N/A, no environment selected, please run 'tf-select-env'"
-    else
-      _dsb_i "  \e[32m☑\e[0m  Lock file check: passed."
-    fi
-  else
-    _dsb_i "  \e[31m☒\e[0m  Lock file check: failed."
-  fi
 
   _dsb_i ""
   if [ "${returnCode}" -eq 0 ]; then
@@ -604,23 +628,23 @@ _dsb_tf_check_prereqs() {
   _dsb_i ""
   _dsb_i "Pre-requisites check summary:"
   if [ ${toolsStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Tools check: passed."
+    _dsb_i "  \e[32m☑\e[0m  Tools check                  : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Tools check: failed, please run 'tf-check-tools'"
+    _dsb_i "  \e[31m☒\e[0m  Tools check                  : failed, please run 'tf-check-tools'"
   fi
   if [ ${ghAuthStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  GitHub authentication check: passed."
+    _dsb_i "  \e[32m☑\e[0m  GitHub authentication check  : passed."
   else
     if ! _dsbTfLogErrors=0 _dsb_tf_check_gh_cli; then
-      _dsb_i "  ☐  GitHub authentication check: N/A, please run 'tf-check-tools'"
+      _dsb_i "  ☐  GitHub authentication check  : N/A, please run 'tf-check-tools'"
     else
-      _dsb_i "  \e[31m☒\e[0m  GitHub authentication check: failed."
+      _dsb_i "  \e[31m☒\e[0m  GitHub authentication check  : failed."
     fi
   fi
   if [ ${workingDirStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Working directory check: passed."
+    _dsb_i "  \e[32m☑\e[0m  Working directory check      : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Working directory check: failed, please run 'tf-check-dir'"
+    _dsb_i "  \e[31m☒\e[0m  Working directory check      : failed, please run 'tf-check-dir'"
   fi
 
   _dsb_i ""
@@ -647,11 +671,12 @@ _dsb_tf_check_env() {
   #   2. with the globally selected environment name
   local selectedEnv="${_dsbTfSelectedEnv:-}"
   local lockFileStatus=0
+  local subscriptionHintFileStatus=0
   if [ -z "${envToCheck}" ]; then
     if [ -z "${selectedEnv}" ]; then
       _dsb_err "No environment specified and no environment selected."
       _dsb_err "  either specify environment: tf-check-env [env]"
-      _dsb_err "  other options: tf-select-env, tf-set-env [env], tf-list-envs"
+      _dsb_err "  or run one of the following: tf-select-env, tf-set-env [env], tf-list-envs"
       _dsbTfReturnCode=1
       return 0 # caller reads _dsbTfReturnCode
     fi
@@ -672,23 +697,33 @@ _dsb_tf_check_env() {
     _dsb_i "Checking lock file ..."
     _dsb_tf_look_for_lock_file "${envToCheck}"
     lockFileStatus=$?
+
+    _dsb_i "Checking subscription hint file ..."
+    _dsb_tf_look_for_subscription_hint_file "${envToCheck}"
+    subscriptionHintFileStatus=$?
   fi
 
   _dsb_tf_error_start_trapping
-  local returnCode=$((envStatus + lockFileStatus))
+  local returnCode=$((envStatus + lockFileStatus + subscriptionHintFileStatus))
 
   _dsb_i ""
   _dsb_i "Environment check summary:"
   if [ ${envStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Environment: found."
+    _dsb_i "  \e[32m☑\e[0m  Environment                  : found."
     if [ ${lockFileStatus} -eq 0 ]; then
-      _dsb_i "  \e[32m☑\e[0m  Lock file check: passed."
+      _dsb_i "  \e[32m☑\e[0m  Lock file check              : passed."
     else
-      _dsb_i "  \e[31m☒\e[0m  Lock file check: failed."
+      _dsb_i "  \e[31m☒\e[0m  Lock file check              : failed."
+    fi
+    if [ ${subscriptionHintFileStatus} -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  Subscription hint file check : passed."
+    else
+      _dsb_i "  \e[31m☒\e[0m  Subscription hint file check : failed."
     fi
   else
-    _dsb_i "  \e[31m☒\e[0m  Environment: not found."
-    _dsb_i "  ☐  Lock file check: N/A, environment not found."
+    _dsb_i "  \e[31m☒\e[0m  Environment                  : not found."
+    _dsb_i "  ☐  Lock file check              : N/A, environment not found."
+    _dsb_i "  ☐  Subscription hint file check : N/A, environment not found."
   fi
 
   _dsb_i ""
@@ -913,8 +948,8 @@ _dsb_tf_look_for_lock_file() {
     if [ -z "${_dsbTfSelectedEnvDir:-}" ]; then
       _dsbTfLogErrors=1
       _dsb_tf_error_start_trapping
-      _dsb_err "Internal error: environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
-      _dsb_err "  Selected environment: ${selectedEnv}"
+      _dsb_err "Internal error: in _dsb_tf_look_for_lock_file, environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
+      _dsb_err "  selected environment: ${selectedEnv}"
       return 1
     fi
 
@@ -929,7 +964,7 @@ _dsb_tf_look_for_lock_file() {
   if [ ! -d "${selectedEnvDir}" ]; then
     _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: environment set in '_dsbTfSelectedEnv', but directory not found."
+    _dsb_err "Internal error: in _dsb_tf_look_for_lock_file, environment set in '_dsbTfSelectedEnv', but directory not found."
     _dsb_err "  Selected environment: ${selectedEnv}"
     _dsb_err "  Expected directory: ${selectedEnvDir}"
     return 1
@@ -938,12 +973,97 @@ _dsb_tf_look_for_lock_file() {
   # require that a lock file exists in the environment directory to be considered a valid environment
   if [ ! -f "${selectedEnvDir}/.terraform.lock.hcl" ]; then
     _dsb_err "Lock file not found in selected environment. A lock file is required for an environment to be considered valid."
-    _dsb_err "  Selected environment: ${selectedEnv}"
-    _dsb_err "  Expected lock file: ${selectedEnvDir}/.terraform.lock.hcl"
+    _dsb_err "  selected environment: ${selectedEnv}"
+    _dsb_err "  expected lock file: ${selectedEnvDir}/.terraform.lock.hcl"
     return 1
   fi
 
   _dsbTfSelectedEnvLockFile="${selectedEnvDir}/.terraform.lock.hcl"
+}
+
+_dsb_tf_look_for_subscription_hint_file() {
+  local suppliedEnv="${1:-}"
+  local selectedEnv selectedEnvDir
+
+  # clear global variable
+  _dsbTfSelectedEnvSubscriptionHintFile=""
+  _dsbTfSelectedEnvSubscriptionHintContent=""
+
+  # this function is used in two forms:
+  #   1. with a supplied environment name
+  #   2. with the globally selected environment name
+  if [ -n "${suppliedEnv}" ]; then # env was supplied
+
+    _dsb_tf_look_for_env "${suppliedEnv}"
+    local envFoundStatus=$?
+
+    if [ "${envFoundStatus}" -eq 0 ]; then
+      _dsb_d "_dsb_tf_look_for_subscription_hint_file(): found suppliedEnv: ${suppliedEnv}"
+
+      if ! declare -p _dsbTfEnvsDirList &>/dev/null; then
+        _dsbTfLogErrors=1
+        _dsb_tf_error_start_trapping
+        _dsb_err "Internal error: in _dsb_tf_look_for_subscription_hint_file, expected to find environments directory list."
+        _dsb_err "  expected in: _dsbTfEnvsDirList"
+        return 1
+      fi
+
+      if [ -z "${_dsbTfEnvsDirList["${suppliedEnv}"]}" ]; then
+        _dsbTfLogErrors=1
+        _dsb_tf_error_start_trapping
+        _dsb_err "Internal error: in _dsb_tf_look_for_subscription_hint_file, expected to find selected environment directory."
+        _dsb_err "  expected in: _dsbTfEnvsDirList"
+        return 1
+      fi
+
+      selectedEnvDir="${_dsbTfEnvsDirList["${suppliedEnv}"]}"
+      selectedEnv="${suppliedEnv}"
+    else
+      return 1
+    fi
+  else # env was not supplied
+    selectedEnv="${_dsbTfSelectedEnv:-}"
+
+    # we allow the check to pass if no environment is selected
+    _dsb_d "_dsb_tf_look_for_subscription_hint_file(): allow check to pass, no environment was selected"
+    if [ -z "${selectedEnv}" ]; then return 0; fi
+
+    # expect _dsbTfSelectedEnvDir to be set if an environment is selected
+    if [ -z "${_dsbTfSelectedEnvDir:-}" ]; then
+      _dsbTfLogErrors=1
+      _dsb_tf_error_start_trapping
+      _dsb_err "Internal error: in _dsb_tf_look_for_subscription_hint_file, environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
+      _dsb_err "  Selected environment: ${selectedEnv}"
+      return 1
+    fi
+
+    selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
+  fi
+
+  _dsb_d "_dsb_tf_look_for_subscription_hint_file(): suppliedEnv: ${suppliedEnv}"
+  _dsb_d "_dsb_tf_look_for_subscription_hint_file(): selectedEnv: ${selectedEnv}"
+  _dsb_d "_dsb_tf_look_for_subscription_hint_file(): selectedEnvDir: ${selectedEnvDir}"
+
+  # expect _dsbTfSelectedEnvDir to be a directory
+  if [ ! -d "${selectedEnvDir}" ]; then
+    _dsbTfLogErrors=1
+    _dsb_tf_error_start_trapping
+    _dsb_err "Internal error: in _dsb_tf_look_for_subscription_hint_file, environment set in '_dsbTfSelectedEnv', but directory not found."
+    _dsb_err "  Selected environment: ${selectedEnv}"
+    _dsb_err "  Expected directory: ${selectedEnvDir}"
+    return 1
+  fi
+
+  # require that a subscription hint file exists in the environment directory to be considered a valid environment
+  if [ ! -f "${selectedEnvDir}/.az-subscription" ]; then
+    _dsb_err "Subscription hint file not found in selected environment. A subscription hint file is required for an environment to be considered valid."
+    _dsb_err "  selected environment: ${selectedEnv}"
+    _dsb_err "  expected subscription hint file: ${selectedEnvDir}/.az-subscription"
+    return 1
+  fi
+
+  _dsbTfSelectedEnvSubscriptionHintFile="${selectedEnvDir}/.az-subscription"
+  _dsbTfSelectedEnvSubscriptionHintContent="$(cat "${_dsbTfSelectedEnvSubscriptionHintFile}")"
 }
 
 ###################################################################################################
@@ -1361,6 +1481,43 @@ _dsb_tf_restore_shell() {
 
 ###################################################################################################
 #
+# Tab completion
+#
+###################################################################################################
+
+_dsb_tf_completions_for_avalable_envs() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  # only complete if _dsbTfAvailableEnvs is set
+  if [[ -v _dsbTfAvailableEnvs ]]; then
+    if [[ -n "${_dsbTfAvailableEnvs[*]}" ]]; then
+      # COMPREPLY=( $(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "$cur") )
+      mapfile -t COMPREPLY < <(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "${cur}")
+    fi
+  fi
+}
+
+# for _dsbTfAvailableEnvs
+# ------------------------
+_dsb_tf_register_completions_for_available_envs() {
+  complete -F _dsb_tf_completions_for_avalable_envs tf-set-env
+  complete -F _dsb_tf_completions_for_avalable_envs tf-check-env
+  complete -F _dsb_tf_completions_for_avalable_envs tf-select-env
+}
+_dsb_tf_unregister_completions_for_available_envs() {
+  complete -r tf-set-env
+  complete -r tf-check-env
+  complete -r tf-select-env
+}
+
+# make it easier to configure the shell
+_dsb_tf_register_all_completions() {
+  _dsb_tf_register_completions_for_available_envs
+}
+
+###################################################################################################
+#
 # Exposed functions
 #
 ###################################################################################################
@@ -1432,6 +1589,8 @@ tf-list-envs() {
   _dsb_tf_configure_shell
   _dsb_tf_list_envs
   local returnCode="${_dsbTfReturnCode}"
+  _dsb_i ""
+  _dsb_i "To choose an environment, use either 'tf-set-env <env>' or 'tf-select-env'"
   _dsb_tf_restore_shell
   return "${returnCode}"
 }
@@ -1509,5 +1668,7 @@ az-relog() { # just an alias
 ###################################################################################################
 
 # TODO banner and eye candy
+_dsb_tf_enumerate_directories || :
+_dsb_tf_register_all_completions || :
 _dsb_i "DSB terraform project helpers loaded."
 _dsb_i "  use 'tf-help' to get started."
