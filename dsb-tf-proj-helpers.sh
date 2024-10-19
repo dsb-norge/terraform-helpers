@@ -29,15 +29,16 @@
 #     tab completion
 #     require az sub hint file
 #
-# TODO: functionality
+#   help
+#     tf-help                 -> show short help, will list most used commands and command groups
+#     tf-help [group]         -> show help for command group
+#     tf-help general         -> show general help
+#     tf-help all             -> show all help
+#     tf-help [command]       -> show help for command
+#     tf-help help            -> show help for help
 #
-# help
-#   tf-help                 -> show short help, will list most used commands and command groups
-#   tf-help [group]         -> show help for command group
-#   tf-help general         -> show general help
-#   tf-help all             -> show all help
-#   tf-help [command]       -> show help for command
-#   tf-help help            -> show help for help
+# TODO: functionality
+
 #
 # tf operations
 #   tf-init-env     -> terraform init in chosen env
@@ -93,6 +94,7 @@ for varName in ${varNames}; do
   unset -v "${varName}" || :
 done
 
+# for functions
 unsetFunctionsWithPrefix() {
   local prefix="${1}"
   local functionNames
@@ -107,6 +109,7 @@ unsetFunctionsWithPrefix '_dsb_'
 unsetFunctionsWithPrefix 'tf-'
 unsetFunctionsWithPrefix 'az-'
 
+# for tab completion
 unsetCompletionsWithPrefix() {
   local prefix="${1}"
   local completions
@@ -124,6 +127,7 @@ unsetCompletionsWithPrefix() {
 unsetCompletionsWithPrefix 'tf-'
 unsetCompletionsWithPrefix 'az-'
 
+# cleanup the cleanup
 unset -f unsetFunctionsWithPrefix unsetCompletionsWithPrefix
 unset -v varNames varName
 
@@ -146,6 +150,7 @@ declare -ga _dsbTfAvailableEnvs  # Indexed array
 declare -gA _dsbTfModulesDirList # Associative array
 
 declare -g _dsbTfAzureUpn=""
+declare -ga _dsbTfAvailableHelpCommands
 
 ###################################################################################################
 #
@@ -331,6 +336,268 @@ _dsb_tf_report_status() {
   fi
 
   _dsbTfReturnCode=$returnCode
+}
+
+###################################################################################################
+#
+# Help functions
+#
+###################################################################################################
+
+# the help function
+#   supports many inupts:
+#     tf-help                 -> show short help, will list most used commands and command groups
+#     tf-help groups          -> show all command groups
+#                                valid groups are 'general'/'overall', 'all', 'azure', 'checks', 'environments', 'terraform', 'linting'/'tflint', 'upgrading'/'bumping'
+#                                NOT IMPLMENTING IN HELP FOR NOW: 'terraform', 'linting'/'tflint', 'upgrading'/'bumping'
+#     tf-help [group]         -> show help for command group,
+#                                valid groups are 'general'/'overall', 'all', 'azure', 'checks', 'environments', 'terraform', 'linting'/'tflint', 'upgrading'/'bumping'
+#                                NOT IMPLMENTING IN HELP FOR NOW: 'terraform', 'linting'/'tflint', 'upgrading'/'bumping'
+#     tf-help general         -> show general help
+#                                mention that 'tf-help' is the same as 'tf-help general'
+#                                talk about 'tf-help groups'
+#                                talk about 'tf-help commands'
+#                                mention 'tf-help all'
+#     tf-help all             -> show all help
+#     tf-help commands        -> show all commands, make sure to group and indent commands by group
+#                                valid commands are: 'check-tools', 'check-gh-auth', 'check-dir', 'check-prereqs', 'list-envs', 'set-env', 'clear-env', 'select-env', 'check-env', 'az-logout', 'az-login', 'az-relog', 'az-whoami', 'tf-status'
+#                                NOT IMPLMENTING IN HELP FOR NOW: future commands
+#     tf-help [command]       -> show help for command
+#                                valid commands are: 'check-tools', 'check-gh-auth', 'check-dir', 'check-prereqs', 'list-envs', 'set-env', 'clear-env', 'select-env', 'check-env', 'az-logout', 'az-login', 'az-relog', 'az-whoami', 'tf-status'
+#                                NOT IMPLMENTING IN HELP FOR NOW: future commands
+
+_ds_tf_help_get_commands_supported_by_help() {
+  local -a commands=(
+    "az-login"
+    "az-logout"
+    "az-relog"
+    "az-whoami"
+    "tf-check-dir"
+    "tf-check-env"
+    "tf-check-gh-auth"
+    "tf-check-prereqs"
+    "tf-check-tools"
+    "tf-clear-env"
+    "tf-list-envs"
+    "tf-select-env"
+    "tf-set-env"
+    "tf-status"
+  )
+  echo "${commands[@]}"
+}
+
+_dsb_tf_help() {
+  local arg="${1:-help}"
+  case "${arg}" in
+  all)
+    _dsb_tf_help_commands
+    ;;
+  commands)
+    _dsb_tf_help_commands
+    ;;
+  help)
+    _dsb_tf_help_help
+    ;;
+  general)
+    _dsb_tf_help_group_general
+    ;;
+  groups)
+    _dsb_tf_help_groups
+    ;;
+  environments)
+    _dsb_tf_help_group_environments
+    ;;
+  checks)
+    _dsb_tf_help_group_checks
+    ;;
+  azure)
+    _dsb_tf_help_group_azure
+    ;;
+  *)
+    local -a validCommands
+    mapfile -t validCommands < <(_ds_tf_help_get_commands_supported_by_help)
+    if [[ " ${validCommands[*]} " =~ (^|[[:space:]])"${arg}"($|[[:space:]]) ]]; then
+      _dsb_tf_help_specific_command "${arg}"
+    else
+      _dsb_w "Unknown help topic: ${arg}"
+    fi
+    ;;
+  esac
+}
+
+_dsb_tf_help_help() {
+  _dsb_i "General Help:"
+  _dsb_i "  tf-help groups          -> show all command groups"
+  _dsb_i "  tf-help [group]         -> show help for a specific command group"
+  _dsb_i "  tf-help commands        -> show all commands, make sure to group and indent commands by group"
+  _dsb_i "  tf-help [command]       -> show help for a specific command"
+  _dsb_i "  tf-help all             -> show all help"
+  _dsb_i ""
+  _dsb_i "Common Commands:"
+  _dsb_i "  tf-status               -> Show status of tools, authentication, and environment"
+  _dsb_i "  az-relog                -> Azure relogin"
+  _dsb_i "  az-whoami               -> Show Azure account information"
+  _dsb_i "  tf-check-prereqs        -> Run all prerequisite checks"
+  _dsb_i "  tf-set-env [env]        -> Set environment"
+  _dsb_i "  tf-check-env [env]      -> Check if environment is valid"
+}
+
+_dsb_tf_help_groups() {
+  _dsb_i "Help Groups:"
+  _dsb_i "  environments            -> Environment related commands"
+  _dsb_i "  checks                  -> Check related commands"
+  _dsb_i "  general                 -> General help"
+  _dsb_i "  azure                   -> Azure related commands"
+  _dsb_i "  all                     -> All help"
+  _dsb_i ""
+  _dsb_i "Use 'tf-help [group]' to get detailed help for a specific group."
+}
+
+_dsb_tf_help_group_environments() {
+  _dsb_i "  Environment Commands:"
+  _dsb_i "    tf-list-envs          -> List existing environments"
+  _dsb_i "    tf-select-env         -> List and select environment"
+  _dsb_i "    tf-set-env [env]      -> Set environment"
+  _dsb_i "    tf-check-env [env]    -> Check if environment is valid"
+  _dsb_i "    tf-clear-env          -> Clear selected environment"
+}
+
+_dsb_tf_help_group_checks() {
+  _dsb_i "  Check Commands:"
+  _dsb_i "    tf-check-dir          -> Check if in valid Terraform project structure"
+  _dsb_i "    tf-check-prereqs      -> Run all prerequisite checks"
+  _dsb_i "    tf-check-tools        -> Check for required tools"
+  _dsb_i "    tf-check-gh-auth      -> Check GitHub authentication"
+}
+
+_dsb_tf_help_group_general() {
+  _dsb_i "  General Commands:"
+  _dsb_i "    tf-status             -> Show status of tools, authentication, and environment"
+}
+
+_dsb_tf_help_group_azure() {
+  _dsb_i "  Azure Commands:"
+  _dsb_i "    az-logout             -> Azure logout"
+  _dsb_i "    az-login              -> Azure login"
+  _dsb_i "    az-relog              -> Azure relogin"
+  _dsb_i "    az-whoami             -> Show Azure account information"
+}
+
+_dsb_tf_help_commands() {
+  _dsb_tf_help_help
+  _dsb_i ""
+  _dsb_i "Groups:"
+  _dsb_i ""
+  _dsb_tf_help_group_environments
+  _dsb_i ""
+  _dsb_tf_help_group_checks
+  _dsb_i ""
+  _dsb_tf_help_group_general
+  _dsb_i ""
+  _dsb_tf_help_group_azure
+  _dsb_i ""
+  _dsb_i "All Commands:"
+  _dsb_i ""
+  local commands
+  commands=$(_ds_tf_help_get_commands_supported_by_help)
+  local -a validCommands
+  # shellcheck disable=SC2162
+  read -a validCommands <<< "$commands"
+  for command in "${validCommands[@]}"; do
+    _dsb_tf_help_specific_command "${command}"
+    _dsb_i ""
+  done
+}
+
+# Help for specific command
+_dsb_tf_help_specific_command() {
+  local command="${1}"
+  case "${command}" in
+  # environments
+  tf-list-envs)
+    _dsb_i "tf-list-envs:"
+    _dsb_i "  List existing environments."
+    _dsb_i "  Related commands: tf-set-env, tf-select-env, tf-clear-env."
+    ;;
+  tf-select-env)
+    _dsb_i "tf-select-env:"
+    _dsb_i "  List and select an environment."
+    _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-clear-env."
+    ;;
+  tf-set-env)
+    _dsb_i "tf-set-env [env]:"
+    _dsb_i "  Set the specified environment."
+    _dsb_i "  Related commands: tf-list-envs, tf-select-env, tf-clear-env."
+    ;;
+  tf-check-env)
+    _dsb_i "tf-check-env [env]:"
+    _dsb_i "  Check if the specified environment is valid."
+    _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-select-env."
+    ;;
+  tf-clear-env)
+    _dsb_i "tf-clear-env:"
+    _dsb_i "  Clear the selected environment."
+    _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-select-env."
+    ;;
+  # checks
+  tf-check-dir)
+    _dsb_i "tf-check-dir:"
+    _dsb_i "  Check if you are in a valid Terraform project structure."
+    ;;
+  tf-check-prereqs)
+    _dsb_i "tf-check-prereqs:"
+    _dsb_i "  Run all prerequisite checks (tools, GitHub authentication, directory structure)."
+    ;;
+  tf-check-tools)
+    _dsb_i "tf-check-tools:"
+    _dsb_i "  Check for required tools (az cli, gh cli, terraform, jq, yq, golang, hcledit, terraform-docs, realpath)."
+    ;;
+  tf-check-gh-auth)
+    _dsb_i "tf-check-gh-auth:"
+    _dsb_i "  Check if you are authenticated with GitHub."
+    ;;
+  # general
+  tf-status)
+    _dsb_i "tf-status:"
+    _dsb_i "  Show the status of tools, authentication, and environment."
+    ;;
+  # azure
+  az-logout)
+    _dsb_i "az-logout:"
+    _dsb_i "  Logout from Azure."
+    ;;
+  az-login)
+    _dsb_i "az-login:"
+    _dsb_i "  Login to Azure using device code."
+    ;;
+  az-relog)
+    _dsb_i "az-relog:"
+    _dsb_i "  Relogin to Azure."
+    ;;
+  az-whoami)
+    _dsb_i "az-whoami:"
+    _dsb_i "  Show the currently logged in Azure account."
+    ;;
+  *)
+    _dsb_w "Unknown help topic: ${command}"
+    ;;
+  esac
+}
+
+_dsb_tf_help_enumerate_supported_topics() {
+  local -a validgroups=(
+    "all"
+    "commands"
+    "help"
+    "groups"
+    "environments"
+    "checks"
+    "azure"
+    "general"
+  )
+  local -a validCommands
+  mapfile -t validCommands < <(_ds_tf_help_get_commands_supported_by_help)
+  echo "${validgroups[@]}" "${validCommands[@]}"
 }
 
 ###################################################################################################
@@ -1274,7 +1541,6 @@ _dsb_tf_az_enumerate_account() {
   _dsb_d "_dsb_tf_az_enumerate_account(): queryStatus: ${queryStatus}"
   _dsb_d "_dsb_tf_az_enumerate_account(): showStatus: ${showStatus}"
 
-  # _dsbTfAzureUpn=""
   if [ "${showStatus}" -eq 0 ] && [ "${queryStatus}" -eq 0 ]; then
     _dsb_i "Logged in with Azure CLI as: ${azUpn}"
     _dsbTfAzureUpn="${azUpn}"
@@ -1344,6 +1610,27 @@ _dsb_tf_az_login() {
     return 0 # caller reads _dsbTfReturnCode
   fi
 
+  _dsb_tf_error_stop_trapping
+  _dsbTfLogInfo=0
+  _dsb_tf_az_enumerate_account
+  local accountStatus=$?
+  _dsbTfLogInfo=1
+
+  # already logged in?
+  _dsb_tf_error_start_trapping
+  if [ "${accountStatus}" -eq 0 ]; then
+    local azUpn="${_dsbTfAzureUpn:-}"
+    if [ -n "${azUpn}" ]; then
+      # logged in, do nothing except showing the UPN
+      _dsbTfLogInfo=1
+      _dsb_tf_az_enumerate_account
+      _dsbTfReturnCode=0
+      return 0 # caller reads _dsbTfReturnCode
+    fi
+  fi
+
+  # make sure to clear any existing account
+  _dsb_tf_error_stop_trapping
   az account clear &>/dev/null
 
   local loginOutput
@@ -1363,6 +1650,14 @@ _dsb_tf_az_login() {
     _dsb_tf_az_enumerate_account
     _dsbTfReturnCode=$? # caller reads _dsbTfReturnCode
   fi
+}
+
+_dsb_tf_az_relogin() {
+  _dsb_tf_az_logout
+  local logoutStatus="${_dsbTfReturnCode}"
+  _dsb_tf_az_login
+  local loginStatus="${_dsbTfReturnCode}"
+  _dsbTfReturnCode=$((logoutStatus + loginStatus)) # caller reads _dsbTfReturnCode
 }
 
 ###################################################################################################
@@ -1468,10 +1763,13 @@ _dsb_tf_completions_for_avalable_envs() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=()
 
+  # we could be running in a different directory
+  # TODO: does this slow things down?
+  _dsb_tf_enumerate_directories || :
+
   # only complete if _dsbTfAvailableEnvs is set
   if [[ -v _dsbTfAvailableEnvs ]]; then
     if [[ -n "${_dsbTfAvailableEnvs[*]}" ]]; then
-      # COMPREPLY=( $(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "$cur") )
       mapfile -t COMPREPLY < <(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "${cur}")
     fi
   fi
@@ -1483,10 +1781,26 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_avalable_envs tf-select-env
 }
 
+# for tf-help
+# --------------------------------------------------
+_dsb_tf_completions_for_tf_help() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+  local -a helpTopics
+  mapfile -t helpTopics < <(_dsb_tf_help_enumerate_supported_topics)
+  if [[ -n "${helpTopics[*]}" ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "${helpTopics[*]}" -- "${cur}")
+  fi
+}
+
+_dsb_tf_register_completions_for_tf_help() {
+  complete -F _dsb_tf_completions_for_tf_help tf-help
+}
+
 # make it easier to configure the shell
 _dsb_tf_register_all_completions() {
-  _dsb_tf_enumerate_directories || :
   _dsb_tf_register_completions_for_available_envs
+  _dsb_tf_register_completions_for_tf_help
 }
 
 ###################################################################################################
@@ -1630,8 +1944,24 @@ az-login() {
   return "${returnCode}"
 }
 
-az-relog() { # just an alias
-  az-login
+az-relog() {
+  _dsb_tf_configure_shell
+  _dsb_tf_az_relogin
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# Help functions
+# --------------
+tf-help() {
+  local arg="${1:-}"
+  _dsb_tf_configure_shell
+
+  # TODO: banner and eye candy
+
+  _dsb_tf_help "${arg}"
+  _dsb_tf_restore_shell
 }
 
 ###################################################################################################
