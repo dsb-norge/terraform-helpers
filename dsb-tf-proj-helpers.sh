@@ -38,7 +38,6 @@
 #     tf-help help            -> show help for help
 #
 # TODO: functionality
-
 #
 # tf operations
 #   tf-init-env     -> terraform init in chosen env
@@ -50,6 +49,7 @@
 #   tf-plan         -> terraform plan in chosen env
 #   tf-apply        -> terraform apply in chosen env
 #   tf-clean        -> rm .terraform everywhere /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
+#   tf-clean-all    -> rm .terraform everywhere + rm .tflint everywhere
 #
 # linting
 #   tf-lint         -> tflint in chosen env, using tflint-wrapper, download and store locally? in root/.tflint ?
@@ -145,12 +145,13 @@ declare -g _dsbTfSelectedEnvDir=""
 declare -g _dsbTfSelectedEnvLockFile=""
 declare -g _dsbTfSelectedEnvSubscriptionHintFile=""
 declare -g _dsbTfSelectedEnvSubscriptionHintContent=""
-declare -gA _dsbTfEnvsDirList    # Associative array
-declare -ga _dsbTfAvailableEnvs  # Indexed array
+declare -gA _dsbTfEnvsDirList   # Associative array
+declare -ga _dsbTfAvailableEnvs # Indexed array
+
+declare -g _dsbTfModulesDir=""
 declare -gA _dsbTfModulesDirList # Associative array
 
 declare -g _dsbTfAzureUpn=""
-declare -ga _dsbTfAvailableHelpCommands
 
 ###################################################################################################
 #
@@ -220,14 +221,14 @@ _dsb_tf_report_status() {
   local prereqStatus="${_dsbTfReturnCode}"
 
   local githubStatus=1
-  local githubAccount="  ☐  Logged in to github.com as : N/A, github cli not available, please run 'tf-check-tools'"
+  local githubAccount="  ☐  Logged in to github.com as  : N/A, github cli not available, please run 'tf-check-tools'"
   if _dsbTfLogErrors=0 _dsb_tf_check_gh_cli; then
-    githubAccount="  \e[32m☑\e[0m  Logged in to github.com as: $(_dsb_tf_get_github_cli_account)"
+    githubAccount="  \e[32m☑\e[0m  Logged in to github.com as  : $(_dsb_tf_get_github_cli_account)"
     githubStatus=0
   fi
 
   local azureStatus=1
-  local azureAccount="  ☐  Logged in to Azure as     : N/A, azure cli not available, please run 'tf-check-tools'"
+  local azureAccount="  ☐  Logged in to Azure as       : N/A, azure cli not available, please run 'tf-check-tools'"
   if _dsb_tf_check_az_cli; then
     if _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
       local azUpn="${_dsbTfAzureUpn:-}"
@@ -238,21 +239,23 @@ _dsb_tf_report_status() {
         _dsb_err "  azUpn is: ${azUpn}"
         return 1
       fi
-      azureAccount="  \e[32m☑\e[0m  Logged in to Azure as     : ${_dsbTfAzureUpn}"
+      azureAccount="  \e[32m☑\e[0m  Logged in to Azure as       : ${_dsbTfAzureUpn}"
       azureStatus=0
     else
-      azureAccount="  \e[31m☒\e[0m  Logged in to Azure as     : N/A, please run 'az-whoami'"
+      azureAccount="  \e[31m☒\e[0m  Logged in to Azure as       : N/A, please run 'az-whoami'"
     fi
   fi
 
+  local modulesDir="${_dsbTfModulesDir:-}"
+
+  local availableModulesCommaSeparated
+  availableModulesCommaSeparated=$(_dsb_tf_get_module_names_commaseparated)
+
   local envsDir="${_dsbTfEnvsDir:-}"
-  local -a availableEnvs=("${_dsbTfAvailableEnvs[@]}")
-  local availableEnvsCommaSeparated # declare and assign separately to avoid shellcheck warning
-  availableEnvsCommaSeparated=$(
-    IFS=,
-    echo "${availableEnvs[*]}"
-  )
-  availableEnvsCommaSeparated=${availableEnvsCommaSeparated//,/, }
+
+  local availableEnvsCommaSeparated
+  availableEnvsCommaSeparated=$(_dsb_tf_get_env_names_commaseparated)
+
   local selectedEnv="${_dsbTfSelectedEnv:-}"
   local selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
 
@@ -296,38 +299,40 @@ _dsb_tf_report_status() {
   _dsb_i "${azureAccount}"
   _dsb_i ""
   _dsb_i "File system:"
-  _dsb_i "  Root directory        : ${_dsbTfRootDir}"
-  _dsb_i "  Environments directory: ${envsDir}"
-  _dsb_i "  Available environments: ${availableEnvsCommaSeparated}"
+  _dsb_i "  Root directory          : ${_dsbTfRootDir}"
+  _dsb_i "  Environments directory  : ${envsDir}"
+  _dsb_i "  Modules directory       : ${modulesDir}"
+  _dsb_i "  Available modules       : ${availableModulesCommaSeparated}"
   _dsb_i ""
   _dsb_i "Environment:"
+  _dsb_i "  Available environments     : ${availableEnvsCommaSeparated}"
   if [ -z "${selectedEnv}" ]; then
-    _dsb_i "  ☐  Selected environment  : N/A, please run 'tf-select-env'"
-    _dsb_i "  ☐  Environment directory : N/A"
-    _dsb_i "  ☐  Lock file             : N/A"
-    _dsb_i "  ☐  Subscription hint file: N/A"
+    _dsb_i "  ☐  Selected environment    : N/A, please run 'tf-select-env'"
+    _dsb_i "  ☐  Environment directory   : N/A"
+    _dsb_i "  ☐  Lock file               : N/A"
+    _dsb_i "  ☐  Subscription hint file  : N/A"
   else
     if [ ${envStatus} -eq 0 ]; then
-      _dsb_i "  \e[32m☑\e[0m  Selected environment  : ${selectedEnv}"
-      _dsb_i "  \e[32m☑\e[0m  Environment directory : ${selectedEnvDir}"
+      _dsb_i "  \e[32m☑\e[0m  Selected environment   : ${selectedEnv}"
+      _dsb_i "  \e[32m☑\e[0m  Environment directory  : ${selectedEnvDir}"
       if [ ${lockFileStatus} -eq 0 ]; then
-        _dsb_i "  \e[32m☑\e[0m  Lock file             : ${_dsbTfSelectedEnvLockFile}"
+        _dsb_i "  \e[32m☑\e[0m  Lock file              : ${_dsbTfSelectedEnvLockFile}"
       else
-        _dsb_i "  \e[31m☒\e[0m  Lock file             : not found, please run 'tf-check-env ${selectedEnv}'"
+        _dsb_i "  \e[31m☒\e[0m  Lock file              : not found, please run 'tf-check-env ${selectedEnv}'"
       fi
       if [ ${subHintFileStatus} -eq 0 ]; then
-        _dsb_i "  \e[32m☑\e[0m  Subscription hint file: ${_dsbTfSelectedEnvSubscriptionHintFile}"
-        _dsb_i "  \e[32m☑\e[0m  Subscription hint     : ${_dsbTfSelectedEnvSubscriptionHintContent:-}"
+        _dsb_i "  \e[32m☑\e[0m  Subscription hint file : ${_dsbTfSelectedEnvSubscriptionHintFile}"
+        _dsb_i "  \e[32m☑\e[0m  Subscription hint      : ${_dsbTfSelectedEnvSubscriptionHintContent:-}"
       else
-        _dsb_i "  \e[31m☒\e[0m  Subscription hint file: not found, please run 'tf-check-env ${selectedEnv}'"
-        _dsb_i "  \e[31m☒\e[0m  Subscription hint     : N/A"
+        _dsb_i "  \e[31m☒\e[0m  Subscription hint file : not found, please run 'tf-check-env ${selectedEnv}'"
+        _dsb_i "  \e[31m☒\e[0m  Subscription hint      : N/A"
       fi
     else
       _dsb_i "  \e[31m☒\e[0m  Selected environment  : ${selectedEnv}, does not exist, please run 'tf-select-env'"
-      _dsb_i "  ☐  Environment directory : N/A"
-      _dsb_i "  ☐  Lock file             : N/A"
-      _dsb_i "  ☐  Subscription hint file: N/A"
-      _dsb_i "  ☐  Subscription hint     : N/A"
+      _dsb_i "  ☐  Environment directory  : N/A"
+      _dsb_i "  ☐  Lock file              : N/A"
+      _dsb_i "  ☐  Subscription hint file : N/A"
+      _dsb_i "  ☐  Subscription hint      : N/A"
     fi
   fi
   if [ ${returnCode} -ne 0 ]; then
@@ -502,7 +507,7 @@ _dsb_tf_help_commands() {
   commands=$(_ds_tf_help_get_commands_supported_by_help)
   local -a validCommands
   # shellcheck disable=SC2162
-  read -a validCommands <<< "$commands"
+  read -a validCommands <<<"$commands"
   for command in "${validCommands[@]}"; do
     _dsb_tf_help_specific_command "${command}"
     _dsb_i ""
@@ -1029,8 +1034,7 @@ _dsb_tf_enumerate_directories() {
 
   _dsbTfEnvsDirList=()
   _dsbTfAvailableEnvs=()
-  # declare -A _dsbTfEnvsDirList   # Associative array
-  # declare -a _dsbTfAvailableEnvs # Indexed array
+
   if [ -d "${_dsbTfEnvsDir}" ]; then
     _dsb_d "_dsb_tf_enumerate_directories(): Enumerating environments ..."
 
@@ -1106,6 +1110,75 @@ _dsb_tf_enumerate_directories() {
   # done
 }
 
+_dsb_tf_get_module_names() {
+  local -a moduleNames=()
+  if declare -p _dsbTfModulesDirList &>/dev/null; then
+    local key
+    for key in "${!_dsbTfModulesDirList[@]}"; do
+      moduleNames+=("${key}")
+    done
+  fi
+  printf "%s\n" "${moduleNames[@]}"
+}
+
+_dsb_tf_get_module_names_commaseparated() {
+  local -a availableModules
+  mapfile -t availableModules < <(_dsb_tf_get_module_names)
+  local availableModulesCommaSeparated # declare and assign separately to avoid shellcheck warning
+  availableModulesCommaSeparated=$(
+    IFS=,
+    echo "${availableModules[*]}"
+  )
+  availableModulesCommaSeparated=${availableModulesCommaSeparated//,/, }
+  echo "${availableModulesCommaSeparated}"
+}
+
+_dsb_tf_get_module_dirs() { # TODO: make sure to use this, possibly when perofrming terrasform operations
+  local -a moduleDirs=()
+  if declare -p _dsbTfModulesDirList &>/dev/null; then
+    local value
+    for value in "${_dsbTfModulesDirList[@]}"; do
+      moduleDirs+=("${value}")
+    done
+  fi
+  printf "%s\n" "${moduleDirs[@]}"
+}
+
+dsb_tf_get_env_names() {
+  local -a envNames=()
+  if declare -p _dsbTfEnvsDirList &>/dev/null; then
+    local key
+    for key in "${!_dsbTfEnvsDirList[@]}"; do
+      envNames+=("${key}")
+    done
+  fi
+  printf "%s\n" "${envNames[@]}"
+}
+
+_dsb_tf_get_env_names_commaseparated() {
+  local -a availableEnvs
+  mapfile -t availableEnvs < <(dsb_tf_get_env_names)
+  local availableEnvsCommaSeparated # declare and assign separately to avoid shellcheck warning
+  availableEnvsCommaSeparated=$(
+    IFS=,
+    echo "${availableEnvs[*]}"
+  )
+  availableEnvsCommaSeparated=${availableEnvsCommaSeparated//,/, }
+  echo "${availableEnvsCommaSeparated}"
+}
+
+# TODO: is this needed?
+# _dsb_tf_get_env_dirs() {
+#   local -a envDirs=()
+#   if declare -p _dsbTfEnvsDirList &>/dev/null; then
+#     local value
+#     for value in "${_dsbTfEnvsDirList[@]}"; do
+#         envDirs+=("${value}")
+#     done
+#   fi
+#   printf "%s\n" "${envDirs[@]}"
+# }
+
 _dsb_tf_look_for_main_dir() {
   if [ ! -d "${_dsbTfMainDir}" ]; then
     _dsb_err "Directory 'main' not found in current directory: ${_dsbTfRootDir}"
@@ -1138,17 +1211,18 @@ _dsb_tf_look_for_env() {
     return 1
   fi
 
-  if ! declare -p _dsbTfAvailableEnvs &>/dev/null; then
-    _dsbTfLogErrors=1
-    _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_look_for_env, expected to find available environments."
-    _dsb_err "  expected in: _dsbTfAvailableEnvs"
-    return 1
-  fi
+  local envsDir="${_dsbTfEnvsDir:-}"
+
+  local -a availableEnvs
+  mapfile -t availableEnvs < <(dsb_tf_get_env_names)
+  local envCount=${#availableEnvs[@]}
+
+  _dsb_d "_dsb_tf_look_for_env(): available envs count in availableEnvs: ${envCount}"
+  _dsb_d "_dsb_tf_look_for_env(): available envs: ${availableEnvs[*]}"
 
   local env
   local envFound=0
-  for env in "${_dsbTfAvailableEnvs[@]}"; do
+  for env in "${availableEnvs[@]}"; do
     if [ "${env}" == "${suppliedEnv}" ]; then
       envFound=1
       break
@@ -1161,7 +1235,7 @@ _dsb_tf_look_for_env() {
   else
     _dsb_err "Environment not found."
     _dsb_err "  environment: ${suppliedEnv}"
-    _dsb_err "  look in: ${_dsbTfEnvsDir}"
+    _dsb_err "  look in: ${envsDir}"
     _dsb_err "  for available environments run 'tf-list-envs'"
     return 1
   fi
@@ -1338,7 +1412,14 @@ _dsb_tf_list_envs() {
     return 1
   fi
 
-  if ! declare -p _dsbTfAvailableEnvs &>/dev/null; then
+  local -a availableEnvs
+  mapfile -t availableEnvs < <(dsb_tf_get_env_names)
+  local envCount=${#availableEnvs[@]}
+
+  _dsb_d "_dsb_tf_list_envs(): available envs count in availableEnvs: ${envCount}"
+  _dsb_d "_dsb_tf_list_envs(): available envs: ${availableEnvs[*]}"
+
+  if [ "${#availableEnvs[@]}" -eq 0 ]; then
     _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
     _dsb_err "Internal error: in _dsb_tf_list_envs, expected to find available environments."
@@ -1347,10 +1428,6 @@ _dsb_tf_list_envs() {
   fi
 
   local envsDir="${_dsbTfEnvsDir}"
-  local -a availableEnvs=("${_dsbTfAvailableEnvs[@]}")
-  local envCount=${#availableEnvs[@]}
-  _dsb_d "_dsb_tf_list_envs(): available envs count in availableEnvs: ${#availableEnvs[@]}"
-  _dsb_d "_dsb_tf_list_envs(): available envs: ${availableEnvs[*]}"
 
   if [ "${envCount}" -eq 0 ]; then
     _dsb_w "No environments found in: ${envsDir}"
@@ -1400,14 +1477,6 @@ _dsb_tf_set_env() {
     return 0 # caller reads _dsbTfReturnCode
   fi
 
-  if ! declare -p _dsbTfAvailableEnvs &>/dev/null; then
-    _dsbTfLogErrors=1
-    _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_set_env, expected to find available environments."
-    _dsb_err "  expected in: _dsbTfAvailableEnvs"
-    return 1
-  fi
-
   if ! declare -p _dsbTfEnvsDirList &>/dev/null; then
     _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
@@ -1416,8 +1485,11 @@ _dsb_tf_set_env() {
     return 1
   fi
 
-  local -a availableEnvs=("${_dsbTfAvailableEnvs[@]}")
-  _dsb_d "_dsb_tf_set_env(): available envs count in availableEnvs: ${#availableEnvs[@]}"
+  local -a availableEnvs
+  mapfile -t availableEnvs < <(dsb_tf_get_env_names)
+  local envCount=${#availableEnvs[@]}
+
+  _dsb_d "_dsb_tf_set_env(): available envs count in availableEnvs: ${envCount}"
   _dsb_d "_dsb_tf_set_env(): available envs: ${availableEnvs[*]}"
 
   # check if the envToSet is available
@@ -1484,9 +1556,12 @@ _dsb_tf_select_env() {
 
   _dsb_tf_error_start_trapping
 
-  _dsb_d "_dsb_tf_select_env(): _dsbTfAvailableEnvs: ${_dsbTfAvailableEnvs[*]}"
+  local -a availableEnvs
+  mapfile -t availableEnvs < <(dsb_tf_get_env_names)
+  local envCount=${#availableEnvs[@]}
 
-  local envCount=${#_dsbTfAvailableEnvs[@]}
+  _dsb_d "_dsb_tf_select_env(): availableEnvs: ${availableEnvs[*]}"
+
   local -a validChoices
   mapfile -t validChoices < <(seq 1 "${envCount}")
 
@@ -1506,7 +1581,7 @@ _dsb_tf_select_env() {
   done
 
   _dsb_i ""
-  _dsb_tf_set_env "${_dsbTfAvailableEnvs[$((userInput - 1))]}"
+  _dsb_tf_set_env "${availableEnvs[$((userInput - 1))]}"
 
   return 0 # caller reads _dsbTfReturnCode
 }
