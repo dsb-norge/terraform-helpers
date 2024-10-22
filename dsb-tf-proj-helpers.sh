@@ -158,6 +158,7 @@ declare -gA _dsbTfModulesDirList # Associative array
 
 declare -g _dsbTfAzureUpn=""
 declare -g _dsbTfSubscriptionId=""
+declare -g _dsbTfSubscriptionName=""
 
 ###################################################################################################
 #
@@ -233,6 +234,8 @@ _dsb_tf_report_status() {
     githubStatus=0
   fi
 
+  local azSubId=""
+  local azSubName=""
   local azureStatus=1
   local azureAccount="  ☐  Logged in to Azure as       : N/A, azure cli not available, please run 'tf-check-tools'"
   if _dsb_tf_check_az_cli; then
@@ -245,12 +248,20 @@ _dsb_tf_report_status() {
         _dsb_err "  azUpn is: ${azUpn}"
         return 1
       fi
-      local azSub="${_dsbTfSubscriptionId:-}"
-      if [ -z "${azSub}" ]; then
+      azSubId="${_dsbTfSubscriptionId:-}"
+      azSubName="${_dsbTfSubscriptionName:-}"
+      if [ -z "${azSubId}" ]; then
         _dsbTfLogErrors=1
         _dsb_err "Internal error: in _dsb_tf_report_status(): Azure Subscription ID not found."
         _dsb_err "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionId:-}"
-        _dsb_err "  azSub is: ${azSub}"
+        _dsb_err "  azSubId is: ${azSubId}"
+        return 1
+      fi
+      if [ -z "${azSubId}" ]; then
+        _dsbTfLogErrors=1
+        _dsb_err "Internal error: in _dsb_tf_report_status(): Azure Subscription ID not found."
+        _dsb_err "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionName:-}"
+        _dsb_err "  azSubName is: ${azSubName}"
         return 1
       fi
       azureAccount="  \e[32m☑\e[0m  Logged in to Azure as       : ${_dsbTfAzureUpn}"
@@ -319,34 +330,43 @@ _dsb_tf_report_status() {
   _dsb_i "  Available modules       : ${availableModulesCommaSeparated}"
   _dsb_i ""
   _dsb_i "Environment:"
-  _dsb_i "  Available environments    : ${availableEnvsCommaSeparated}"
+  _dsb_i "  Available environments      : ${availableEnvsCommaSeparated}"
   if [ -z "${selectedEnv}" ]; then
-    _dsb_i "  ☐  Selected environment    : N/A, please run 'tf-select-env'"
-    _dsb_i "  ☐  Environment directory   : N/A"
-    _dsb_i "  ☐  Lock file               : N/A"
-    _dsb_i "  ☐  Subscription hint file  : N/A"
+    _dsb_i "  ☐  Selected environment     : N/A, please run 'tf-select-env'"
+    _dsb_i "  ☐  Environment directory    : N/A"
+    _dsb_i "  ☐  Lock file                : N/A"
+    _dsb_i "  ☐  Subscription hint file   : N/A"
+    _dsb_i "  ☐  Subscription hint        : N/A"
+    _dsb_i "  ☐  Az CLI subscription name : N/A"
+    _dsb_i "  ☐  Az CLI subscription id   : N/A"
   else
     if [ ${envStatus} -eq 0 ]; then
-      _dsb_i "  \e[32m☑\e[0m  Selected environment   : ${selectedEnv}"
-      _dsb_i "  \e[32m☑\e[0m  Environment directory  : ${selectedEnvDir}"
+      _dsb_i "  \e[32m☑\e[0m  Selected environment     : ${selectedEnv}"
+      _dsb_i "  \e[32m☑\e[0m  Environment directory    : ${selectedEnvDir}"
       if [ ${lockFileStatus} -eq 0 ]; then
-        _dsb_i "  \e[32m☑\e[0m  Lock file              : ${_dsbTfSelectedEnvLockFile}"
+        _dsb_i "  \e[32m☑\e[0m  Lock file                : ${_dsbTfSelectedEnvLockFile}"
       else
-        _dsb_i "  \e[31m☒\e[0m  Lock file              : not found, please run 'tf-check-env ${selectedEnv}'"
+        _dsb_i "  \e[31m☒\e[0m  Lock file                : not found, please run 'tf-check-env ${selectedEnv}'"
       fi
       if [ ${subHintFileStatus} -eq 0 ]; then
-        _dsb_i "  \e[32m☑\e[0m  Subscription hint file : ${_dsbTfSelectedEnvSubscriptionHintFile}"
-        _dsb_i "  \e[32m☑\e[0m  Subscription hint      : ${_dsbTfSelectedEnvSubscriptionHintContent:-}"
+        _dsb_i "  \e[32m☑\e[0m  Subscription hint file   : ${_dsbTfSelectedEnvSubscriptionHintFile}"
+        _dsb_i "  \e[32m☑\e[0m  Subscription hint        : ${_dsbTfSelectedEnvSubscriptionHintContent:-}"
+        _dsb_i "  \e[32m☑\e[0m  Az CLI subscription name : ${azSubName:-}"
+        _dsb_i "  \e[32m☑\e[0m  Az CLI subscription id   : ${azSubId:-}"
       else
-        _dsb_i "  \e[31m☒\e[0m  Subscription hint file : not found, please run 'tf-check-env ${selectedEnv}'"
-        _dsb_i "  \e[31m☒\e[0m  Subscription hint      : N/A"
+        _dsb_i "  \e[31m☒\e[0m  Subscription hint file   : not found, please run 'tf-check-env ${selectedEnv}'"
+        _dsb_i "  \e[31m☒\e[0m  Subscription hint        : N/A"
+        _dsb_i "  \e[31m☒\e[0m  Az CLI subscription name : N/A"
+        _dsb_i "  \e[31m☒\e[0m  Az CLI subscription id   : N/A"
       fi
     else
-      _dsb_i "  \e[31m☒\e[0m  Selected environment  : ${selectedEnv}, does not exist, please run 'tf-select-env'"
-      _dsb_i "  ☐  Environment directory  : N/A"
-      _dsb_i "  ☐  Lock file              : N/A"
-      _dsb_i "  ☐  Subscription hint file : N/A"
-      _dsb_i "  ☐  Subscription hint      : N/A"
+      _dsb_i "  \e[31m☒\e[0m  Selected environment     : ${selectedEnv}, does not exist, please run 'tf-select-env'"
+      _dsb_i "  ☐  Environment directory    : N/A"
+      _dsb_i "  ☐  Lock file                : N/A"
+      _dsb_i "  ☐  Subscription hint file   : N/A"
+      _dsb_i "  ☐  Subscription hint        : N/A"
+      _dsb_i "  ☐  Az CLI subscription name : N/A"
+      _dsb_i "  ☐  Az CLI subscription id   : N/A"
     fi
   fi
   if [ ${returnCode} -ne 0 ]; then
@@ -536,27 +556,32 @@ _dsb_tf_help_specific_command() {
   # environments
   tf-list-envs)
     _dsb_i "tf-list-envs:"
-    _dsb_i "  List existing environments."
+    _dsb_i "  List existing environments, if an environment is selected this is indicated."
+    _dsb_i ""
     _dsb_i "  Related commands: tf-set-env, tf-select-env, tf-clear-env."
     ;;
   tf-select-env)
     _dsb_i "tf-select-env:"
     _dsb_i "  List and select an environment."
+    _dsb_i ""
     _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-clear-env."
     ;;
   tf-set-env)
     _dsb_i "tf-set-env [env]:"
     _dsb_i "  Set the specified environment."
+    _dsb_i ""
     _dsb_i "  Related commands: tf-list-envs, tf-select-env, tf-clear-env."
     ;;
   tf-check-env)
     _dsb_i "tf-check-env [env]:"
     _dsb_i "  Check if the specified environment is valid."
+    _dsb_i ""
     _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-select-env."
     ;;
   tf-clear-env)
     _dsb_i "tf-clear-env:"
     _dsb_i "  Clear the selected environment."
+    _dsb_i ""
     _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-select-env."
     ;;
   # checks
@@ -584,27 +609,31 @@ _dsb_tf_help_specific_command() {
   # azure
   az-logout)
     _dsb_i "az-logout:"
-    _dsb_i "  Logout from Azure."
+    _dsb_i "  Logout from Azure CLI."
     ;;
   az-login)
     _dsb_i "az-login:"
-    _dsb_i "  Login to Azure using device code."
+    _dsb_i "  Login to Azure with the Azure CLI using device code."
+    _dsb_i ""
+    _dsb_i "  Related commands: az-whoami, az-relog."
     ;;
   az-relog)
     _dsb_i "az-relog:"
-    _dsb_i "  Relogin to Azure."
+    _dsb_i "  Relogin to Azure with the Azure CLI."
+    _dsb_i ""
+    _dsb_i "  Related commands: az-whoami."
     ;;
   az-whoami)
     _dsb_i "az-whoami:"
-    _dsb_i "  Show the currently logged in Azure account."
+    _dsb_i "  Show the Azure account currently logged in with the Azure CLI."
+    _dsb_i ""
+    _dsb_i "  Related commands: az-login, az-set-sub."
     ;;
   az-set-sub)
     _dsb_i "az-set-sub:"
-    _dsb_i "  Set Azure subscription using subscription hint file from selected environment."
+    _dsb_i "  Use the the Azure CLI to set Azure subscription using subscription hint file from selected environment."
     _dsb_i ""
-    _dsb_i "  Example usage:"
-    _dsb_i "    tf-set-env myenv"
-    _dsb_i "    az-set-sub"
+    _dsb_i "  Related commands: az-login, az-whoami."
     ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
@@ -1342,8 +1371,10 @@ _dsb_tf_look_for_environment_file() {
     selectedEnv="${_dsbTfSelectedEnv:-}"
 
     # we allow the check to pass if no environment is selected
-    _dsb_d "_dsb_tf_look_for_environment_file(): allow check to pass, no environment was selected"
-    if [ -z "${selectedEnv}" ]; then return 0; fi
+    if [ -z "${selectedEnv}" ]; then
+      _dsb_d "_dsb_tf_look_for_environment_file(): allow check to pass, no environment was selected"
+      return 0
+    fi
 
     # expect _dsbTfSelectedEnvDir to be set if an environment is selected
     if [ -z "${_dsbTfSelectedEnvDir:-}" ]; then
@@ -1380,6 +1411,8 @@ _dsb_tf_look_for_environment_file() {
   fi
 
   declare -g "${suppliedGlobalToSavePathTo}=${selectedEnvDir}/${lookForFilename}"
+
+  return 0
 }
 
 # look for a lock file, either in the supplied or the selected environment
@@ -1388,7 +1421,15 @@ _dsb_tf_look_for_lock_file() {
 
   # clear global variable
   _dsbTfSelectedEnvLockFile=""
-  _dsb_tf_look_for_environment_file "${suppliedEnv}" 'lock' '_dsbTfSelectedEnvLockFile'
+
+  _dsb_d "_dsb_tf_look_for_lock_file(): suppliedEnv: ${suppliedEnv}"
+
+  if _dsb_tf_look_for_environment_file "${suppliedEnv}" 'lock' '_dsbTfSelectedEnvLockFile'; then
+    _dsb_d "_dsb_tf_look_for_lock_file(): _dsbTfSelectedEnvLockFile: ${_dsbTfSelectedEnvLockFile:-}"
+    return 0
+  else
+    return 1
+  fi
 }
 
 # look for a subscription hint file, either in the supplied or the selected environment
@@ -1398,13 +1439,20 @@ _dsb_tf_look_for_subscription_hint_file() {
   # clear global variables
   _dsbTfSelectedEnvSubscriptionHintFile=""
   _dsbTfSelectedEnvSubscriptionHintContent=""
+
+  _dsb_d "_dsb_tf_look_for_subscription_hint_file(): suppliedEnv: ${suppliedEnv}"
+
   _dsb_tf_look_for_environment_file "${suppliedEnv}" 'subscriptionHint' '_dsbTfSelectedEnvSubscriptionHintFile'
+
+  _dsb_d "_dsb_tf_look_for_subscription_hint_file(): _dsbTfSelectedEnvSubscriptionHintFile: ${_dsbTfSelectedEnvSubscriptionHintFile:-}"
 
   if [ -f "${_dsbTfSelectedEnvSubscriptionHintFile}" ]; then
     _dsbTfSelectedEnvSubscriptionHintContent=$(cat "${_dsbTfSelectedEnvSubscriptionHintFile}")
   else
     return 1
   fi
+
+  return 0
 }
 
 ###################################################################################################
@@ -1486,13 +1534,18 @@ _dsb_tf_list_envs() {
     fi
   fi
 
+  _dsb_d "_dsb_tf_list_envs(): returning code: ${_dsbTfReturnCode}"
   return 0 # caller reads _dsbTfReturnCode
 }
 
+# given an environment name, this function:
+#   validates the environment directory
+#     - checks if the directory exists
+#     - looks for subscription hint file
+#     - looks for terraform lock file
+#   updates the global variables to indicate thath an environment has been selected
+#   if subscription hint file is found, it attempts to set the Azure subscription
 _dsb_tf_set_env() {
-  _dsbTfLogErrors=1
-  _dsbTfLogInfo=1
-
   local envToSet="${1:-}"
 
   _dsb_d "_dsb_tf_set_env(): envToSet: ${envToSet}"
@@ -1506,14 +1559,8 @@ _dsb_tf_set_env() {
 
   _dsb_tf_enumerate_directories
 
-  _dsb_tf_error_stop_trapping
-
   # check if the current root directory is a valid Terraform project
-  _dsb_tf_check_root_directory
-  local dirCheckStatus=$?
-
-  if [ "${dirCheckStatus}" -ne 0 ]; then
-    _dsbTfLogErrors=1
+  if ! _dsbTfLogErrors=0 _dsb_tf_check_root_directory; then
     _dsb_err "Directory check(s) fails, please run 'tf-check-dir'"
     _dsbTfReturnCode=1
     return 0 # caller reads _dsbTfReturnCode
@@ -1546,53 +1593,57 @@ _dsb_tf_set_env() {
 
   if [ "${envFound}" -ne 1 ]; then
     _dsb_err "Environment '${envToSet}' not available."
-    _dsbTfLogErrors=1
     _dsb_tf_list_envs
     _dsbTfReturnCode=1
     return 0 # caller reads _dsbTfReturnCode
   fi
 
+  # persist in global variables
   _dsbTfSelectedEnv="${envToSet}"
   _dsbTfSelectedEnvDir="${_dsbTfEnvsDirList["${_dsbTfSelectedEnv}"]}"
 
   _dsb_i "Selected environment: ${_dsbTfSelectedEnv}"
 
-  _dsbTfLogErrors=0
-  _dsb_tf_error_stop_trapping
+  local subscriptionHintFileStatus=0
+  if ! _dsbTfLogErrors=0 _dsb_tf_look_for_subscription_hint_file; then
+    subscriptionHintFileStatus=1
+  fi
 
-  # check if the selected environment is valid
+  local azSubStatus=0
+  if [ "${subscriptionHintFileStatus}" -ne 0 ]; then
+    _dsb_err "Subscription hint file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
+  else
+    _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_set_sub
+    azSubStatus=${_dsbTfReturnCode}
+    if [ "${azSubStatus}" -ne 0 ]; then
+      _dsb_err "Failed to configure Azure subscription using subscription hint '${_dsbTfSelectedEnvSubscriptionHintContent}', please run 'az-set-sub'"
+    else
+      _dsb_i "  subscription ID   : ${_dsbTfSubscriptionId:-}"
+      _dsb_i "  subscription Name : ${_dsbTfSubscriptionName:-}"
+    fi
+  fi
 
-  _dsb_tf_look_for_lock_file
-  local lockFileStatus=$?
-
-  _dsb_tf_look_for_subscription_hint_file
-  local subscriptionHintFileStatus=$?
-
-  if [ "${lockFileStatus}" -ne 0 ]; then
-    _dsbTfLogErrors=1
+  local lockFileStatus=0
+  if ! _dsbTfLogErrors=0 _dsb_tf_look_for_lock_file; then
+    lockFileStatus=1
     _dsb_err "Lock file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
   fi
 
-  if [ "${subscriptionHintFileStatus}" -ne 0 ]; then
-    _dsbTfLogErrors=1
-    _dsb_err "Subscription hint file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
-  fi
+  _dsbTfReturnCode=$((lockFileStatus + subscriptionHintFileStatus + azSubStatus))
 
-  _dsbTfReturnCode=$((lockFileStatus + subscriptionHintFileStatus))
-
+  _dsb_d "_dsb_tf_set_env(): returning code: ${_dsbTfReturnCode}"
   return 0 # caller reads _dsbTfReturnCode
 }
 
 _dsb_tf_select_env() {
-  _dsbTfLogErrors=0
-  _dsbTfLogInfo=1
-
+  _dsb_tf_error_stop_trapping
   _dsb_tf_list_envs
   local listEnvsStatus=${_dsbTfReturnCode}
 
   _dsb_d "_dsb_tf_select_env(): listEnvsStatus: ${listEnvsStatus}"
 
   if [ "${listEnvsStatus}" -ne 0 ]; then
+    _dsb_err "Failed to list environments, please run 'tf-list-envs'"
     return 0 # caller reads _dsbTfReturnCode
   fi
 
@@ -1625,6 +1676,7 @@ _dsb_tf_select_env() {
   _dsb_i ""
   _dsb_tf_set_env "${availableEnvs[$((userInput - 1))]}"
 
+  _dsb_d "_dsb_tf_select_env(): returning code: ${_dsbTfReturnCode}"
   return 0 # caller reads _dsbTfReturnCode
 }
 
@@ -1639,30 +1691,29 @@ _dsb_tf_select_env() {
 # this function returns 1 if 'az account show' fails
 # this function populates _dsbTfAzureUpn with the UPN from the response from 'az account show'
 # this function populates _dsbTfSubscriptionId with the subscription id from the response from 'az account show'
+# this function populates _dsbTfSubscriptionName with the subscription name from the response from 'az account show'
 # if the user is not logged in, _dsbTfAzureUpn is set to an empty string
 # if the user is not logged in, _dsbTfSubscriptionId is set to an empty string
+# if the user is not logged in, _dsbTfSubscriptionName is set to an empty string
 _dsb_tf_az_enumerate_account() {
 
   # if az cli is not installed, do not fail
-  _dsb_tf_error_stop_trapping
-  _dsb_tf_check_az_cli
-  local azCliStatus=$?
-  if [ "${azCliStatus}" -ne 0 ]; then
+  if ! _dsb_tf_check_az_cli; then
     return 0
   fi
 
   local showOutput
   showOutput=$(az account show 2>&1)
   local showStatus=$?
-  _dsb_tf_error_start_trapping
 
   _dsb_d "_dsb_tf_az_enumerate_account(): showStatus: ${showStatus}"
   _dsb_d "_dsb_tf_az_enumerate_account(): showOutput: ${showOutput}"
 
-  local azUpn=$(echo "${showOutput}" | jq -r '.user.name')
-  local subId=$(echo "${showOutput}" | jq -r '.id')
-  local subName=$(echo "${showOutput}" | jq -r '.name')
-  local tenantDisplayName=$(echo "${showOutput}" | jq -r '.tenantDisplayName')
+  local azUpn subId subName tenantDisplayName
+  azUpn=$(echo "${showOutput}" | jq -r '.user.name')
+  subId=$(echo "${showOutput}" | jq -r '.id')
+  subName=$(echo "${showOutput}" | jq -r '.name')
+  tenantDisplayName=$(echo "${showOutput}" | jq -r '.tenantDisplayName')
 
   _dsb_d "_dsb_tf_az_enumerate_account(): azUpn: ${azUpn}"
   _dsb_d "_dsb_tf_az_enumerate_account(): subId: ${subId}"
@@ -1673,10 +1724,12 @@ _dsb_tf_az_enumerate_account() {
     _dsb_i "  Subscription Name : ${subName}"
     _dsbTfAzureUpn="${azUpn}"
     _dsbTfSubscriptionId="${subId}"
+    _dsbTfSubscriptionName="${subName}"
   else
     _dsb_i "Not logged in with Azure CLI."
     _dsbTfAzureUpn=""
     _dsbTfSubscriptionId=""
+    _dsbTfSubscriptionName=""
   fi
 }
 
@@ -1770,6 +1823,9 @@ _dsb_tf_az_login() {
     _dsb_tf_az_enumerate_account
     _dsbTfReturnCode=$? # caller reads _dsbTfReturnCode
   fi
+
+  _dsb_d "_dsb_tf_az_login(): returning code: ${_dsbTfReturnCode}"
+  return 0 # caller reads _dsbTfReturnCode
 }
 
 _dsb_tf_az_relogin() {
@@ -1778,13 +1834,17 @@ _dsb_tf_az_relogin() {
   _dsb_tf_az_login
   local loginStatus="${_dsbTfReturnCode}"
   _dsbTfReturnCode=$((logoutStatus + loginStatus)) # caller reads _dsbTfReturnCode
+
+  _dsb_d "_dsb_tf_az_relogin(): returning code: ${_dsbTfReturnCode}"
+  return 0 # caller reads _dsbTfReturnCode
 }
 
+# returns exit code in _dsbTfReturnCode
 _dsb_tf_az_set_sub() {
   local selectedEnv="${_dsbTfSelectedEnv:-}"
+  _dsbTfReturnCode=1
 
   if [ -z "${selectedEnv}" ]; then
-    _dsbTfLogErrors=1
     _dsb_err "No environment selected, please run one of these commands":
     _dsb_err "  - 'tf-select-env'"
     _dsb_err "  - 'tf-set-env <env>'"
@@ -1794,21 +1854,18 @@ _dsb_tf_az_set_sub() {
   # enumerate the directories and validate the selected environment
   # populates _dsbTfSelectedEnvSubscriptionHintContent if successful
   if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_env; then
-    _dsbTfLogErrors=1
     _dsb_err "Environment check failed, please run 'tf-check-env ${selectedEnv}'"
     return 0
   fi
 
   # need the cli
   if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_az_cli; then
-    _dsbTfLogErrors=1
     _dsb_err "Azure CLI check failed, please run 'tf-check-prereqs'"
     return 0
   fi
 
   # need to be logged in
   if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
-    _dsbTfLogErrors=1
     _dsb_err "Azure CLI account enumeration failed, please run 'az-whoami'"
     return 0
   fi
@@ -1817,13 +1874,16 @@ _dsb_tf_az_set_sub() {
   if az account set --subscription "${_dsbTfSelectedEnvSubscriptionHintContent}"; then
     # updates the selected subscription global variable
     _dsb_tf_az_enumerate_account
-    _dsb_d "_dsb_tf_az_set_sub(): Subscription set to: ${_dsbTfSubscriptionId}"
+    _dsb_d "_dsb_tf_az_set_sub(): Subscription ID set to: ${_dsbTfSubscriptionId:-}"
+    _dsb_d "_dsb_tf_az_set_sub(): Subscription name set to: ${_dsbTfSubscriptionName:-}"
     _dsbTfReturnCode=0
   else
-    _dsbTfLogErrors=1
     _dsb_err "Failed to set subscription."
-    _dsb_err "  subscription: ${_dsbTfSelectedEnvSubscriptionHintContent}"
+    _dsb_err "  subscription hint: ${_dsbTfSelectedEnvSubscriptionHintContent}"
   fi
+
+  _dsb_d "_dsb_tf_az_set_sub(): returning code: ${_dsbTfReturnCode}"
+  return 0 # caller reads _dsbTfReturnCode
 }
 
 ###################################################################################################
@@ -1868,11 +1928,14 @@ _dsb_tf_error_start_trapping() {
   # - SIGHUP: This signal is sent to a process when its controlling terminal is closed. It is often used to reload configuration files.
   # - SIGINT: This signal is sent when an interrupt is generated (usually by pressing Ctrl+C). It is used to stop a process gracefully.
   trap '_dsb_tf_error_handler $?' ERR SIGHUP SIGINT
+
+  _dsb_d "_dsb_tf_error_start_trapping(): error trapping started from ${FUNCNAME[1]}"
 }
 
 _dsb_tf_error_stop_trapping() {
   set +Eo pipefail
   trap - ERR SIGHUP SIGINT
+  _dsb_d "_dsb_tf_error_stop_trapping(): error trapping stopped ${FUNCNAME[1]}"
 }
 
 _dsb_tf_configure_shell() {
