@@ -1421,14 +1421,12 @@ _dsb_tf_clear_env() {
 }
 
 _dsb_tf_list_envs() {
-  _dsbTfLogErrors=0
-
-  _dsb_tf_enumerate_directories
+  _dsbTfLogErrors=0 _dsb_tf_enumerate_directories
 
   _dsb_tf_error_stop_trapping
 
   # check if the current root directory is a valid Terraform project
-  _dsb_tf_check_root_directory
+  _dsbTfLogErrors=0 _dsb_tf_check_root_directory
   local dirCheckStatus=$?
 
   if [ "${dirCheckStatus}" -ne 0 ]; then
@@ -1462,6 +1460,7 @@ _dsb_tf_list_envs() {
   fi
 
   local envsDir="${_dsbTfEnvsDir}"
+  local selectedEnv="${_dsbTfSelectedEnv:-}"
 
   if [ "${envCount}" -eq 0 ]; then
     _dsb_w "No environments found in: ${envsDir}"
@@ -1471,11 +1470,20 @@ _dsb_tf_list_envs() {
   else
     local envIdx=1
     _dsb_i "Available environments:"
-    local envDir
-    for envDir in "${availableEnvs[@]}"; do
-      _dsb_i "  $((envIdx++))) ${envDir}"
+    local envName
+    for envName in "${availableEnvs[@]}"; do
+      if [ "${envName}" == "${selectedEnv}" ]; then
+        _dsb_i "  -> ${envIdx}) ${envName}"
+      else
+        _dsb_i "     ${envIdx}) ${envName}"
+      fi
+      ((envIdx++))
     done
     _dsbTfReturnCode=0
+    if [ -n "${selectedEnv}" ]; then
+      _dsb_i ""
+      _dsb_i " -> indicates the currently selected"
+    fi
   fi
 
   return 0 # caller reads _dsbTfReturnCode
@@ -2037,8 +2045,10 @@ tf-list-envs() {
   _dsb_tf_configure_shell
   _dsb_tf_list_envs
   local returnCode="${_dsbTfReturnCode}"
-  _dsb_i ""
-  _dsb_i "To choose an environment, use either 'tf-set-env <env>' or 'tf-select-env'"
+  if [ "${returnCode}" -eq 0 ]; then
+    _dsb_i ""
+    _dsb_i "To choose an environment, use either 'tf-set-env <env>' or 'tf-select-env'"
+  fi
   _dsb_tf_restore_shell
   return "${returnCode}"
 }
@@ -2145,4 +2155,4 @@ tf-help() {
 _dsb_tf_enumerate_directories || :
 _dsb_tf_register_all_completions || :
 _dsb_i "DSB terraform project helpers loaded."
-_dsb_i "  use 'tf-help' to get started."
+_dsb_i "  to get started, run 'tf-help' or 'tf-status'"
