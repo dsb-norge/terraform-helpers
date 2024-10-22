@@ -145,13 +145,18 @@ unset -v varNames varName
 declare -g _dsbTfShellOldOpts=""
 declare -g _dsbTfShellHistoryState=""
 
+declare -g _dsbTfRootDir=""
+declare -g _dsbTfEnvsDir=""
+declare -g _dsbTfMainDir=""
+declare -g _dsbTfModulesDir=""
+declare -gA _dsbTfEnvsDirList   # Associative array
+declare -ga _dsbTfAvailableEnvs # Indexed array
+
 declare -g _dsbTfSelectedEnv=""
 declare -g _dsbTfSelectedEnvDir=""
 declare -g _dsbTfSelectedEnvLockFile=""
 declare -g _dsbTfSelectedEnvSubscriptionHintFile=""
 declare -g _dsbTfSelectedEnvSubscriptionHintContent=""
-declare -gA _dsbTfEnvsDirList   # Associative array
-declare -ga _dsbTfAvailableEnvs # Indexed array
 
 declare -g _dsbTfModulesDir=""
 declare -gA _dsbTfModulesDirList # Associative array
@@ -166,21 +171,41 @@ declare -g _dsbTfSubscriptionName=""
 #
 ###################################################################################################
 
-_dsb_err() {
+# what:
+#   error logger, mute with _dsbTfLogErrors=0
+# input:
+#   $1 : message
+_dsb_e() {
   local logErr=${_dsbTfLogErrors:-1}
   if [ "${logErr}" == "1" ]; then
     echo -e "\e[31mERROR  : $1\e[0m"
   fi
 }
 
-_dsb_i_append() {
-  local logInfo=${_dsbTfLogInfo:-1}
-  local logText=${1:-}
-  if [ "${logInfo}" == "1" ]; then
-    echo -en "${logText}\n"
-  fi
+# what:
+#   error logger for internal errors, always logs
+# input:
+#   $1 : message
+_dsb_internal_error() {
+  local caller=${FUNCNAME[1]}
+  echo -e "\e[31mERROR  : ${caller} : $1\e[0m"
 }
 
+# what:
+#   info logger, mute with _dsbTfLogInfo=0
+# input:
+#   $1 : message
+_dsb_i() {
+  local logText=${1:-}
+  local caller=${FUNCNAME[1]}
+  _dsb_i_nonewline "${logText}\n" "${caller}"
+}
+
+# what:
+#   info logger, mute with _dsbTfLogInfo=0
+#   message is logged without trailing newline
+# input:
+#   $1 : message
 _dsb_i_nonewline() {
   local logInfo=${_dsbTfLogInfo:-1}
   local logText=${1:-}
@@ -189,11 +214,23 @@ _dsb_i_nonewline() {
   fi
 }
 
-_dsb_i() {
+# what:
+#   info logger, mute with _dsbTfLogInfo=0
+#   message is logged without being prefixed with INFO:
+# input:
+#   $1 : message
+_dsb_i_append() {
+  local logInfo=${_dsbTfLogInfo:-1}
   local logText=${1:-}
-  _dsb_i_nonewline "${logText}\n"
+  if [ "${logInfo}" == "1" ]; then
+    echo -en "${logText}\n"
+  fi
 }
 
+# what:
+#   warning logger, mute with _dsbTfLogWarnings=0
+# input:
+#   $1 : message
 _dsb_w() {
   local logWarn=${_dsbTfLogWarnings:-1}
   if [ "${logWarn}" == "1" ]; then
@@ -201,25 +238,50 @@ _dsb_w() {
   fi
 }
 
+# what:
+#   debug logger, mute with _dsbTfLogDebug=0
+# input:
+#   $1 : message
 _dsb_d() {
   local logDebug=${_dsbTfLogDebug:-0}
+  caller=${FUNCNAME[1]}
   if [ "${logDebug}" == "1" ]; then
-    echo -e "\e[35mDEBUG  : $1\e[0m"
+    echo -e "\e[35mDEBUG  : ${caller} : $1\e[0m"
   fi
 }
 
-_dsb_tf_get_rel_dir() {
-  local dirName=$1
-  realpath --relative-to="${_dsbTfRootDir}" "${dirName}"
-}
+# TODO: need this?
+# _dsb_tf_get_rel_dir() {
+#   local dirName=$1
+#   realpath --relative-to="${_dsbTfRootDir}" "${dirName}"
+# }
 
+# what:
+#   use gh cli to get the currently logged in GitHub account
+# input:
+#   none
+# returns:
+#   echos the GitHub account name
 _dsb_tf_get_github_cli_account() {
   local ghAccount
-  ghAccount=$(gh auth status --hostname github.com | grep "Logged in to github.com account" | sed 's/.*Logged in to github.com account //' | awk '{print $1}')
+  ghAccount=$(
+    gh auth status --hostname github.com |
+      grep "Logged in to github.com account" |
+      sed 's/.*Logged in to github.com account //' |
+      awk '{print $1}'
+  )
   echo "${ghAccount}"
 }
 
+# what:
+#   gives the user a full insight into the current status of the tools, authentication, and environment
+# input:
+#   none
+# returns:
+#   exit code in _dsbTfReturnCode
+#   internal errors return 1 directly
 _dsb_tf_report_status() {
+  # TODO: look into removing these
   _dsbTfLogInfo=0
   _dsbTfLogErrors=0
   _dsb_tf_error_stop_trapping
@@ -242,26 +304,24 @@ _dsb_tf_report_status() {
     if _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
       local azUpn="${_dsbTfAzureUpn:-}"
       if [ -z "${azUpn}" ]; then
-        _dsbTfLogErrors=1
-        _dsb_err "Internal error: in _dsb_tf_report_status(): Azure UPN not found."
-        _dsb_err "  expected in _dsbTfAzureUpn, which is: ${_dsbTfAzureUpn:-}"
-        _dsb_err "  azUpn is: ${azUpn}"
+        _dsb_tf_error_start_trapping
+        _dsb_internal_error "Internal error: Azure UPN not found."
+        _dsb_internal_error "  expected in _dsbTfAzureUpn, which is: ${_dsbTfAzureUpn:-}"
+        _dsb_internal_error "  azUpn is: ${azUpn}"
         return 1
       fi
       azSubId="${_dsbTfSubscriptionId:-}"
       azSubName="${_dsbTfSubscriptionName:-}"
       if [ -z "${azSubId}" ]; then
-        _dsbTfLogErrors=1
-        _dsb_err "Internal error: in _dsb_tf_report_status(): Azure Subscription ID not found."
-        _dsb_err "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionId:-}"
-        _dsb_err "  azSubId is: ${azSubId}"
+        _dsb_internal_error "Internal error: Azure Subscription ID not found."
+        _dsb_internal_error "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionId:-}"
+        _dsb_internal_error "  azSubId is: ${azSubId}"
         return 1
       fi
       if [ -z "${azSubId}" ]; then
-        _dsbTfLogErrors=1
-        _dsb_err "Internal error: in _dsb_tf_report_status(): Azure Subscription ID not found."
-        _dsb_err "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionName:-}"
-        _dsb_err "  azSubName is: ${azSubName}"
+        _dsb_internal_error "Internal error: Azure Subscription ID not found."
+        _dsb_internal_error "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionName:-}"
+        _dsb_internal_error "  azSubName is: ${azSubName}"
         return 1
       fi
       azureAccount="  \e[32m☑\e[0m  Logged in to Azure as       : ${_dsbTfAzureUpn}"
@@ -298,6 +358,7 @@ _dsb_tf_report_status() {
     subHintFileStatus=$?
   fi
 
+  # TODO: dont assign these globally
   _dsbTfLogInfo=1
   _dsbTfLogErrors=1
   _dsb_tf_error_start_trapping
@@ -305,13 +366,13 @@ _dsb_tf_report_status() {
 
   _dsb_i "Overall:"
 
-  _dsb_d "_dsb_tf_report_status(): returnCode: ${returnCode}"
-  _dsb_d "_dsb_tf_report_status(): prereqStatus: ${prereqStatus}"
-  _dsb_d "_dsb_tf_report_status(): githubStatus: ${githubStatus}"
-  _dsb_d "_dsb_tf_report_status(): azureStatus: ${azureStatus}"
-  _dsb_d "_dsb_tf_report_status(): envStatus: ${envStatus}"
-  _dsb_d "_dsb_tf_report_status(): lockFileStatus: ${lockFileStatus}"
-  _dsb_d "_dsb_tf_report_status(): subHintFileStatus: ${subHintFileStatus}"
+  _dsb_d "returnCode: ${returnCode}"
+  _dsb_d "prereqStatus: ${prereqStatus}"
+  _dsb_d "githubStatus: ${githubStatus}"
+  _dsb_d "azureStatus: ${azureStatus}"
+  _dsb_d "envStatus: ${envStatus}"
+  _dsb_d "lockFileStatus: ${lockFileStatus}"
+  _dsb_d "subHintFileStatus: ${subHintFileStatus}"
 
   if [ ${prereqStatus} -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  Pre-requisites check: passed."
@@ -375,6 +436,8 @@ _dsb_tf_report_status() {
   fi
 
   _dsbTfReturnCode=$returnCode
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  return 0
 }
 
 ###################################################################################################
@@ -382,28 +445,6 @@ _dsb_tf_report_status() {
 # Help functions
 #
 ###################################################################################################
-
-# the help function
-#   supports many inupts:
-#     tf-help                 -> show short help, will list most used commands and command groups
-#     tf-help groups          -> show all command groups
-#                                valid groups are 'general'/'overall', 'all', 'azure', 'checks', 'environments', 'terraform', 'linting'/'tflint', 'upgrading'/'bumping'
-#                                NOT IMPLMENTING IN HELP FOR NOW: 'terraform', 'linting'/'tflint', 'upgrading'/'bumping'
-#     tf-help [group]         -> show help for command group,
-#                                valid groups are 'general'/'overall', 'all', 'azure', 'checks', 'environments', 'terraform', 'linting'/'tflint', 'upgrading'/'bumping'
-#                                NOT IMPLMENTING IN HELP FOR NOW: 'terraform', 'linting'/'tflint', 'upgrading'/'bumping'
-#     tf-help general         -> show general help
-#                                mention that 'tf-help' is the same as 'tf-help general'
-#                                talk about 'tf-help groups'
-#                                talk about 'tf-help commands'
-#                                mention 'tf-help all'
-#     tf-help all             -> show all help
-#     tf-help commands        -> show all commands, make sure to group and indent commands by group
-#                                valid commands are: 'check-tools', 'check-gh-auth', 'check-dir', 'check-prereqs', 'list-envs', 'set-env', 'clear-env', 'select-env', 'check-env', 'az-logout', 'az-login', 'az-relog', 'az-whoami', 'tf-status'
-#                                NOT IMPLMENTING IN HELP FOR NOW: future commands
-#     tf-help [command]       -> show help for command
-#                                valid commands are: 'check-tools', 'check-gh-auth', 'check-dir', 'check-prereqs', 'list-envs', 'set-env', 'clear-env', 'select-env', 'check-env', 'az-logout', 'az-login', 'az-relog', 'az-whoami', 'tf-status'
-#                                NOT IMPLMENTING IN HELP FOR NOW: future commands
 
 _ds_tf_help_get_commands_supported_by_help() {
   local -a commands=(
@@ -424,6 +465,22 @@ _ds_tf_help_get_commands_supported_by_help() {
     "tf-status"
   )
   echo "${commands[@]}"
+}
+
+_dsb_tf_help_enumerate_supported_topics() {
+  local -a validgroups=(
+    "all"
+    "commands"
+    "help"
+    "groups"
+    "environments"
+    "checks"
+    "azure"
+    "general"
+  )
+  local -a validCommands
+  mapfile -t validCommands < <(_ds_tf_help_get_commands_supported_by_help)
+  echo "${validgroups[@]}" "${validCommands[@]}"
 }
 
 _dsb_tf_help() {
@@ -641,122 +698,199 @@ _dsb_tf_help_specific_command() {
   esac
 }
 
-_dsb_tf_help_enumerate_supported_topics() {
-  local -a validgroups=(
-    "all"
-    "commands"
-    "help"
-    "groups"
-    "environments"
-    "checks"
-    "azure"
-    "general"
-  )
-  local -a validCommands
-  mapfile -t validCommands < <(_ds_tf_help_get_commands_supported_by_help)
-  echo "${validgroups[@]}" "${validCommands[@]}"
-}
-
 ###################################################################################################
 #
 # Check functions
 #
 ###################################################################################################
 
+# what:
+#   check if Azure CLI is available
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
 _dsb_tf_check_az_cli() {
   if ! az --version &>/dev/null; then
-    _dsb_err "Azure CLI not found."
-    _dsb_err "  checked with command: az --version"
-    _dsb_err "  make sure az is available in your PATH"
-    _dsb_err "  for installation instructions see: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
+    _dsb_e "Azure CLI not found."
+    _dsb_e "  checked with command: az --version"
+    _dsb_e "  make sure az is available in your PATH"
+    _dsb_e "  for installation instructions see: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
     return 1
   fi
+  return 0
 }
 
+# what:
+#   check if GitHub CLI is available
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
 _dsb_tf_check_gh_cli() {
   if ! gh --version &>/dev/null; then
-    _dsb_err "GitHub CLI not found."
-    _dsb_err "  checked with command: gh --version"
-    _dsb_err "  make sure gh is available in your PATH"
-    _dsb_err "  for installation instructions see: https://github.com/cli/cli#installation"
+    _dsb_e "GitHub CLI not found."
+    _dsb_e "  checked with command: gh --version"
+    _dsb_e "  make sure gh is available in your PATH"
+    _dsb_e "  for installation instructions see: https://github.com/cli/cli#installation"
     return 1
   fi
+  return 0
 }
 
+# what:
+#   check if Terraform is available
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
 _dsb_tf_check_terraform() {
   if ! terraform -version &>/dev/null; then
-    _dsb_err "Terraform not found."
-    _dsb_err "  checked with command: terraform -version"
-    _dsb_err "  make sure terraform is available in your PATH"
-    _dsb_err "  for installation instructions see: https://learn.hashicorp.com/tutorials/terraform/install-cli"
+    _dsb_e "Terraform not found."
+    _dsb_e "  checked with command: terraform -version"
+    _dsb_e "  make sure terraform is available in your PATH"
+    _dsb_e "  for installation instructions see: https://learn.hashicorp.com/tutorials/terraform/install-cli"
     return 1
   fi
+  return 0
 }
 
+# what:
+#   check if jq is available
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
 _dsb_tf_check_jq() {
   if ! jq --version &>/dev/null; then
-    _dsb_err "jq not found."
-    _dsb_err "  checked with command: jq --version"
-    _dsb_err "  make sure jq is available in your PATH"
-    _dsb_err "  for installation instructions see: https://stedolan.github.io/jq/download/"
+    _dsb_e "jq not found."
+    _dsb_e "  checked with command: jq --version"
+    _dsb_e "  make sure jq is available in your PATH"
+    _dsb_e "  for installation instructions see: https://stedolan.github.io/jq/download/"
     return 1
   fi
+  return 0
 }
 
-_dsb_tf_check_yq() {
-  if ! yq --version &>/dev/null; then
-    _dsb_err "yq not found."
-    _dsb_err "  checked with command: yq --version"
-    _dsb_err "  make sure yq is available in your PATH"
-    _dsb_err "  for installation instructions see: https://mikefarah.gitbook.io/yq#install"
-    return 1
-  fi
-}
+# TODO: need this?
+# what:
+#   check if yq is available
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+# _dsb_tf_check_yq() {
+#   if ! yq --version &>/dev/null; then
+#     _dsb_e "yq not found."
+#     _dsb_e "  checked with command: yq --version"
+#     _dsb_e "  make sure yq is available in your PATH"
+#     _dsb_e "  for installation instructions see: https://mikefarah.gitbook.io/yq#install"
+#     return 1
+#   fi
+#   return 0
+# }
 
-_dsb_tf_check_golang() {
-  if ! go version &>/dev/null; then
-    _dsb_err "Go not found."
-    _dsb_err "  checked with command: go version"
-    _dsb_err "  make sure go is available in your PATH"
-    _dsb_err "  for installation instructions see: https://go.dev/doc/install"
-    return 1
-  fi
-}
+# TODO: enable when needed
+# what:
+#   check if Go is available
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+# _dsb_tf_check_golang() {
+#   if ! go version &>/dev/null; then
+#     _dsb_e "Go not found."
+#     _dsb_e "  checked with command: go version"
+#     _dsb_e "  make sure go is available in your PATH"
+#     _dsb_e "  for installation instructions see: https://go.dev/doc/install"
+#     return 1
+#   fi
+#   return 0
+# }
 
-_dsb_tf_check_hcledit() {
-  if ! hcledit version &>/dev/null; then
-    _dsb_err "hcledit not found."
-    _dsb_err "  checked with command: hcledit version"
-    _dsb_err "  make sure hcledit is available in your PATH"
-    _dsb_err "  for installation instructions see: https://github.com/minamijoyo/hcledit?tab=readme-ov-file#install"
-    _dsb_err "  or install it with: 'go install github.com/minamijoyo/hcledit@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
-    return 1
-  fi
-}
+# TODO: enable when needed
+# what:
+#   check if hcledit is available
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+# _dsb_tf_check_hcledit() {
+#   if ! hcledit version &>/dev/null; then
+#     _dsb_e "hcledit not found."
+#     _dsb_e "  checked with command: hcledit version"
+#     _dsb_e "  make sure hcledit is available in your PATH"
+#     _dsb_e "  for installation instructions see: https://github.com/minamijoyo/hcledit?tab=readme-ov-file#install"
+#     _dsb_e "  or install it with: 'go install github.com/minamijoyo/hcledit@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
+#     return 1
+#   fi
+#   return 0
+# }
 
-_dsb_tf_check_terraform_docs() {
-  if ! terraform-docs --version &>/dev/null; then
-    _dsb_err "terraform-docs not found."
-    _dsb_err "  checked with command: terraform-docs --version"
-    _dsb_err "  make sure terraform-docs is available in your PATH"
-    _dsb_err "  for installation instructions see: https://terraform-docs.io/user-guide/installation/"
-    _dsb_err "  or install it with: 'go install github.com/terraform-docs/terraform-docs@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
-    return 1
-  fi
-}
+# TODO: need this?
+# what:
+#   check if terraform-docs is available
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+# _dsb_tf_check_terraform_docs() {
+#   if ! terraform-docs --version &>/dev/null; then
+#     _dsb_e "terraform-docs not found."
+#     _dsb_e "  checked with command: terraform-docs --version"
+#     _dsb_e "  make sure terraform-docs is available in your PATH"
+#     _dsb_e "  for installation instructions see: https://terraform-docs.io/user-guide/installation/"
+#     _dsb_e "  or install it with: 'go install github.com/terraform-docs/terraform-docs@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
+#     return 1
+#   fi
+#   return 0
+# }
 
+# what:
+#   check if realpath is available
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
 _dsb_tf_check_realpath() {
   if ! realpath --version &>/dev/null; then
-    _dsb_err "realpath not found."
-    _dsb_err "  checked with command: realpath --version"
-    _dsb_err "  make sure realpath is available in your PATH"
-    _dsb_err "  install it with one of:"
-    _dsb_err "    - Ubuntu: 'sudo apt-get install coreutils'"
-    _dsb_err "    - OS X  : 'brew install coreutils'"
+    _dsb_e "realpath not found."
+    _dsb_e "  checked with command: realpath --version"
+    _dsb_e "  make sure realpath is available in your PATH"
+    _dsb_e "  install it with one of:"
+    _dsb_e "    - Ubuntu: 'sudo apt-get install coreutils'"
+    _dsb_e "    - OS X  : 'brew install coreutils'"
     return 1
   fi
+  return 0
 }
 
+# what:
+#   check if all required tools are available
+# input:
+#   none
+# on info:
+#  a summary of the check results is printed
+# returns:
+#   exit code directly
 _dsb_tf_check_tools() {
 
   _dsb_i "Checking Azure CLI ..."
@@ -775,27 +909,28 @@ _dsb_tf_check_tools() {
   _dsb_tf_check_jq
   local jqStatus=$?
 
-  _dsb_i "Checking yq ..."
-  _dsb_tf_check_yq
-  local yqStatus=$?
+  # _dsb_i "Checking yq ..."
+  # _dsb_tf_check_yq
+  # local yqStatus=$?
 
-  _dsb_i "Checking Go ..."
-  _dsb_tf_check_golang
-  local golangStatus=$?
+  # _dsb_i "Checking Go ..."
+  # _dsb_tf_check_golang
+  # local golangStatus=$?
 
-  _dsb_i "Checking hcledit ..."
-  _dsb_tf_check_hcledit
-  local hcleditStatus=$?
+  # _dsb_i "Checking hcledit ..."
+  # _dsb_tf_check_hcledit
+  # local hcleditStatus=$?
 
-  _dsb_i "Checking terraform-docs ..."
-  _dsb_tf_check_terraform_docs
-  local terraformDocsStatus=$?
+  # _dsb_i "Checking terraform-docs ..."
+  # _dsb_tf_check_terraform_docs
+  # local terraformDocsStatus=$?
 
   _dsb_i "Checking realpath ..."
   _dsb_tf_check_realpath
   local realpathStatus=$?
 
-  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformDocsStatus + realpathStatus))
+  # local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformDocsStatus + realpathStatus))
+  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + realpathStatus))
 
   _dsb_i ""
   _dsb_i "Tools check summary:"
@@ -819,26 +954,26 @@ _dsb_tf_check_tools() {
   else
     _dsb_i "  \e[31m☒\e[0m  jq check             : fails, see above for more information."
   fi
-  if [ ${yqStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  yq check             : passed."
-  else
-    _dsb_i "  \e[31m☒\e[0m  yq check             : fails, see above for more information."
-  fi
-  if [ ${golangStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Go check             : passed."
-  else
-    _dsb_i "  \e[31m☒\e[0m  Go check             : fails, see above for more information."
-  fi
-  if [ ${hcleditStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  hcledit check        : passed."
-  else
-    _dsb_i "  \e[31m☒\e[0m  hcledit check        : fails, see above for more information."
-  fi
-  if [ ${terraformDocsStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  terraform-docs check : passed."
-  else
-    _dsb_i "  \e[31m☒\e[0m  terraform-docs check : fails, see above for more information."
-  fi
+  # if [ ${yqStatus} -eq 0 ]; then
+  #   _dsb_i "  \e[32m☑\e[0m  yq check             : passed."
+  # else
+  #   _dsb_i "  \e[31m☒\e[0m  yq check             : fails, see above for more information."
+  # fi
+  # if [ ${golangStatus} -eq 0 ]; then
+  #   _dsb_i "  \e[32m☑\e[0m  Go check             : passed."
+  # else
+  #   _dsb_i "  \e[31m☒\e[0m  Go check             : fails, see above for more information."
+  # fi
+  # if [ ${hcleditStatus} -eq 0 ]; then
+  #   _dsb_i "  \e[32m☑\e[0m  hcledit check        : passed."
+  # else
+  #   _dsb_i "  \e[31m☒\e[0m  hcledit check        : fails, see above for more information."
+  # fi
+  # if [ ${terraformDocsStatus} -eq 0 ]; then
+  #   _dsb_i "  \e[32m☑\e[0m  terraform-docs check : passed."
+  # else
+  #   _dsb_i "  \e[31m☒\e[0m  terraform-docs check : fails, see above for more information."
+  # fi
   if [ ${realpathStatus} -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  realpath check       : passed."
   else
@@ -848,6 +983,15 @@ _dsb_tf_check_tools() {
   return $returnCode
 }
 
+# what:
+#   check if GitHub CLI is authenticated
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+#   fails if gh cli is not installed
 _dsb_tf_check_gh_auth() {
   local returnCode=0
 
@@ -857,33 +1001,36 @@ _dsb_tf_check_gh_auth() {
   fi
 
   if ! gh auth status &>/dev/null; then
-    _dsb_err "You are not authenticated with GitHub. Please run 'gh auth login' to authenticate."
+    _dsb_e "You are not authenticated with GitHub. Please run 'gh auth login' to authenticate."
     return 1
   fi
 }
 
-_dsb_tf_check_root_directory() {
-  local returnCode=0
-
-  if ! _dsb_tf_look_for_main_dir; then returnCode=1; fi
-  if ! _dsb_tf_look_for_envs_dir; then returnCode=1; fi
-
-  return $returnCode
-}
-
+# what:
+#   enumerate directories and checks if the current directory is a valid Terraform project
+#     does it contain a main directory
+#     does it contain an envs directory
+# input:
+#   none
+# on info:
+#   continuous output with summary of the check results
+# returns:
+#   exit code in _dsbTfReturnCode
 _dsb_tf_check_current_dir() {
   _dsb_tf_enumerate_directories
-  _dsb_tf_error_stop_trapping
 
   _dsb_i "Checking main dir  ..."
-  _dsb_tf_look_for_main_dir
-  local mainDirStatus=$?
+  local mainDirStatus=0
+  if ! _dsb_tf_look_for_main_dir; then
+    mainDirStatus=1
+  fi
 
   _dsb_i "Checking envs dir  ..."
-  _dsb_tf_look_for_envs_dir
-  local envsDirStatus=$?
+  local envsDirStatus=0
+  if ! _dsb_tf_look_for_envs_dir; then
+    envsDirStatus=1
+  fi
 
-  _dsb_tf_error_start_trapping
   local returnCode=$((mainDirStatus + envsDirStatus))
 
   _dsb_i ""
@@ -902,26 +1049,39 @@ _dsb_tf_check_current_dir() {
   fi
 
   local selectedEnv="${_dsbTfSelectedEnv:-}"
-  _dsb_d "_dsb_tf_check_current_dir(): selectedEnv: ${selectedEnv}"
+  _dsb_d "selectedEnv: ${selectedEnv}"
 
   _dsb_i ""
   if [ "${returnCode}" -eq 0 ]; then
     _dsb_i "\e[32mAll directory checks passed.\e[0m"
   else
-    _dsb_err "Directory check(s) failed, the current directory does not seem to be a valid Terraform project."
-    _dsb_err "  directory checked: ${_dsbTfRootDir}"
-    _dsb_err "  for more information see above."
+    _dsb_e "Directory check(s) failed, the current directory does not seem to be a valid Terraform project."
+    _dsb_e "  directory checked: ${_dsbTfRootDir:-}"
+    _dsb_e "  for more information see above."
   fi
 
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
   _dsbTfReturnCode=$returnCode
+  return 0
 }
 
+# what:
+#   check all pre-requisites
+#     tools
+#     GitHub authentication
+#     working directory
+# input:
+#   none
+# on info:
+#   continuous output with summary of the check results
+# returns:
+#   exit code in _dsbTfReturnCode
 _dsb_tf_check_prereqs() {
   local prevLogInfo="${_dsbTfLogInfo}"
   local prevLogErrors="${_dsbTfLogErrors}"
 
   _dsb_tf_enumerate_directories
-  _dsb_tf_error_stop_trapping
+  _dsb_tf_error_stop_trapping # TODO: get rid of this
 
   _dsb_i_nonewline "Checking tools ..."
   _dsbTfLogInfo=0
@@ -938,18 +1098,18 @@ _dsb_tf_check_prereqs() {
   _dsb_i_append " done."
 
   _dsb_i_nonewline "Checking working directory ..."
-  _dsb_tf_check_root_directory
-  local workingDirStatus=$?
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  local workingDirStatus=${_dsbTfReturnCode}
   _dsb_i_append " done."
 
   # _dsbTfLogErrors=1
   _dsb_tf_error_start_trapping
   local returnCode=$((toolsStatus + ghAuthStatus + workingDirStatus))
 
-  _dsb_d "_dsb_tf_check_prereqs(): returnCode: ${returnCode}"
-  _dsb_d "_dsb_tf_check_prereqs(): toolsStatus: ${toolsStatus}"
-  _dsb_d "_dsb_tf_check_prereqs(): ghAuthStatus: ${ghAuthStatus}"
-  _dsb_d "_dsb_tf_check_prereqs(): workingDirStatus: ${workingDirStatus}"
+  _dsb_d "returnCode: ${returnCode}"
+  _dsb_d "toolsStatus: ${toolsStatus}"
+  _dsb_d "ghAuthStatus: ${ghAuthStatus}"
+  _dsb_d "workingDirStatus: ${workingDirStatus}"
 
   _dsb_i ""
   _dsb_i "Pre-requisites check summary:"
@@ -978,14 +1138,24 @@ _dsb_tf_check_prereqs() {
     _dsb_i "\e[32mAll pre-reqs check passed.\e[0m"
     _dsb_i "  now try 'tf-select-env' to select an environment."
   else
-    _dsb_err "\e[31mPre-reqs check failed, for more information see above.\e[0m"
+    _dsb_e "\e[31mPre-reqs check failed, for more information see above.\e[0m"
   fi
 
-  _dsb_d "_dsb_tf_check_prereqs(): returnCode: ${returnCode}"
+  _dsb_d "returnCode: ${returnCode}"
 
   _dsbTfReturnCode=$returnCode
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  return 0
 }
 
+# what:
+#   check if the specified environment exists
+# input:
+#   environment name
+# on info:
+#   continuous output with summary of the check results
+# returns:
+#   exit code in _dsbTfReturnCode
 _dsb_tf_check_env() {
   local envToCheck="${1:-}"
 
@@ -997,9 +1167,9 @@ _dsb_tf_check_env() {
   local subscriptionHintFileStatus=0
   if [ -z "${envToCheck}" ]; then
     if [ -z "${selectedEnv}" ]; then
-      _dsb_err "No environment specified and no environment selected."
-      _dsb_err "  either specify environment: tf-check-env [env]"
-      _dsb_err "  or run one of the following: tf-select-env, tf-set-env [env], tf-list-envs"
+      _dsb_e "No environment specified and no environment selected."
+      _dsb_e "  either specify environment: tf-check-env [env]"
+      _dsb_e "  or run one of the following: tf-select-env, tf-set-env [env], tf-list-envs"
       _dsbTfReturnCode=1
       return 0 # caller reads _dsbTfReturnCode
     fi
@@ -1010,7 +1180,7 @@ _dsb_tf_check_env() {
   _dsb_i "Environment: ${envToCheck}"
 
   _dsb_tf_enumerate_directories
-  _dsb_tf_error_stop_trapping
+  _dsb_tf_error_stop_trapping # TODO: get rid of this?
 
   _dsb_i "Looking for environment ..."
   _dsb_tf_look_for_env "${envToCheck}"
@@ -1053,10 +1223,12 @@ _dsb_tf_check_env() {
   if [ ${returnCode} -eq 0 ]; then
     _dsb_i "\e[32mAll checks passed.\e[0m"
   else
-    _dsb_err "\e[31mChecks failed, for more information see above.\e[0m"
+    _dsb_e "\e[31mChecks failed, for more information see above.\e[0m"
   fi
 
   _dsbTfReturnCode=$returnCode
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  return 0
 }
 
 ###################################################################################################
@@ -1065,10 +1237,30 @@ _dsb_tf_check_env() {
 #
 ###################################################################################################
 
+# what:
+#   enumerate directories with current directory as root
+#     - modules
+#     - main
+#     - envs + subdirectories
+#   if an environment is selected, stored in _dsbTfSelectedEnv, and it exists as a subdirectory of envs,
+#   the corresponding directory is stored in _dsbTfSelectedEnvDir
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+#   populates deveral global variables:
+#     - _dsbTfRootDir
+#     - _dsbTfModulesDir
+#       - _dsbTfModulesDirList
+#     - _dsbTfMainDir
+#     - _dsbTfEnvsDir
+#       - _dsbTfEnvsDirList
+#       - _dsbTfAvailableEnvs
+#       - _dsbTfSelectedEnvDir
 _dsb_tf_enumerate_directories() {
   _dsbTfRootDir="$(realpath .)"
-  # DEBUG
-  # _dsbTfRootDir=/home/peder/code/github/dsb-norge/azure-ad
   _dsbTfModulesDir="${_dsbTfRootDir}/modules"
   _dsbTfMainDir="${_dsbTfRootDir}/main"
   _dsbTfEnvsDir="${_dsbTfRootDir}/envs"
@@ -1085,7 +1277,7 @@ _dsb_tf_enumerate_directories() {
   _dsbTfAvailableEnvs=()
 
   if [ -d "${_dsbTfEnvsDir}" ]; then
-    _dsb_d "_dsb_tf_enumerate_directories(): Enumerating environments ..."
+    _dsb_d "Enumerating environments ..."
 
     local item
     for item in "${_dsbTfRootDir}"/envs/*; do
@@ -1094,18 +1286,13 @@ _dsb_tf_enumerate_directories() {
         if [[ "$(basename "${item}")" =~ ^_ ]]; then
           continue
         fi
-        _dsb_d "_dsb_tf_enumerate_directories(): Found environment: $(basename "${item}")"
+        _dsb_d "Found environment: $(basename "${item}")"
         _dsbTfEnvsDirList[$(basename "${item}")]="${item}"
         _dsbTfAvailableEnvs+=("$(basename "${item}")")
       fi
     done
 
-    _dsb_d "_dsb_tf_enumerate_directories(): number of environments found: ${#_dsbTfAvailableEnvs[@]}"
-
-    # DEBUG
-    # unset _dsbTfSelectedEnv
-    # _dsbTfSelectedEnv="debug"
-    # _dsbTfSelectedEnv="test"
+    _dsb_d "number of environments found: ${#_dsbTfAvailableEnvs[@]}"
 
     # checks if a selected environment is available in the list of environments.
     # If found, enumerate the corresponding env directory.
@@ -1127,11 +1314,11 @@ _dsb_tf_enumerate_directories() {
         fi
       done
       if [ "${envFound}" -eq 1 ]; then
-        _dsb_d "_dsb_tf_enumerate_directories(): found selectedEnv: ${selectedEnv}"
+        _dsb_d "found selectedEnv: ${selectedEnv}"
         _dsbTfSelectedEnvDir="${_dsbTfEnvsDirList["${selectedEnv}"]}"
       else
-        _dsb_d "_dsb_tf_enumerate_directories(): clearing '_dsbTfSelectedEnv' and '_dsbTfSelectedEnvDir'"
-        local logInfoOrig="${_dsbTfLogInfo:1}"
+        _dsb_d "clearing '_dsbTfSelectedEnv' and '_dsbTfSelectedEnvDir'"
+        local logInfoOrig="${_dsbTfLogInfo:-1}"
         _dsbTfLogInfo=0
         _dsb_tf_clear_env
         _dsbTfLogInfo="${logInfoOrig}"
@@ -1139,28 +1326,17 @@ _dsb_tf_enumerate_directories() {
     fi
   fi
 
-  # DEBUG
-  # _dsb_d "_dsb_tf_enumerate_directories(): Root dir: ${_dsbTfRootDir}"
-  # _dsb_d "_dsb_tf_enumerate_directories(): Modules dir: ${_dsbTfModulesDir}"
-  # _dsb_d "_dsb_tf_enumerate_directories(): Main dir: ${_dsbTfMainDir}"
-  # _dsb_d "_dsb_tf_enumerate_directories(): Envs dir: ${_dsbTfEnvsDir}"
-  # _dsb_d "_dsb_tf_enumerate_directories(): Modules dir list:"
-  # for key in "${!_dsbTfModulesDirList[@]}"; do
-  #   _dsb_d "_dsb_tf_enumerate_directories():   - ${key}: ${_dsbTfModulesDirList[$key]}"
-  # done
-  # _dsb_d "_dsb_tf_enumerate_directories(): Envs dir list:"
-  # for key in "${!_dsbTfEnvsDirList[@]}"; do
-  #   _dsb_d "_dsb_tf_enumerate_directories():   - ${key}: ${_dsbTfEnvsDirList[$key]}"
-  # done
-  # _dsb_d "_dsb_tf_enumerate_directories(): _dsbTfAvailableEnvs: ${_dsbTfAvailableEnvs[*]}"
-  # _dsb_d "_dsb_tf_enumerate_directories(): Available envs:"
-  # for dir in "${_dsbTfAvailableEnvs[@]}"; do
-  #   _dsb_d "_dsb_tf_enumerate_directories():   - ${dir}"
-  # done
+  return 0
 }
 
-# the purpose of this function is to allow getting the list of available project modules
-# in a graceful way, without causing unbound variable errors
+# what:
+#   get a list of available project modules in a graceful way, without causing unbound variable errors
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos a list of available project modules
 _dsb_tf_get_module_names() {
   local -a moduleNames=()
   if declare -p _dsbTfModulesDirList &>/dev/null; then
@@ -1173,6 +1349,14 @@ _dsb_tf_get_module_names() {
 }
 
 # a reusable way to get a comma separated list of available project modules
+# what:
+#   get a comma separated list of available project modules as a string
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos a comma separated list of available project modules
 _dsb_tf_get_module_names_commaseparated() {
   local -a availableModules
   mapfile -t availableModules < <(_dsb_tf_get_module_names)
@@ -1185,8 +1369,14 @@ _dsb_tf_get_module_names_commaseparated() {
   echo "${availableModulesCommaSeparated}"
 }
 
-# the purpose of this function is to allow getting the list of available project module
-# director paths in a graceful way, without causing unbound variable errors
+# what:
+#   get a list of available project module directory paths in a graceful way, without causing unbound variable errors
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos a list of available project module directory paths
 _dsb_tf_get_module_dirs() { # TODO: make sure to use this, possibly when performing terrasform operations
   local -a moduleDirs=()
   if declare -p _dsbTfModulesDirList &>/dev/null; then
@@ -1198,8 +1388,15 @@ _dsb_tf_get_module_dirs() { # TODO: make sure to use this, possibly when perform
   printf "%s\n" "${moduleDirs[@]}"
 }
 
-# the purpose of this function is to allow getting the list of available environments
-# in a graceful way, without causing unbound variable errors
+# what:
+#   get a list of available environments in a graceful way, without causing unbound variable error
+#   retrieved from global variable _dsbTfAvailableEnvs
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos a list of environment names
 dsb_tf_get_env_names() {
   local -a envNames=()
   if declare -p _dsbTfEnvsDirList &>/dev/null; then
@@ -1212,6 +1409,14 @@ dsb_tf_get_env_names() {
 }
 
 # a reusable way to get a comma separated list of available environments
+# what:
+#   get a comma separated list of available environments as a string
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos a comma separated list of environment names
 _dsb_tf_get_env_names_commaseparated() {
   local -a availableEnvs
   mapfile -t availableEnvs < <(dsb_tf_get_env_names)
@@ -1236,38 +1441,59 @@ _dsb_tf_get_env_names_commaseparated() {
 #   printf "%s\n" "${envDirs[@]}"
 # }
 
-# checks if the path stored in _dsbTfEnvsDir actually exists as a directory
+# what:
+#   checks if the path stored in _dsbTfEnvsDir actually exists as a directory
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
 _dsb_tf_look_for_main_dir() {
   if [ ! -d "${_dsbTfMainDir}" ]; then
-    _dsb_err "Directory 'main' not found in current directory: ${_dsbTfRootDir}"
+    _dsb_e "Directory 'main' not found in current directory: ${_dsbTfRootDir}"
     return 1
   fi
+  return 0
 }
 
-# checks if the path stored in _dsbTfEnvsDir actually exists as a directory
+# what:
+#   checks if the path stored in _dsbTfEnvsDir actually exists as a directory
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
 _dsb_tf_look_for_envs_dir() {
   if [ ! -d "${_dsbTfEnvsDir}" ]; then
-    _dsb_err "Directory 'envs' not found in current directory: ${_dsbTfRootDir}"
+    _dsb_e "Directory 'envs' not found in current directory: ${_dsbTfRootDir}"
     return 1
   fi
+  return 0
 }
 
-# either supplied or the selected environment
+# what:
+#   checks if the supplied environment name exists in the list of available environments
+# input:
+#   $1: environment name
+# on info:
+#   nothing
+# returns:
+#   exit code directly
 _dsb_tf_look_for_env() {
   local suppliedEnv="${1:-}"
 
   if [ -z "${suppliedEnv}" ]; then
-    _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_look_for_env, no environment supplied."
+    _dsb_internal_error "Internal error: no environment supplied."
     return 1
   fi
 
   if ! declare -p _dsbTfEnvsDir &>/dev/null; then
-    _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_look_for_env, expected to find environments directory."
-    _dsb_err "  expected in: _dsbTfEnvsDir"
+    _dsb_internal_error "Internal error: expected to find environments directory."
+    _dsb_internal_error "  expected in: _dsbTfEnvsDir"
     return 1
   fi
 
@@ -1277,8 +1503,8 @@ _dsb_tf_look_for_env() {
   mapfile -t availableEnvs < <(dsb_tf_get_env_names)
   local envCount=${#availableEnvs[@]}
 
-  _dsb_d "_dsb_tf_look_for_env(): available envs count in availableEnvs: ${envCount}"
-  _dsb_d "_dsb_tf_look_for_env(): available envs: ${availableEnvs[*]}"
+  _dsb_d "available envs count in availableEnvs: ${envCount}"
+  _dsb_d "available envs: ${availableEnvs[*]}"
 
   local env
   local envFound=0
@@ -1290,18 +1516,29 @@ _dsb_tf_look_for_env() {
   done
 
   if [ "${envFound}" -eq 1 ]; then
-    _dsb_d "_dsb_tf_look_for_env(): found suppliedEnv: ${suppliedEnv}"
+    _dsb_d "found suppliedEnv: ${suppliedEnv}"
     return 0
   else
-    _dsb_err "Environment not found."
-    _dsb_err "  environment: ${suppliedEnv}"
-    _dsb_err "  look in: ${envsDir}"
-    _dsb_err "  for available environments run 'tf-list-envs'"
+    _dsb_e "Environment not found."
+    _dsb_e "  environment: ${suppliedEnv}"
+    _dsb_e "  look in: ${envsDir}"
+    _dsb_e "  for available environments run 'tf-list-envs'"
     return 1
   fi
 }
 
-# look for a given file type, either in the supplied or the selected environment
+# what:
+#   look for a given file type, either in the supplied or the selected environment
+#   if an environment is supplied, a check is performed to see if it is an available environment
+# input:
+#   $1: environment name
+#   $2: file type (lock or subscriptionHint)
+#   $3: name of global variable to store the path in
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+#   sets the global variable named by arg 3 to the path of the file if it is found
 _dsb_tf_look_for_environment_file() {
   local suppliedEnv="${1:-}"
   local suppliedFileType="${2:-}"
@@ -1316,22 +1553,22 @@ _dsb_tf_look_for_environment_file() {
     lookForFilename=".az-subscription"
     ;;
   *)
-    _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, expected suppliedFileType to be one of 'lock', 'subscriptionHint'."
-    _dsb_err "  suppliedFileType: ${suppliedFileType}"
+    _dsb_internal_error "Internal error: expected suppliedFileType to be one of 'lock', 'subscriptionHint'."
+    _dsb_internal_error "  suppliedFileType: ${suppliedFileType}"
     return 1
     ;;
   esac
 
   if [ -z "${suppliedGlobalToSavePathTo}" ]; then
-    _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, expected suppliedGlobalToSavePathTo to be set."
-    _dsb_err "  suppliedGlobalToSavePathTo: '${suppliedGlobalToSavePathTo}'"
+    _dsb_internal_error "Internal error: expected suppliedGlobalToSavePathTo to be set."
+    _dsb_internal_error "  suppliedGlobalToSavePathTo: '${suppliedGlobalToSavePathTo}'"
     return 1
   fi
 
   # make sure the global variable supplied in suppliedGlobalToSavePathTo is declared
   if ! declare -p "${suppliedGlobalToSavePathTo}" &>/dev/null; then
-    _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, the supplied global variable is not declared."
-    _dsb_err "  expected in suppliedGlobalToSavePathTo: ${suppliedGlobalToSavePathTo}"
+    _dsb_internal_error "Internal error: the supplied global variable is not declared."
+    _dsb_internal_error "  expected in suppliedGlobalToSavePathTo: ${suppliedGlobalToSavePathTo}"
     return 1
   fi
 
@@ -1344,21 +1581,19 @@ _dsb_tf_look_for_environment_file() {
     local envFoundStatus=$?
 
     if [ "${envFoundStatus}" -eq 0 ]; then
-      _dsb_d "_dsb_tf_look_for_environment_file(): found suppliedEnv: ${suppliedEnv}"
+      _dsb_d "found suppliedEnv: ${suppliedEnv}"
 
       if ! declare -p _dsbTfEnvsDirList &>/dev/null; then
-        _dsbTfLogErrors=1
         _dsb_tf_error_start_trapping
-        _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, expected to find environments directory list."
-        _dsb_err "  expected in: _dsbTfEnvsDirList"
+        _dsb_internal_error "Internal error: expected to find environments directory list."
+        _dsb_internal_error "  expected in: _dsbTfEnvsDirList"
         return 1
       fi
 
       if [ -z "${_dsbTfEnvsDirList["${suppliedEnv}"]}" ]; then
-        _dsbTfLogErrors=1
         _dsb_tf_error_start_trapping
-        _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, expected to find selected environment directory."
-        _dsb_err "  expected in: _dsbTfEnvsDirList"
+        _dsb_internal_error "Internal error: expected to find selected environment directory."
+        _dsb_internal_error "  expected in: _dsbTfEnvsDirList"
         return 1
       fi
 
@@ -1372,41 +1607,39 @@ _dsb_tf_look_for_environment_file() {
 
     # we allow the check to pass if no environment is selected
     if [ -z "${selectedEnv}" ]; then
-      _dsb_d "_dsb_tf_look_for_environment_file(): allow check to pass, no environment was selected"
+      _dsb_d "allow check to pass, no environment was selected"
       return 0
     fi
 
     # expect _dsbTfSelectedEnvDir to be set if an environment is selected
     if [ -z "${_dsbTfSelectedEnvDir:-}" ]; then
-      _dsbTfLogErrors=1
       _dsb_tf_error_start_trapping
-      _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
-      _dsb_err "  selected environment: ${selectedEnv}"
+      _dsb_internal_error "Internal error: environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
+      _dsb_internal_error "  selected environment: ${selectedEnv}"
       return 1
     fi
 
     selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
   fi
 
-  _dsb_d "_dsb_tf_look_for_environment_file(): suppliedEnv: ${suppliedEnv}"
-  _dsb_d "_dsb_tf_look_for_environment_file(): selectedEnv: ${selectedEnv}"
-  _dsb_d "_dsb_tf_look_for_environment_file(): selectedEnvDir: ${selectedEnvDir}"
+  _dsb_d "suppliedEnv: ${suppliedEnv}"
+  _dsb_d "selectedEnv: ${selectedEnv}"
+  _dsb_d "selectedEnvDir: ${selectedEnvDir}"
 
   # expect _dsbTfSelectedEnvDir to be a directory
   if [ ! -d "${selectedEnvDir}" ]; then
-    _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_look_for_environment_file, environment set in '_dsbTfSelectedEnv', but directory not found."
-    _dsb_err "  Selected environment: ${selectedEnv}"
-    _dsb_err "  Expected directory: ${selectedEnvDir}"
+    _dsb_internal_error "Internal error: environment set in '_dsbTfSelectedEnv', but directory not found."
+    _dsb_internal_error "  Selected environment: ${selectedEnv}"
+    _dsb_internal_error "  Expected directory: ${selectedEnvDir}"
     return 1
   fi
 
   # require that a file exists in the environment directory to be considered a valid environment
   if [ ! -f "${selectedEnvDir}/${lookForFilename}" ]; then
-    _dsb_err "File not found in selected environment. A '${suppliedFileType}' file is required for an environment to be considered valid."
-    _dsb_err "  selected environment: ${selectedEnv}"
-    _dsb_err "  expected ${suppliedFileType} file: ${selectedEnvDir}/${lookForFilename}"
+    _dsb_e "File not found in selected environment. A '${suppliedFileType}' file is required for an environment to be considered valid."
+    _dsb_e "  selected environment: ${selectedEnv}"
+    _dsb_e "  expected ${suppliedFileType} file: ${selectedEnvDir}/${lookForFilename}"
     return 1
   fi
 
@@ -1416,16 +1649,25 @@ _dsb_tf_look_for_environment_file() {
 }
 
 # look for a lock file, either in the supplied or the selected environment
+# what:
+#   look for a lock file in the supplied or selected environment
+# input:
+#   $1: environment name (optional)
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+#   sets the global variable _dsbTfSelectedEnvLockFile to the path of the lock file if it is found
 _dsb_tf_look_for_lock_file() {
   local suppliedEnv="${1:-}"
 
   # clear global variable
   _dsbTfSelectedEnvLockFile=""
 
-  _dsb_d "_dsb_tf_look_for_lock_file(): suppliedEnv: ${suppliedEnv}"
+  _dsb_d "suppliedEnv: ${suppliedEnv}"
 
   if _dsb_tf_look_for_environment_file "${suppliedEnv}" 'lock' '_dsbTfSelectedEnvLockFile'; then
-    _dsb_d "_dsb_tf_look_for_lock_file(): _dsbTfSelectedEnvLockFile: ${_dsbTfSelectedEnvLockFile:-}"
+    _dsb_d "_dsbTfSelectedEnvLockFile: ${_dsbTfSelectedEnvLockFile:-}"
     return 0
   else
     return 1
@@ -1433,6 +1675,16 @@ _dsb_tf_look_for_lock_file() {
 }
 
 # look for a subscription hint file, either in the supplied or the selected environment
+# what:
+#   look for a subscription hint file in the supplied or selected environment
+# input:
+#   $1: environment name (optional)
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+#   sets the global variable _dsbTfSelectedEnvSubscriptionHintFile to the path of the subscription hint file if it is found
+#   sets the global variable _dsbTfSelectedEnvSubscriptionHintContent to the content of the subscription hint file if it is found
 _dsb_tf_look_for_subscription_hint_file() {
   local suppliedEnv="${1:-}"
 
@@ -1440,11 +1692,11 @@ _dsb_tf_look_for_subscription_hint_file() {
   _dsbTfSelectedEnvSubscriptionHintFile=""
   _dsbTfSelectedEnvSubscriptionHintContent=""
 
-  _dsb_d "_dsb_tf_look_for_subscription_hint_file(): suppliedEnv: ${suppliedEnv}"
+  _dsb_d "suppliedEnv: ${suppliedEnv}"
 
   _dsb_tf_look_for_environment_file "${suppliedEnv}" 'subscriptionHint' '_dsbTfSelectedEnvSubscriptionHintFile'
 
-  _dsb_d "_dsb_tf_look_for_subscription_hint_file(): _dsbTfSelectedEnvSubscriptionHintFile: ${_dsbTfSelectedEnvSubscriptionHintFile:-}"
+  _dsb_d "_dsbTfSelectedEnvSubscriptionHintFile: ${_dsbTfSelectedEnvSubscriptionHintFile:-}"
 
   if [ -f "${_dsbTfSelectedEnvSubscriptionHintFile}" ]; then
     _dsbTfSelectedEnvSubscriptionHintContent=$(cat "${_dsbTfSelectedEnvSubscriptionHintFile}")
@@ -1461,34 +1713,48 @@ _dsb_tf_look_for_subscription_hint_file() {
 #
 ###################################################################################################
 
+# what:
+#   clear the selected environment and its corresponding directory
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   nothing
 _dsb_tf_clear_env() {
-  _dsb_d "_dsb_tf_clear_env(): clearing _dsbTfSelectedEnv and _dsbTfSelectedEnvDir"
+  _dsb_d "clearing _dsbTfSelectedEnv and _dsbTfSelectedEnvDir"
   _dsbTfSelectedEnv=""
   _dsbTfSelectedEnvDir=""
   _dsb_i "Environment cleared."
 }
 
+# what:
+#   list to the names of the available environments
+#   directories under the current directory is enumerated
+#   it is checked if current directory is a valid Terraform project
+# input:
+#   none
+# on info:
+#   lists out the available environments
+#   or when none are found, it informs the user
+# returns:
+#   exit code in _dsbTfReturnCode
 _dsb_tf_list_envs() {
-  _dsbTfLogErrors=0 _dsb_tf_enumerate_directories
+  _dsb_tf_error_stop_trapping # TODO: get rid of this?
 
-  _dsb_tf_error_stop_trapping
-
+  # enumerate directories with current directory as root and
   # check if the current root directory is a valid Terraform project
-  _dsbTfLogErrors=0 _dsb_tf_check_root_directory
-  local dirCheckStatus=$?
-
-  if [ "${dirCheckStatus}" -ne 0 ]; then
-    _dsbTfLogErrors=1
-    _dsb_err "Directory check(s) fails, please run 'tf-check-dir'"
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  if [ "${_dsbTfReturnCode:-1}" -ne 0 ]; then
+    _dsbTfLogErrors=1 _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
     _dsbTfReturnCode=1
     return 0 # caller reads _dsbTfReturnCode
   fi
 
   if ! declare -p _dsbTfEnvsDir &>/dev/null; then
-    _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_list_envs, expected to find environments directory."
-    _dsb_err "  expected in: _dsbTfEnvsDir"
+    _dsb_internal_error "Internal error: expected to find environments directory."
+    _dsb_internal_error "  expected in: _dsbTfEnvsDir"
     return 1
   fi
 
@@ -1496,16 +1762,8 @@ _dsb_tf_list_envs() {
   mapfile -t availableEnvs < <(dsb_tf_get_env_names)
   local envCount=${#availableEnvs[@]}
 
-  _dsb_d "_dsb_tf_list_envs(): available envs count in availableEnvs: ${envCount}"
-  _dsb_d "_dsb_tf_list_envs(): available envs: ${availableEnvs[*]}"
-
-  if [ "${#availableEnvs[@]}" -eq 0 ]; then
-    _dsbTfLogErrors=1
-    _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_list_envs, expected to find available environments."
-    _dsb_err "  expected in: _dsbTfAvailableEnvs"
-    return 1
-  fi
+  _dsb_d "available envs count in availableEnvs: ${envCount}"
+  _dsb_d "available envs: ${availableEnvs[*]}"
 
   local envsDir="${_dsbTfEnvsDir}"
   local selectedEnv="${_dsbTfSelectedEnv:-}"
@@ -1534,25 +1792,37 @@ _dsb_tf_list_envs() {
     fi
   fi
 
-  _dsb_d "_dsb_tf_list_envs(): returning code: ${_dsbTfReturnCode}"
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
   return 0 # caller reads _dsbTfReturnCode
 }
 
-# given an environment name, this function:
-#   validates the environment directory
-#     - checks if the directory exists
-#     - looks for subscription hint file
-#     - looks for terraform lock file
-#   updates the global variables to indicate thath an environment has been selected
-#   if subscription hint file is found, it attempts to set the Azure subscription
+# what:
+#   given an environment name, this function:
+#     validates the environment directory
+#       - checks if the directory exists
+#       - looks for subscription hint file
+#       - looks for terraform lock file
+#     updates the global variables to indicate that an environment has been selected
+#     if subscription hint file is found, it attempts to set the Azure subscription
+# input:
+#   $1: environment name
+# on info:
+#   selected environment and if Azure subscription is successfully set, subscription ID and name are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+#   several global variables are updated:
+#     - _dsbTfSelectedEnv
+#     - _dsbTfSelectedEnvDir
+#     - _dsbTfSubscriptionId   (implicitly set by _dsb_tf_az_set_sub)
+#     - _dsbTfSubscriptionName (implicitly set by _dsb_tf_az_set_sub)
 _dsb_tf_set_env() {
   local envToSet="${1:-}"
 
-  _dsb_d "_dsb_tf_set_env(): envToSet: ${envToSet}"
+  _dsb_d "envToSet: ${envToSet}"
 
   if [ -z "${envToSet}" ]; then
-    _dsb_err "No environment specified."
-    _dsb_err "  usage: tf-set-env <env>"
+    _dsb_e "No environment specified."
+    _dsb_e "  usage: tf-set-env <env>"
     _dsbTfReturnCode=1
     return 0 # caller reads _dsbTfReturnCode
   fi
@@ -1560,17 +1830,16 @@ _dsb_tf_set_env() {
   _dsb_tf_enumerate_directories
 
   # check if the current root directory is a valid Terraform project
-  if ! _dsbTfLogErrors=0 _dsb_tf_check_root_directory; then
-    _dsb_err "Directory check(s) fails, please run 'tf-check-dir'"
-    _dsbTfReturnCode=1
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
     return 0 # caller reads _dsbTfReturnCode
   fi
 
   if ! declare -p _dsbTfEnvsDirList &>/dev/null; then
-    _dsbTfLogErrors=1
     _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_set_env, expected to find environments directory list."
-    _dsb_err "  expected in: _dsbTfEnvsDirList"
+    _dsb_internal_error "Internal error: expected to find environments directory list."
+    _dsb_internal_error "  expected in: _dsbTfEnvsDirList"
     return 1
   fi
 
@@ -1578,8 +1847,8 @@ _dsb_tf_set_env() {
   mapfile -t availableEnvs < <(dsb_tf_get_env_names)
   local envCount=${#availableEnvs[@]}
 
-  _dsb_d "_dsb_tf_set_env(): available envs count in availableEnvs: ${envCount}"
-  _dsb_d "_dsb_tf_set_env(): available envs: ${availableEnvs[*]}"
+  _dsb_d "available envs count in availableEnvs: ${envCount}"
+  _dsb_d "available envs: ${availableEnvs[*]}"
 
   # check if the envToSet is available
   local env
@@ -1592,8 +1861,8 @@ _dsb_tf_set_env() {
   done
 
   if [ "${envFound}" -ne 1 ]; then
-    _dsb_err "Environment '${envToSet}' not available."
-    _dsb_tf_list_envs
+    _dsb_e "Environment '${envToSet}' not available."
+    _dsb_tf_list_envs # let the user know what environments are available
     _dsbTfReturnCode=1
     return 0 # caller reads _dsbTfReturnCode
   fi
@@ -1611,12 +1880,12 @@ _dsb_tf_set_env() {
 
   local azSubStatus=0
   if [ "${subscriptionHintFileStatus}" -ne 0 ]; then
-    _dsb_err "Subscription hint file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
+    _dsb_e "Subscription hint file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
   else
     _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_set_sub
     azSubStatus=${_dsbTfReturnCode}
     if [ "${azSubStatus}" -ne 0 ]; then
-      _dsb_err "Failed to configure Azure subscription using subscription hint '${_dsbTfSelectedEnvSubscriptionHintContent}', please run 'az-set-sub'"
+      _dsb_e "Failed to configure Azure subscription using subscription hint '${_dsbTfSelectedEnvSubscriptionHintContent}', please run 'az-set-sub'"
     else
       _dsb_i "  subscription ID   : ${_dsbTfSubscriptionId:-}"
       _dsb_i "  subscription Name : ${_dsbTfSubscriptionName:-}"
@@ -1626,24 +1895,34 @@ _dsb_tf_set_env() {
   local lockFileStatus=0
   if ! _dsbTfLogErrors=0 _dsb_tf_look_for_lock_file; then
     lockFileStatus=1
-    _dsb_err "Lock file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
+    _dsb_e "Lock file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
   fi
 
   _dsbTfReturnCode=$((lockFileStatus + subscriptionHintFileStatus + azSubStatus))
 
-  _dsb_d "_dsb_tf_set_env(): returning code: ${_dsbTfReturnCode}"
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
   return 0 # caller reads _dsbTfReturnCode
 }
 
+# what:
+#   prompt the user to select an environment from the list of available environments
+#   set the selected environment and its corresponding directory
+# input:
+#   none
+# on info:
+#   avaiable environment names (implicitly by _dsb_tf_list_envs)
+#   selected environment name and possibly azure subscription details (implicitly by _dsb_tf_set_env)
+# returns:
+#   exit code in _dsbTfReturnCode
 _dsb_tf_select_env() {
-  _dsb_tf_error_stop_trapping
+  _dsb_tf_error_stop_trapping # TODO: get rid of this?
   _dsb_tf_list_envs
   local listEnvsStatus=${_dsbTfReturnCode}
 
-  _dsb_d "_dsb_tf_select_env(): listEnvsStatus: ${listEnvsStatus}"
+  _dsb_d "listEnvsStatus: ${listEnvsStatus}"
 
   if [ "${listEnvsStatus}" -ne 0 ]; then
-    _dsb_err "Failed to list environments, please run 'tf-list-envs'"
+    _dsb_e "Failed to list environments, please run 'tf-list-envs'"
     return 0 # caller reads _dsbTfReturnCode
   fi
 
@@ -1653,7 +1932,7 @@ _dsb_tf_select_env() {
   mapfile -t availableEnvs < <(dsb_tf_get_env_names)
   local envCount=${#availableEnvs[@]}
 
-  _dsb_d "_dsb_tf_select_env(): availableEnvs: ${availableEnvs[*]}"
+  _dsb_d "availableEnvs: ${availableEnvs[*]}"
 
   local -a validChoices
   mapfile -t validChoices < <(seq 1 "${envCount}")
@@ -1667,7 +1946,7 @@ _dsb_tf_select_env() {
     for idx in "${validChoices[@]}"; do
       if [ "${idx}" == "${userInput}" ]; then
         gotValidInput=1
-        _dsb_d "_dsb_tf_select_env(): idx = ${idx} is valid"
+        _dsb_d "idx = ${idx} is valid"
         break
       fi
     done
@@ -1676,7 +1955,7 @@ _dsb_tf_select_env() {
   _dsb_i ""
   _dsb_tf_set_env "${availableEnvs[$((userInput - 1))]}"
 
-  _dsb_d "_dsb_tf_select_env(): returning code: ${_dsbTfReturnCode}"
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
   return 0 # caller reads _dsbTfReturnCode
 }
 
@@ -1686,15 +1965,21 @@ _dsb_tf_select_env() {
 #
 ###################################################################################################
 
-# returns early if az cli is not installed
-# runs 'az account show' invocation to determine if the user is logged in
-# this function returns 1 if 'az account show' fails
-# this function populates _dsbTfAzureUpn with the UPN from the response from 'az account show'
-# this function populates _dsbTfSubscriptionId with the subscription id from the response from 'az account show'
-# this function populates _dsbTfSubscriptionName with the subscription name from the response from 'az account show'
-# if the user is not logged in, _dsbTfAzureUpn is set to an empty string
-# if the user is not logged in, _dsbTfSubscriptionId is set to an empty string
-# if the user is not logged in, _dsbTfSubscriptionName is set to an empty string
+# what:
+#   check if the user is logged in with Azure CLI
+#   if logged in, populate global variables with account details
+#   if not logged in, clear the global variables
+#   does not fail if az cli is not installed
+# input:
+#   none
+# on info:
+#   account subscription details are printed
+# returns:
+#   exit code directly
+#   several global variables are updated:
+#     - _dsbTfAzureUpn
+#     - _dsbTfSubscriptionId
+#     - _dsbTfSubscriptionName
 _dsb_tf_az_enumerate_account() {
 
   # if az cli is not installed, do not fail
@@ -1706,8 +1991,8 @@ _dsb_tf_az_enumerate_account() {
   showOutput=$(az account show 2>&1)
   local showStatus=$?
 
-  _dsb_d "_dsb_tf_az_enumerate_account(): showStatus: ${showStatus}"
-  _dsb_d "_dsb_tf_az_enumerate_account(): showOutput: ${showOutput}"
+  _dsb_d "showStatus: ${showStatus}"
+  _dsb_d "showOutput: ${showOutput}"
 
   local azUpn subId subName tenantDisplayName
   azUpn=$(echo "${showOutput}" | jq -r '.user.name')
@@ -1715,8 +2000,8 @@ _dsb_tf_az_enumerate_account() {
   subName=$(echo "${showOutput}" | jq -r '.name')
   tenantDisplayName=$(echo "${showOutput}" | jq -r '.tenantDisplayName')
 
-  _dsb_d "_dsb_tf_az_enumerate_account(): azUpn: ${azUpn}"
-  _dsb_d "_dsb_tf_az_enumerate_account(): subId: ${subId}"
+  _dsb_d "azUpn: ${azUpn}"
+  _dsb_d "subId: ${subId}"
 
   if [ "${showStatus}" -eq 0 ]; then
     _dsb_i "Logged in with Azure CLI: '${azUpn}' in tenant '${tenantDisplayName}'"
@@ -1731,22 +2016,45 @@ _dsb_tf_az_enumerate_account() {
     _dsbTfSubscriptionId=""
     _dsbTfSubscriptionName=""
   fi
+
+  return 0
 }
 
+# what:
+#   enumerate azure details and print them (implicitly calls _dsb_tf_az_enumerate_account)
+# input:
+#   none
+# on info:
+#   account subscription details are printed (implicitly by _dsb_tf_az_enumerate_account)
+# returns:
+#   exit code in _dsbTfReturnCode
 _dsb_tf_az_whoami() {
-  _dsb_tf_az_enumerate_account
-  _dsbTfReturnCode=$?
+  _dsbTfReturnCode=0
+  if ! _dsb_tf_az_enumerate_account; then
+    _dsbTfReturnCode=1
+  fi
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  return 0 # caller reads _dsbTfReturnCode
 }
 
+# what:
+#   if az cli is installed, log out the user
+#   if az cli is not installed, do nothing
+# input:
+#   none
+# on info:
+#   status of operation is printed
+# returns:
+#   exit code in _dsbTfReturnCode
 _dsb_tf_az_logout() {
-
-  _dsb_tf_error_stop_trapping
+  _dsb_tf_error_stop_trapping # TODO: get rid of this?
   _dsb_tf_check_az_cli
   local azCliStatus=$?
 
   if [ "${azCliStatus}" -ne 0 ]; then
     _dsb_i "  💡 you can also check other prerequisites by running 'tf-check-prereqs'"
     _dsbTfReturnCode=1
+    _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
     return 0 # caller reads _dsbTfReturnCode
   fi
 
@@ -1754,32 +2062,51 @@ _dsb_tf_az_logout() {
   clearOutput=$(az account clear 2>&1)
   local clearStatus=$?
 
-  _dsb_d "_dsb_tf_az_logout(): clearOutput: ${clearOutput}"
+  _dsb_d "clearOutput: ${clearOutput}"
 
   if [ "${clearStatus}" -ne 0 ]; then
-    _dsb_err "Failed to clear subscriptions from local cache."
-    _dsb_err "  please run 'az account clear --debug' manually"
+    _dsb_e "Failed to clear subscriptions from local cache."
+    _dsb_e "  please run 'az account clear --debug' manually"
     _dsbTfReturnCode=1
   else
     _dsb_i "Logged out from Azure CLI."
     _dsbTfReturnCode=0
   fi
 
+  # TODO: can these be removed?
   _dsbTfLogErrors=0
   _dsbTfLogInfo=0
   _dsb_tf_error_stop_trapping
   _dsb_tf_az_enumerate_account
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  return 0 # caller reads _dsbTfReturnCode
 }
 
+# what:
+#   if az cli is installed, log in the user
+#   if az cli is not installed, do nothing
+# input:
+#   none
+# on info:
+#   status of operation is printed
+#   account subscription details are printed (implicitly by _dsb_tf_az_enumerate_account)
+# returns:
+#   exit code in _dsbTfReturnCode
+#   several global variables are updated (implicitly by _dsb_tf_az_enumerate_account)
+#     - _dsbTfAzureUpn
+#     - _dsbTfSubscriptionId
+#     - _dsbTfSubscriptionName
 _dsb_tf_az_login() {
 
-  _dsb_tf_error_stop_trapping
+  _dsb_tf_error_stop_trapping # TODO: get rid of this?
   _dsb_tf_check_az_cli
   local azCliStatus=$?
 
   if [ "${azCliStatus}" -ne 0 ]; then
     _dsb_i "  💡 you can also check other prerequisites by running 'tf-check-prereqs'"
     _dsbTfReturnCode=1
+    _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
     return 0 # caller reads _dsbTfReturnCode
   fi
 
@@ -1798,6 +2125,7 @@ _dsb_tf_az_login() {
       _dsbTfLogInfo=1
       _dsb_tf_az_enumerate_account
       _dsbTfReturnCode=0
+      _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
       return 0 # caller reads _dsbTfReturnCode
     fi
   fi
@@ -1812,11 +2140,11 @@ _dsb_tf_az_login() {
 
   _dsb_tf_error_start_trapping
 
-  _dsb_d "_dsb_tf_az_login(): loginOutput: ${loginOutput}"
+  _dsb_d "loginOutput: ${loginOutput}"
 
   if [ "${loginStatus}" -ne 0 ]; then
-    _dsb_err "Failed to login with Azure CLI."
-    _dsb_err "  please run 'az login --debug' manually"
+    _dsb_e "Failed to login with Azure CLI."
+    _dsb_e "  please run 'az login --debug' manually"
     _dsbTfReturnCode=1
   else
     _dsb_tf_error_stop_trapping
@@ -1824,10 +2152,23 @@ _dsb_tf_az_login() {
     _dsbTfReturnCode=$? # caller reads _dsbTfReturnCode
   fi
 
-  _dsb_d "_dsb_tf_az_login(): returning code: ${_dsbTfReturnCode}"
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
   return 0 # caller reads _dsbTfReturnCode
 }
 
+# what:
+#   log out and log in the user
+# input:
+#   none
+# on info:
+#   status of operation is printed (implicitly by _dsb_tf_az_logout and _dsb_tf_az_login)
+#   account subscription details are printed (implicitly by _dsb_tf_az_login -> _dsb_tf_az_enumerate_account)
+# returns:
+#   exit code in _dsbTfReturnCode
+#   several global variables are updated (implicitly by _dsb_tf_az_login -> _dsb_tf_az_enumerate_account)
+#     - _dsbTfAzureUpn
+#     - _dsbTfSubscriptionId
+#     - _dsbTfSubscriptionName
 _dsb_tf_az_relogin() {
   _dsb_tf_az_logout
   local logoutStatus="${_dsbTfReturnCode}"
@@ -1835,38 +2176,54 @@ _dsb_tf_az_relogin() {
   local loginStatus="${_dsbTfReturnCode}"
   _dsbTfReturnCode=$((logoutStatus + loginStatus)) # caller reads _dsbTfReturnCode
 
-  _dsb_d "_dsb_tf_az_relogin(): returning code: ${_dsbTfReturnCode}"
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
   return 0 # caller reads _dsbTfReturnCode
 }
 
 # returns exit code in _dsbTfReturnCode
+# sets the subscription to the selected environment subscription hint
+# updates the selected subscription global variables
+#   - _dsbTfSubscriptionId
+#   - _dsbTfSubscriptionName
+# what:
+#   set the Azure subscription accoring to the selected environment's subscription hint
+# input:
+#   none
+# on info:
+#   subscription ID and name are printed (implicitly by _dsb_tf_az_enumerate_account)
+# returns:
+#   exit code in _dsbTfReturnCode
+#   several global variables are updated (implicitly by _dsb_tf_az_enumerate_account):
+#     - _dsbTfAzureUpn
+#     - _dsbTfSubscriptionId
+#     - _dsbTfSubscriptionName
 _dsb_tf_az_set_sub() {
   local selectedEnv="${_dsbTfSelectedEnv:-}"
   _dsbTfReturnCode=1
 
   if [ -z "${selectedEnv}" ]; then
-    _dsb_err "No environment selected, please run one of these commands":
-    _dsb_err "  - 'tf-select-env'"
-    _dsb_err "  - 'tf-set-env <env>'"
+    _dsb_e "No environment selected, please run one of these commands":
+    _dsb_e "  - 'tf-select-env'"
+    _dsb_e "  - 'tf-set-env <env>'"
     return 0
   fi
 
   # enumerate the directories and validate the selected environment
   # populates _dsbTfSelectedEnvSubscriptionHintContent if successful
   if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_env; then
-    _dsb_err "Environment check failed, please run 'tf-check-env ${selectedEnv}'"
+    _dsb_e "Environment check failed, please run 'tf-check-env ${selectedEnv}'"
     return 0
   fi
 
   # need the cli
   if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_az_cli; then
-    _dsb_err "Azure CLI check failed, please run 'tf-check-prereqs'"
+    _dsb_e "Azure CLI check failed, please run 'tf-check-prereqs'"
     return 0
   fi
 
   # need to be logged in
   if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
-    _dsb_err "Azure CLI account enumeration failed, please run 'az-whoami'"
+    _dsb_e "Azure CLI account enumeration failed, please run 'az-whoami'"
     return 0
   fi
 
@@ -1874,15 +2231,15 @@ _dsb_tf_az_set_sub() {
   if az account set --subscription "${_dsbTfSelectedEnvSubscriptionHintContent}"; then
     # updates the selected subscription global variable
     _dsb_tf_az_enumerate_account
-    _dsb_d "_dsb_tf_az_set_sub(): Subscription ID set to: ${_dsbTfSubscriptionId:-}"
-    _dsb_d "_dsb_tf_az_set_sub(): Subscription name set to: ${_dsbTfSubscriptionName:-}"
+    _dsb_d "Subscription ID set to: ${_dsbTfSubscriptionId:-}"
+    _dsb_d "Subscription name set to: ${_dsbTfSubscriptionName:-}"
     _dsbTfReturnCode=0
   else
-    _dsb_err "Failed to set subscription."
-    _dsb_err "  subscription hint: ${_dsbTfSelectedEnvSubscriptionHintContent}"
+    _dsb_e "Failed to set subscription."
+    _dsb_e "  subscription hint: ${_dsbTfSelectedEnvSubscriptionHintContent}"
   fi
 
-  _dsb_d "_dsb_tf_az_set_sub(): returning code: ${_dsbTfReturnCode}"
+  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
   return 0 # caller reads _dsbTfReturnCode
 }
 
@@ -1894,27 +2251,31 @@ _dsb_tf_az_set_sub() {
 
 _dsb_tf_error_handler() {
   # Remove error trapping to prevent the error handler from being triggered
-  _dsbTfReturnCode=${1:-$?}
+  local returnCode=${1:-$?}
 
+  _dsb_d "error handler input: $*"
+
+  _dsbTfLogErrors=1
   _dsb_tf_error_stop_trapping
 
-  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
-    _dsb_err "Error occured:"
-    _dsb_err "  file      : dsb-tf-proj-helpers.sh" # hardcoded because file will be sourced by curl
-    _dsb_err "  line      : ${BASH_LINENO[0]} (dsb-tf-proj-helpers.sh:${BASH_LINENO[0]})"
-    _dsb_err "  function  : ${FUNCNAME[1]}"
-    _dsb_err "  command   : ${BASH_COMMAND}"
-    _dsb_err "  exit code : ${_dsbTfReturnCode}"
-    _dsb_err "Call stack:"
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_e "Error occured:"
+    _dsb_e "  file      : dsb-tf-proj-helpers.sh" # hardcoded because file will be sourced by curl
+    _dsb_e "  line      : ${BASH_LINENO[0]} (dsb-tf-proj-helpers.sh:${BASH_LINENO[0]})"
+    _dsb_e "  function  : ${FUNCNAME[1]}"
+    _dsb_e "  command   : ${BASH_COMMAND}"
+    _dsb_e "  exit code : ${returnCode}"
+    _dsb_e "Call stack:"
     for ((i = 1; i < ${#FUNCNAME[@]}; i++)); do
-      _dsb_err "  ${FUNCNAME[$i]} called at (dsb-tf-proj-helpers.sh:${BASH_LINENO[$((i - 1))]})"
+      _dsb_e "  ${FUNCNAME[$i]} called at (dsb-tf-proj-helpers.sh:${BASH_LINENO[$((i - 1))]})"
     done
-    _dsb_err "Operation aborted."
+    _dsb_e "Operation aborted."
   fi
 
   _dsb_tf_restore_shell
 
-  return "${_dsbTfReturnCode}"
+  _dsb_d "returning code: ${returnCode}"
+  return "${returnCode}"
 }
 
 _dsb_tf_error_start_trapping() {
@@ -1929,16 +2290,18 @@ _dsb_tf_error_start_trapping() {
   # - SIGINT: This signal is sent when an interrupt is generated (usually by pressing Ctrl+C). It is used to stop a process gracefully.
   trap '_dsb_tf_error_handler $?' ERR SIGHUP SIGINT
 
-  _dsb_d "_dsb_tf_error_start_trapping(): error trapping started from ${FUNCNAME[1]}"
+  _dsb_d "error trapping started from ${FUNCNAME[1]}"
 }
 
 _dsb_tf_error_stop_trapping() {
   set +Eo pipefail
   trap - ERR SIGHUP SIGINT
-  _dsb_d "_dsb_tf_error_stop_trapping(): error trapping stopped ${FUNCNAME[1]}"
+  _dsb_d "error trapping stopped ${FUNCNAME[1]}"
 }
 
 _dsb_tf_configure_shell() {
+  _dsb_d "configuring shell"
+
   _dsbTfShellHistoryState=$(shopt -o history) # Save current history recording state
   set +o history                              # Disable history recording
 
@@ -1953,6 +2316,7 @@ _dsb_tf_configure_shell() {
   declare -g _dsbTfLogInfo=1
   declare -g _dsbTfLogWarnings=1
   declare -g _dsbTfLogErrors=1
+
   declare -gA _dsbTfEnvsDirList=()
   declare -ga _dsbTfAvailableEnvs=()
   declare -gA _dsbTfModulesDirList=()
@@ -1960,6 +2324,7 @@ _dsb_tf_configure_shell() {
 }
 
 _dsb_tf_restore_shell() {
+  _dsb_d "restoring shell"
 
   # Remove error trapping to prevent the error handler from being triggered
   trap - ERR SIGHUP SIGINT
@@ -2085,7 +2450,7 @@ tf-check-tools() {
   local returnCode=$?
 
   if [ "${returnCode}" -ne 0 ]; then
-    _dsb_err "Tools check failed."
+    _dsb_e "Tools check failed."
   else
     _dsb_i "Tools check passed."
   fi
@@ -2097,7 +2462,7 @@ tf-check-tools() {
 tf-status() {
   _dsb_tf_configure_shell
   _dsb_tf_report_status
-  local returnCode="${_dsbTfReturnCode}"
+  local returnCode="${_dsbTfReturnCode:-1}"
   _dsb_tf_restore_shell
   return "${returnCode}"
 }
