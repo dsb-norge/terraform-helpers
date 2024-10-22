@@ -6,6 +6,8 @@
 # DEBUG commands
 #   cd ~/code/github/dsb-norge/azure-ad ;
 #   source <(cat ~/code/github/dsb-norge/terraform-helpers/dsb-tf-proj-helpers.sh) ;
+#   source <(curl -s https://raw.githubusercontent.com/dsb-norge/terraform-helpers/refs/heads/key-bonobo/dsb-tf-proj-helpers.sh) ;
+#   source <(gh api -H "Accept: application/vnd.github.v3.raw" /repos/dsb-norge/terraform-helpers/contents/dsb-tf-proj-helpers.sh?ref=key-bonobo) ;
 
 # Implemented functionality
 #   tf-check-tools      -> az cli, gh cli, terraform, jq, yq, golang, hcledit, terraform-docs, realpath
@@ -23,6 +25,7 @@
 #   az-login            -> az login --use-device-code
 #   az-relog            -> same as az-login
 #   az-whoami           -> az account show
+#   az-set-sub          -> az account set --subscription
 #   tf-status           -> checks + help + show az upn if logged in + show sub if selected
 #
 #   other:
@@ -39,6 +42,8 @@
 #
 # TODO: functionality
 #
+# az
+#   az-set-account  -> set az account
 # tf operations
 #   tf-init-env     -> terraform init in chosen env
 #   tf-init-modules -> terraform init of submodules (requires env to be selected in advance)
@@ -152,6 +157,7 @@ declare -g _dsbTfModulesDir=""
 declare -gA _dsbTfModulesDirList # Associative array
 
 declare -g _dsbTfAzureUpn=""
+declare -g _dsbTfSubscriptionId=""
 
 ###################################################################################################
 #
@@ -239,6 +245,14 @@ _dsb_tf_report_status() {
         _dsb_err "  azUpn is: ${azUpn}"
         return 1
       fi
+      local azSub="${_dsbTfSubscriptionId:-}"
+      if [ -z "${azSub}" ]; then
+        _dsbTfLogErrors=1
+        _dsb_err "Internal error: in _dsb_tf_report_status(): Azure Subscription ID not found."
+        _dsb_err "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionId:-}"
+        _dsb_err "  azSub is: ${azSub}"
+        return 1
+      fi
       azureAccount="  \e[32m☑\e[0m  Logged in to Azure as       : ${_dsbTfAzureUpn}"
       azureStatus=0
     else
@@ -305,7 +319,7 @@ _dsb_tf_report_status() {
   _dsb_i "  Available modules       : ${availableModulesCommaSeparated}"
   _dsb_i ""
   _dsb_i "Environment:"
-  _dsb_i "  Available environments     : ${availableEnvsCommaSeparated}"
+  _dsb_i "  Available environments    : ${availableEnvsCommaSeparated}"
   if [ -z "${selectedEnv}" ]; then
     _dsb_i "  ☐  Selected environment    : N/A, please run 'tf-select-env'"
     _dsb_i "  ☐  Environment directory   : N/A"
@@ -376,6 +390,7 @@ _ds_tf_help_get_commands_supported_by_help() {
     "az-login"
     "az-logout"
     "az-relog"
+    "az-set-sub"
     "az-whoami"
     "tf-check-dir"
     "tf-check-env"
@@ -486,6 +501,7 @@ _dsb_tf_help_group_azure() {
   _dsb_i "    az-login              -> Azure login"
   _dsb_i "    az-relog              -> Azure relogin"
   _dsb_i "    az-whoami             -> Show Azure account information"
+  _dsb_i "    az-set-sub            -> Set Azure subscription from current env hint file"
 }
 
 _dsb_tf_help_commands() {
@@ -514,7 +530,6 @@ _dsb_tf_help_commands() {
   done
 }
 
-# Help for specific command
 _dsb_tf_help_specific_command() {
   local command="${1}"
   case "${command}" in
@@ -582,6 +597,14 @@ _dsb_tf_help_specific_command() {
   az-whoami)
     _dsb_i "az-whoami:"
     _dsb_i "  Show the currently logged in Azure account."
+    ;;
+  az-set-sub)
+    _dsb_i "az-set-sub:"
+    _dsb_i "  Set Azure subscription using subscription hint file from selected environment."
+    _dsb_i ""
+    _dsb_i "  Example usage:"
+    _dsb_i "    tf-set-env myenv"
+    _dsb_i "    az-set-sub"
     ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
@@ -937,9 +960,6 @@ _dsb_tf_check_prereqs() {
 _dsb_tf_check_env() {
   local envToCheck="${1:-}"
 
-  _dsbTfLogErrors=1
-  _dsbTfLogInfo=1
-
   # this function is used in two forms:
   #   1. with a supplied environment name
   #   2. with the globally selected environment name
@@ -1110,6 +1130,8 @@ _dsb_tf_enumerate_directories() {
   # done
 }
 
+# the purpose of this function is to allow getting the list of available project modules
+# in a graceful way, without causing unbound variable errors
 _dsb_tf_get_module_names() {
   local -a moduleNames=()
   if declare -p _dsbTfModulesDirList &>/dev/null; then
@@ -1121,6 +1143,7 @@ _dsb_tf_get_module_names() {
   printf "%s\n" "${moduleNames[@]}"
 }
 
+# a reusable way to get a comma separated list of available project modules
 _dsb_tf_get_module_names_commaseparated() {
   local -a availableModules
   mapfile -t availableModules < <(_dsb_tf_get_module_names)
@@ -1133,7 +1156,9 @@ _dsb_tf_get_module_names_commaseparated() {
   echo "${availableModulesCommaSeparated}"
 }
 
-_dsb_tf_get_module_dirs() { # TODO: make sure to use this, possibly when perofrming terrasform operations
+# the purpose of this function is to allow getting the list of available project module
+# director paths in a graceful way, without causing unbound variable errors
+_dsb_tf_get_module_dirs() { # TODO: make sure to use this, possibly when performing terrasform operations
   local -a moduleDirs=()
   if declare -p _dsbTfModulesDirList &>/dev/null; then
     local value
@@ -1144,6 +1169,8 @@ _dsb_tf_get_module_dirs() { # TODO: make sure to use this, possibly when perofrm
   printf "%s\n" "${moduleDirs[@]}"
 }
 
+# the purpose of this function is to allow getting the list of available environments
+# in a graceful way, without causing unbound variable errors
 dsb_tf_get_env_names() {
   local -a envNames=()
   if declare -p _dsbTfEnvsDirList &>/dev/null; then
@@ -1155,6 +1182,7 @@ dsb_tf_get_env_names() {
   printf "%s\n" "${envNames[@]}"
 }
 
+# a reusable way to get a comma separated list of available environments
 _dsb_tf_get_env_names_commaseparated() {
   local -a availableEnvs
   mapfile -t availableEnvs < <(dsb_tf_get_env_names)
@@ -1179,6 +1207,7 @@ _dsb_tf_get_env_names_commaseparated() {
 #   printf "%s\n" "${envDirs[@]}"
 # }
 
+# checks if the path stored in _dsbTfEnvsDir actually exists as a directory
 _dsb_tf_look_for_main_dir() {
   if [ ! -d "${_dsbTfMainDir}" ]; then
     _dsb_err "Directory 'main' not found in current directory: ${_dsbTfRootDir}"
@@ -1186,6 +1215,7 @@ _dsb_tf_look_for_main_dir() {
   fi
 }
 
+# checks if the path stored in _dsbTfEnvsDir actually exists as a directory
 _dsb_tf_look_for_envs_dir() {
   if [ ! -d "${_dsbTfEnvsDir}" ]; then
     _dsb_err "Directory 'envs' not found in current directory: ${_dsbTfRootDir}"
@@ -1193,6 +1223,7 @@ _dsb_tf_look_for_envs_dir() {
   fi
 }
 
+# either supplied or the selected environment
 _dsb_tf_look_for_env() {
   local suppliedEnv="${1:-}"
 
@@ -1241,6 +1272,7 @@ _dsb_tf_look_for_env() {
   fi
 }
 
+# look for a given file type, either in the supplied or the selected environment
 _dsb_tf_look_for_environment_file() {
   local suppliedEnv="${1:-}"
   local suppliedFileType="${2:-}"
@@ -1350,6 +1382,7 @@ _dsb_tf_look_for_environment_file() {
   declare -g "${suppliedGlobalToSavePathTo}=${selectedEnvDir}/${lookForFilename}"
 }
 
+# look for a lock file, either in the supplied or the selected environment
 _dsb_tf_look_for_lock_file() {
   local suppliedEnv="${1:-}"
 
@@ -1358,6 +1391,7 @@ _dsb_tf_look_for_lock_file() {
   _dsb_tf_look_for_environment_file "${suppliedEnv}" 'lock' '_dsbTfSelectedEnvLockFile'
 }
 
+# look for a subscription hint file, either in the supplied or the selected environment
 _dsb_tf_look_for_subscription_hint_file() {
   local suppliedEnv="${1:-}"
 
@@ -1592,6 +1626,13 @@ _dsb_tf_select_env() {
 #
 ###################################################################################################
 
+# returns early if az cli is not installed
+# runs 'az account show' invocation to determine if the user is logged in
+# this function returns 1 if 'az account show' fails
+# this function populates _dsbTfAzureUpn with the UPN from the response from 'az account show'
+# this function populates _dsbTfSubscriptionId with the subscription id from the response from 'az account show'
+# if the user is not logged in, _dsbTfAzureUpn is set to an empty string
+# if the user is not logged in, _dsbTfSubscriptionId is set to an empty string
 _dsb_tf_az_enumerate_account() {
 
   # if az cli is not installed, do not fail
@@ -1605,33 +1646,29 @@ _dsb_tf_az_enumerate_account() {
   local showOutput
   showOutput=$(az account show 2>&1)
   local showStatus=$?
+  _dsb_tf_error_start_trapping
 
+  _dsb_d "_dsb_tf_az_enumerate_account(): showStatus: ${showStatus}"
   _dsb_d "_dsb_tf_az_enumerate_account(): showOutput: ${showOutput}"
 
-  local azUpn
-  azUpn=$(az account show --query "user.name" --output tsv 2>/dev/null)
-  local queryStatus=$?
+  local azUpn=$(echo "${showOutput}" | jq -r '.user.name')
+  local subId=$(echo "${showOutput}" | jq -r '.id')
+  local subName=$(echo "${showOutput}" | jq -r '.name')
+  local tenantDisplayName=$(echo "${showOutput}" | jq -r '.tenantDisplayName')
 
   _dsb_d "_dsb_tf_az_enumerate_account(): azUpn: ${azUpn}"
-  _dsb_d "_dsb_tf_az_enumerate_account(): queryStatus: ${queryStatus}"
-  _dsb_d "_dsb_tf_az_enumerate_account(): showStatus: ${showStatus}"
+  _dsb_d "_dsb_tf_az_enumerate_account(): subId: ${subId}"
 
-  if [ "${showStatus}" -eq 0 ] && [ "${queryStatus}" -eq 0 ]; then
-    _dsb_i "Logged in with Azure CLI as: ${azUpn}"
+  if [ "${showStatus}" -eq 0 ]; then
+    _dsb_i "Logged in with Azure CLI: '${azUpn}' in tenant '${tenantDisplayName}'"
+    _dsb_i "  Subscription ID   : ${subId}"
+    _dsb_i "  Subscription Name : ${subName}"
     _dsbTfAzureUpn="${azUpn}"
-  elif [ "${showStatus}" -ne 0 ] && [ "${queryStatus}" -ne 0 ]; then
+    _dsbTfSubscriptionId="${subId}"
+  else
     _dsb_i "Not logged in with Azure CLI."
     _dsbTfAzureUpn=""
-  else
-    _dsbTfLogErrors=1
-    _dsb_tf_error_start_trapping
-    _dsb_err "Internal error: in _dsb_tf_az_enumerate_account:"
-    _dsb_err "  'az account show' returns status: ${showStatus}"
-    _dsb_err "  'az account show --query \"user.name\" --output tsv' returns status: ${queryStatus}"
-    _dsb_err "  please troubleshoot with:"
-    _dsb_err "    'az account show --debug'"
-    _dsb_err "    'az account show --query \"user.name\" --output tsv --debug'"
-    return 1
+    _dsbTfSubscriptionId=""
   fi
 }
 
@@ -1733,6 +1770,52 @@ _dsb_tf_az_relogin() {
   _dsb_tf_az_login
   local loginStatus="${_dsbTfReturnCode}"
   _dsbTfReturnCode=$((logoutStatus + loginStatus)) # caller reads _dsbTfReturnCode
+}
+
+_dsb_tf_az_set_sub() {
+  local selectedEnv="${_dsbTfSelectedEnv:-}"
+
+  if [ -z "${selectedEnv}" ]; then
+    _dsbTfLogErrors=1
+    _dsb_err "No environment selected, please run one of these commands":
+    _dsb_err "  - 'tf-select-env'"
+    _dsb_err "  - 'tf-set-env <env>'"
+    return 0
+  fi
+
+  # enumerate the directories and validate the selected environment
+  # populates _dsbTfSelectedEnvSubscriptionHintContent if successful
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_env; then
+    _dsbTfLogErrors=1
+    _dsb_err "Environment check failed, please run 'tf-check-env ${selectedEnv}'"
+    return 0
+  fi
+
+  # need the cli
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_az_cli; then
+    _dsbTfLogErrors=1
+    _dsb_err "Azure CLI check failed, please run 'tf-check-prereqs'"
+    return 0
+  fi
+
+  # need to be logged in
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
+    _dsbTfLogErrors=1
+    _dsb_err "Azure CLI account enumeration failed, please run 'az-whoami'"
+    return 0
+  fi
+
+  # set the subscription
+  if az account set --subscription "${_dsbTfSelectedEnvSubscriptionHintContent}"; then
+    # updates the selected subscription global variable
+    _dsb_tf_az_enumerate_account
+    _dsb_d "_dsb_tf_az_set_sub(): Subscription set to: ${_dsbTfSubscriptionId}"
+    _dsbTfReturnCode=0
+  else
+    _dsbTfLogErrors=1
+    _dsb_err "Failed to set subscription."
+    _dsb_err "  subscription: ${_dsbTfSelectedEnvSubscriptionHintContent}"
+  fi
 }
 
 ###################################################################################################
@@ -1838,9 +1921,10 @@ _dsb_tf_completions_for_avalable_envs() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=()
 
-  # we could be running in a different directory
+  # always enumerate, we do not know the directory the function is called from
+  # note: debug mode must be disabled, otherwise the debug output will mess up the completions
   # TODO: does this slow things down?
-  _dsb_tf_enumerate_directories || :
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
 
   # only complete if _dsbTfAvailableEnvs is set
   if [[ -v _dsbTfAvailableEnvs ]]; then
@@ -1861,8 +1945,10 @@ _dsb_tf_register_completions_for_available_envs() {
 _dsb_tf_completions_for_tf_help() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=()
+
+  # note: debug mode must be disabled, otherwise the debug output will mess up the completions
   local -a helpTopics
-  mapfile -t helpTopics < <(_dsb_tf_help_enumerate_supported_topics)
+  mapfile -t helpTopics < <(_dsbTfLogDebug=0 _dsb_tf_help_enumerate_supported_topics)
   if [[ -n "${helpTopics[*]}" ]]; then
     mapfile -t COMPREPLY < <(compgen -W "${helpTopics[*]}" -- "${cur}")
   fi
@@ -1988,6 +2074,8 @@ tf-clear-env() {
 tf-check-env() {
   local envToCheck="${1:-}"
   _dsb_tf_configure_shell
+  _dsbTfLogErrors=1
+  _dsbTfLogInfo=1
   _dsb_tf_check_env "${envToCheck}"
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
@@ -2022,6 +2110,14 @@ az-login() {
 az-relog() {
   _dsb_tf_configure_shell
   _dsb_tf_az_relogin
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+az-set-sub() {
+  _dsb_tf_configure_shell
+  _dsb_tf_az_set_sub
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
