@@ -281,30 +281,24 @@ _dsb_tf_get_github_cli_account() {
 #   exit code in _dsbTfReturnCode
 #   internal errors return 1 directly
 _dsb_tf_report_status() {
-  # TODO: look into removing these
-  _dsbTfLogInfo=0
-  _dsbTfLogErrors=0
-  _dsb_tf_error_stop_trapping
-
-  _dsb_tf_check_prereqs
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_prereqs
   local prereqStatus="${_dsbTfReturnCode}"
 
   local githubStatus=1
   local githubAccount="  ☐  Logged in to github.com as  : N/A, github cli not available, please run 'tf-check-tools'"
   if _dsbTfLogErrors=0 _dsb_tf_check_gh_cli; then
-    githubAccount="  \e[32m☑\e[0m  Logged in to github.com as  : $(_dsb_tf_get_github_cli_account)"
     githubStatus=0
+    githubAccount="  \e[32m☑\e[0m  Logged in to github.com as  : $(_dsb_tf_get_github_cli_account)"
   fi
 
   local azSubId=""
   local azSubName=""
   local azureStatus=1
   local azureAccount="  ☐  Logged in to Azure as       : N/A, azure cli not available, please run 'tf-check-tools'"
-  if _dsb_tf_check_az_cli; then
+  if _dsbTfLogErrors=0 _dsb_tf_check_az_cli; then
     if _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
       local azUpn="${_dsbTfAzureUpn:-}"
       if [ -z "${azUpn}" ]; then
-        _dsb_tf_error_start_trapping
         _dsb_internal_error "Internal error: Azure UPN not found."
         _dsb_internal_error "  expected in _dsbTfAzureUpn, which is: ${_dsbTfAzureUpn:-}"
         _dsb_internal_error "  azUpn is: ${azUpn}"
@@ -318,7 +312,7 @@ _dsb_tf_report_status() {
         _dsb_internal_error "  azSubId is: ${azSubId}"
         return 1
       fi
-      if [ -z "${azSubId}" ]; then
+      if [ -z "${azSubName}" ]; then
         _dsb_internal_error "Internal error: Azure Subscription ID not found."
         _dsb_internal_error "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionName:-}"
         _dsb_internal_error "  azSubName is: ${azSubName}"
@@ -344,27 +338,27 @@ _dsb_tf_report_status() {
   local selectedEnv="${_dsbTfSelectedEnv:-}"
   local selectedEnvDir="${_dsbTfSelectedEnvDir:-}"
 
-  local envStatus=1
-  local lockFileStatus=1
-  local subHintFileStatus=1
-  if [ -n "${selectedEnv}" ]; then
-    _dsb_tf_look_for_env "${selectedEnv}"
-    envStatus=$?
+  _dsb_d "selectedEnv: ${selectedEnv}"
+  _dsb_d "selectedEnvDir: ${selectedEnvDir}"
 
-    _dsb_tf_look_for_lock_file "${selectedEnv}"
-    lockFileStatus=$?
+  local envStatus=0
+  local lockFileStatus=0
+  local subHintFileStatus=0
+  if [ -n "${selectedEnv}" ]; then # environment is selected
+    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_look_for_env "${selectedEnv}"; then
+      envStatus=1
+    fi
 
-    _dsb_tf_look_for_subscription_hint_file "${selectedEnv}"
-    subHintFileStatus=$?
+    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_look_for_lock_file "${selectedEnv}"; then
+      lockFileStatus=1
+    fi
+
+    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_look_for_subscription_hint_file "${selectedEnv}"; then
+      subHintFileStatus=1
+    fi
   fi
 
-  # TODO: dont assign these globally
-  _dsbTfLogInfo=1
-  _dsbTfLogErrors=1
-  _dsb_tf_error_start_trapping
   local returnCode=$((prereqStatus + githubStatus + azureStatus + envStatus + lockFileStatus + subHintFileStatus))
-
-  _dsb_i "Overall:"
 
   _dsb_d "returnCode: ${returnCode}"
   _dsb_d "prereqStatus: ${prereqStatus}"
@@ -374,6 +368,7 @@ _dsb_tf_report_status() {
   _dsb_d "lockFileStatus: ${lockFileStatus}"
   _dsb_d "subHintFileStatus: ${subHintFileStatus}"
 
+  _dsb_i "Overall:"
   if [ ${prereqStatus} -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  Pre-requisites check: passed."
   else
@@ -436,7 +431,7 @@ _dsb_tf_report_status() {
   fi
 
   _dsbTfReturnCode=$returnCode
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0
 }
 
@@ -1060,8 +1055,8 @@ _dsb_tf_check_current_dir() {
     _dsb_e "  for more information see above."
   fi
 
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
   _dsbTfReturnCode=$returnCode
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0
 }
 
@@ -1077,24 +1072,20 @@ _dsb_tf_check_current_dir() {
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_check_prereqs() {
-  local prevLogInfo="${_dsbTfLogInfo}"
-  local prevLogErrors="${_dsbTfLogErrors}"
-
   _dsb_tf_enumerate_directories
-  _dsb_tf_error_stop_trapping # TODO: get rid of this
 
   _dsb_i_nonewline "Checking tools ..."
-  _dsbTfLogInfo=0
-  _dsbTfLogErrors=0
-  _dsb_tf_check_tools
-  local toolsStatus=$?
-  _dsbTfLogInfo="${prevLogInfo}"
-  _dsbTfLogErrors="${prevLogErrors}"
+  local toolsStatus=0
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_tools; then
+    toolsStatus=1
+  fi
   _dsb_i_append " done."
 
   _dsb_i_nonewline "Checking GitHub authentication ..."
-  _dsb_tf_check_gh_auth
-  local ghAuthStatus=$?
+  local ghAuthStatus=0
+  if ! _dsb_tf_check_gh_auth; then
+    ghAuthStatus=1
+  fi
   _dsb_i_append " done."
 
   _dsb_i_nonewline "Checking working directory ..."
@@ -1102,8 +1093,6 @@ _dsb_tf_check_prereqs() {
   local workingDirStatus=${_dsbTfReturnCode}
   _dsb_i_append " done."
 
-  # _dsbTfLogErrors=1
-  _dsb_tf_error_start_trapping
   local returnCode=$((toolsStatus + ghAuthStatus + workingDirStatus))
 
   _dsb_d "returnCode: ${returnCode}"
@@ -1144,7 +1133,7 @@ _dsb_tf_check_prereqs() {
   _dsb_d "returnCode: ${returnCode}"
 
   _dsbTfReturnCode=$returnCode
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0
 }
 
@@ -1227,7 +1216,7 @@ _dsb_tf_check_env() {
   fi
 
   _dsbTfReturnCode=$returnCode
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0
 }
 
@@ -1377,7 +1366,7 @@ _dsb_tf_get_module_names_commaseparated() {
 #   nothing
 # returns:
 #   echos a list of available project module directory paths
-_dsb_tf_get_module_dirs() { # TODO: make sure to use this, possibly when performing terrasform operations
+_dsb_tf_get_module_dirs() { # TODO: make sure to use this, possibly when performing terraform operations
   local -a moduleDirs=()
   if declare -p _dsbTfModulesDirList &>/dev/null; then
     local value
@@ -1485,13 +1474,11 @@ _dsb_tf_look_for_env() {
   local suppliedEnv="${1:-}"
 
   if [ -z "${suppliedEnv}" ]; then
-    _dsb_tf_error_start_trapping
     _dsb_internal_error "Internal error: no environment supplied."
     return 1
   fi
 
   if ! declare -p _dsbTfEnvsDir &>/dev/null; then
-    _dsb_tf_error_start_trapping
     _dsb_internal_error "Internal error: expected to find environments directory."
     _dsb_internal_error "  expected in: _dsbTfEnvsDir"
     return 1
@@ -1577,8 +1564,14 @@ _dsb_tf_look_for_environment_file() {
   #   2. with the globally selected environment name
   if [ -n "${suppliedEnv}" ]; then # env was supplied
 
-    _dsb_tf_look_for_env "${suppliedEnv}"
-    local envFoundStatus=$?
+    _dsb_d "env was supplied: ${suppliedEnv}"
+
+    local envFoundStatus=0
+    if ! _dsb_tf_look_for_env "${suppliedEnv}"; then
+      envFoundStatus=1
+    fi
+
+    _dsb_d "envFoundStatus: ${envFoundStatus}"
 
     if [ "${envFoundStatus}" -eq 0 ]; then
       _dsb_d "found suppliedEnv: ${suppliedEnv}"
@@ -1604,6 +1597,8 @@ _dsb_tf_look_for_environment_file() {
     fi
   else # env was not supplied
     selectedEnv="${_dsbTfSelectedEnv:-}"
+
+    _dsb_d "using selectedEnv: ${selectedEnv}"
 
     # we allow the check to pass if no environment is selected
     if [ -z "${selectedEnv}" ]; then
@@ -1644,7 +1639,7 @@ _dsb_tf_look_for_environment_file() {
   fi
 
   declare -g "${suppliedGlobalToSavePathTo}=${selectedEnvDir}/${lookForFilename}"
-
+  _dsb_d "global variable ${suppliedGlobalToSavePathTo} has been set to ${selectedEnvDir}/${lookForFilename}"
   return 0
 }
 
@@ -1670,6 +1665,7 @@ _dsb_tf_look_for_lock_file() {
     _dsb_d "_dsbTfSelectedEnvLockFile: ${_dsbTfSelectedEnvLockFile:-}"
     return 0
   else
+    _dsb_d "lock file not found"
     return 1
   fi
 }
@@ -1740,19 +1736,17 @@ _dsb_tf_clear_env() {
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_list_envs() {
-  _dsb_tf_error_stop_trapping # TODO: get rid of this?
-
   # enumerate directories with current directory as root and
   # check if the current root directory is a valid Terraform project
   _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
-  if [ "${_dsbTfReturnCode:-1}" -ne 0 ]; then
+  local dirCheckStatus=${_dsbTfReturnCode}
+  if [ "${dirCheckStatus}" -ne 0 ]; then
     _dsbTfLogErrors=1 _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
     _dsbTfReturnCode=1
     return 0 # caller reads _dsbTfReturnCode
   fi
 
   if ! declare -p _dsbTfEnvsDir &>/dev/null; then
-    _dsb_tf_error_start_trapping
     _dsb_internal_error "Internal error: expected to find environments directory."
     _dsb_internal_error "  expected in: _dsbTfEnvsDir"
     return 1
@@ -1785,6 +1779,7 @@ _dsb_tf_list_envs() {
       fi
       ((envIdx++))
     done
+
     _dsbTfReturnCode=0
     if [ -n "${selectedEnv}" ]; then
       _dsb_i ""
@@ -1792,7 +1787,7 @@ _dsb_tf_list_envs() {
     fi
   fi
 
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
 }
 
@@ -1900,7 +1895,7 @@ _dsb_tf_set_env() {
 
   _dsbTfReturnCode=$((lockFileStatus + subscriptionHintFileStatus + azSubStatus))
 
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
 }
 
@@ -1955,7 +1950,7 @@ _dsb_tf_select_env() {
   _dsb_i ""
   _dsb_tf_set_env "${availableEnvs[$((userInput - 1))]}"
 
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
 }
 
@@ -2033,7 +2028,7 @@ _dsb_tf_az_whoami() {
   if ! _dsb_tf_az_enumerate_account; then
     _dsbTfReturnCode=1
   fi
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
 }
 
@@ -2054,7 +2049,7 @@ _dsb_tf_az_logout() {
   if [ "${azCliStatus}" -ne 0 ]; then
     _dsb_i "  💡 you can also check other prerequisites by running 'tf-check-prereqs'"
     _dsbTfReturnCode=1
-    _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+    _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
     return 0 # caller reads _dsbTfReturnCode
   fi
 
@@ -2079,7 +2074,7 @@ _dsb_tf_az_logout() {
   _dsb_tf_error_stop_trapping
   _dsb_tf_az_enumerate_account
 
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
 }
 
@@ -2106,7 +2101,7 @@ _dsb_tf_az_login() {
   if [ "${azCliStatus}" -ne 0 ]; then
     _dsb_i "  💡 you can also check other prerequisites by running 'tf-check-prereqs'"
     _dsbTfReturnCode=1
-    _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+    _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
     return 0 # caller reads _dsbTfReturnCode
   fi
 
@@ -2125,7 +2120,7 @@ _dsb_tf_az_login() {
       _dsbTfLogInfo=1
       _dsb_tf_az_enumerate_account
       _dsbTfReturnCode=0
-      _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+      _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
       return 0 # caller reads _dsbTfReturnCode
     fi
   fi
@@ -2152,7 +2147,7 @@ _dsb_tf_az_login() {
     _dsbTfReturnCode=$? # caller reads _dsbTfReturnCode
   fi
 
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
 }
 
@@ -2176,7 +2171,7 @@ _dsb_tf_az_relogin() {
   local loginStatus="${_dsbTfReturnCode}"
   _dsbTfReturnCode=$((logoutStatus + loginStatus)) # caller reads _dsbTfReturnCode
 
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
 }
 
@@ -2239,7 +2234,7 @@ _dsb_tf_az_set_sub() {
     _dsb_e "  subscription hint: ${_dsbTfSelectedEnvSubscriptionHintContent}"
   fi
 
-  _dsb_d "returning exit code in _dsbTfReturnCode=$returnCode"
+  _dsb_d "returning exit code in _dsbTfReturnCode=$_dsbTfReturnCode"
   return 0 # caller reads _dsbTfReturnCode
 }
 
