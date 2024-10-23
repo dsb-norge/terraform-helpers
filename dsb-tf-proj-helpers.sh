@@ -2260,8 +2260,7 @@ _dsb_tf_set_env() {
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_select_env() {
-  _dsb_tf_error_stop_trapping # TODO: get rid of this?
-  _dsb_tf_list_envs
+  _dsbTfLogInfo=1 _dsbTfLogErrors=1 _dsb_tf_list_envs
   local listEnvsStatus=${_dsbTfReturnCode}
 
   _dsb_d "listEnvsStatus: ${listEnvsStatus}"
@@ -2270,8 +2269,6 @@ _dsb_tf_select_env() {
     _dsb_e "Failed to list environments, please run 'tf-list-envs'"
     return 0 # caller reads _dsbTfReturnCode
   fi
-
-  _dsb_tf_error_start_trapping
 
   local -a availableEnvs
   mapfile -t availableEnvs < <(dsb_tf_get_env_names)
@@ -2392,9 +2389,10 @@ _dsb_tf_az_whoami() {
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_az_logout() {
-  _dsb_tf_error_stop_trapping # TODO: get rid of this?
-  _dsb_tf_check_az_cli
-  local azCliStatus=$?
+  local azCliStatus=0
+  if ! _dsb_tf_check_az_cli; then
+    azCliStatus=1
+  fi
 
   if [ "${azCliStatus}" -ne 0 ]; then
     _dsb_i "  💡 you can also check other prerequisites by running 'tf-check-prereqs'"
@@ -2404,12 +2402,8 @@ _dsb_tf_az_logout() {
   fi
 
   local clearOutput
-  clearOutput=$(az account clear 2>&1)
-  local clearStatus=$?
-
-  _dsb_d "clearOutput: ${clearOutput}"
-
-  if [ "${clearStatus}" -ne 0 ]; then
+  local clearStatus=0
+  if ! clearOutput=$(az account clear 2>&1); then
     _dsb_e "Failed to clear subscriptions from local cache."
     _dsb_e "  please run 'az account clear --debug' manually"
     _dsbTfReturnCode=1
@@ -2418,11 +2412,10 @@ _dsb_tf_az_logout() {
     _dsbTfReturnCode=0
   fi
 
-  # TODO: can these be removed?
-  _dsbTfLogErrors=0
-  _dsbTfLogInfo=0
-  _dsb_tf_error_stop_trapping
-  _dsb_tf_az_enumerate_account
+  _dsb_d "clearOutput: ${clearOutput}"
+
+  # enumerate but ignore results
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account || :
 
   _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
@@ -2444,31 +2437,20 @@ _dsb_tf_az_logout() {
 #     - _dsbTfSubscriptionName
 _dsb_tf_az_login() {
 
-  _dsb_tf_error_stop_trapping # TODO: get rid of this?
-  _dsb_tf_check_az_cli
-  local azCliStatus=$?
-
-  if [ "${azCliStatus}" -ne 0 ]; then
+  local azCliStatus=0
+  if ! _dsb_tf_check_az_cli; then
     _dsb_i "  💡 you can also check other prerequisites by running 'tf-check-prereqs'"
     _dsbTfReturnCode=1
     _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
     return 0 # caller reads _dsbTfReturnCode
   fi
 
-  _dsb_tf_error_stop_trapping
-  _dsbTfLogInfo=0
-  _dsb_tf_az_enumerate_account
-  local accountStatus=$?
-  _dsbTfLogInfo=1
-
-  # already logged in?
-  _dsb_tf_error_start_trapping
-  if [ "${accountStatus}" -eq 0 ]; then
+  if _dsbTfLogInfo=0 _dsb_tf_az_enumerate_account; then
+    # already logged in?
     local azUpn="${_dsbTfAzureUpn:-}"
     if [ -n "${azUpn}" ]; then
       # logged in, do nothing except showing the UPN
-      _dsbTfLogInfo=1
-      _dsb_tf_az_enumerate_account
+      _dsbTfLogInfo=1 _dsb_tf_az_enumerate_account
       _dsbTfReturnCode=0
       _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
       return 0 # caller reads _dsbTfReturnCode
@@ -2476,26 +2458,19 @@ _dsb_tf_az_login() {
   fi
 
   # make sure to clear any existing account
-  _dsb_tf_error_stop_trapping
-  az account clear &>/dev/null
+  az account clear &>/dev/null || :
 
   local loginOutput
-  loginOutput=$(az login --use-device-code)
-  local loginStatus=$?
-
-  _dsb_tf_error_start_trapping
-
-  _dsb_d "loginOutput: ${loginOutput}"
-
-  if [ "${loginStatus}" -ne 0 ]; then
+  if ! loginOutput=$(az login --use-device-code); then
     _dsb_e "Failed to login with Azure CLI."
     _dsb_e "  please run 'az login --debug' manually"
     _dsbTfReturnCode=1
   else
-    _dsb_tf_error_stop_trapping
     _dsb_tf_az_enumerate_account
     _dsbTfReturnCode=$? # caller reads _dsbTfReturnCode
   fi
+
+  _dsb_d "loginOutput: ${loginOutput}"
 
   _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
@@ -2740,9 +2715,6 @@ az-set-sub() {
 tf-help() {
   local arg="${1:-}"
   _dsb_tf_configure_shell
-
-  # TODO: banner and eye candy
-
   _dsb_tf_help "${arg}"
   _dsb_tf_restore_shell
 }
@@ -2753,7 +2725,6 @@ tf-help() {
 #
 ###################################################################################################
 
-# TODO banner and eye candy
 _dsb_tf_enumerate_directories || :
 _dsb_tf_register_all_completions || :
 _dsb_i "DSB Terraform Project Helpers 🚀"
