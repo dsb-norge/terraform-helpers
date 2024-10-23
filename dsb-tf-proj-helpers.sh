@@ -29,16 +29,26 @@
 #     _dsbTfLogWarnings : 1 to log warnings, 0 to mute
 #     _dsbTfLogErrors   : 1 to log errors, 0 to mute
 #       note: _dsb_internal_error() ignores this setting
-#   debug logging should be controlled from the command line with:
-#     tf-enable-debug-logging
-#     tf-disable-debug-logging
-
+#   debug logging should be controlled from the command line by calling
+#     _dsb_tf_debug_enable_debug_logging
+#     _dsb_tf_debug_disable_debug_logging
+#
+# debug functionality
+#   debug logging can be enabled from the command line by calling
+#     _dsb_tf_debug_enable_debug_logging
+#   debug logging can be disabled from the command line by calling
+#     _dsb_tf_debug_disable_debug_logging
+#   call graph functionality can be installed from the command line by calling
+#     _dsb_tf_debug_install_call_graph_and_deps_ubuntu
+#   call graphs can be generated from the command line by calling
+#     _dsb_tf_debug_generate_call_graphs
+#
 # DEBUG commands
 #   cd ~/code/github/dsb-norge/azure-ad ;
 #   source <(cat ~/code/github/dsb-norge/terraform-helpers/dsb-tf-proj-helpers.sh) ;
 #   source <(curl -s https://raw.githubusercontent.com/dsb-norge/terraform-helpers/refs/heads/key-bonobo/dsb-tf-proj-helpers.sh) ;
 #   source <(gh api -H "Accept: application/vnd.github.v3.raw" /repos/dsb-norge/terraform-helpers/contents/dsb-tf-proj-helpers.sh?ref=key-bonobo) ;
-
+#
 # Implemented functionality
 #   tf-check-tools      -> az cli, gh cli, terraform, jq, yq, golang, hcledit, terraform-docs, realpath
 #   tf-check-gh-auth    -> need to be logged in to gh
@@ -296,18 +306,6 @@ _dsb_w() {
 }
 
 # what:
-#   debug logger, mute with _dsbTfLogDebug=0
-# input:
-#   $1 : message
-_dsb_d() {
-  local logDebug=${_dsbTfLogDebug:-0}
-  caller=${FUNCNAME[1]}
-  if [ "${logDebug}" == "1" ]; then
-    echo -e "\e[35mDEBUG  : ${caller} : $1\e[0m"
-  fi
-}
-
-# what:
 #   use gh cli to get the currently logged in GitHub account
 # input:
 #   none
@@ -488,6 +486,140 @@ _dsb_tf_report_status() {
 
 ###################################################################################################
 #
+# Utility functions: debug
+#
+###################################################################################################
+
+# what:
+#   debug logger, mute with _dsbTfLogDebug=0
+# input:
+#   $1 : message
+_dsb_d() {
+  local logDebug=${_dsbTfLogDebug:-0}
+  caller=${FUNCNAME[1]}
+  if [ "${logDebug}" == "1" ]; then
+    echo -e "\e[35mDEBUG  : ${caller} : $1\e[0m"
+  fi
+}
+
+# what:
+#   enable debug logging
+# input:
+#   none
+# returns:
+#   none
+_dsb_tf_debug_enable_debug_logging() {
+  _dsbTfLogDebug=1
+}
+
+# what:
+#   disable debug logging
+# input:
+#   none
+# returns:
+#   none
+_dsb_tf_debug_disable_debug_logging() {
+  unset _dsbTfLogDebug
+}
+
+# what:
+#   install callGraph and dependencies on Ubuntu
+# input:
+#   $1 : destination directory (optional)
+# returns:
+#   none
+_dsb_tf_debug_install_call_graph_and_deps_ubuntu() {
+  local destDir="${1:-./call-graphs}"
+  local callGraphFile="${destDir}/callGraph"
+
+  # deps
+  sudo apt install graphviz make libexpat1-dev
+  sudo cpanm install GraphViz
+
+  # install
+  mkdir -P "${destDir}"
+  curl -s https://raw.githubusercontent.com/koknat/callGraph/refs/heads/main/callGraph >"${callGraphFile}"
+  chmod +x "${callGraphFile}"
+
+  # test
+  "${callGraphFile}" -version
+}
+
+# what:
+#   generate call graphs for all exposed functions
+# input:
+#   none
+# returns:
+#   none
+_dsb_tf_debug_generate_call_graphs() {
+  local inFile=dsb-tf-proj-helpers.sh
+  local outFile=dsb-tf-proj-helpers-underscored.sh
+  local callGraphDir="./call-graphs"
+  local toBeReplaced
+  local -A replacements
+
+  # look for function names to replace, the "exposed" functions
+  # those that are prefixed with 'tf-' and 'az-'
+  mapfile -t toBeReplaced < <(grep -oP '^(tf|az)-[a-zA-Z-]+(\(\))' ${inFile})
+
+  # create the output directory
+  mkdir -p ./${callGraphDir}
+
+  # create a copy of the script file with the exposed functions renamed
+  # in such a way that they can be picked up by callGraph
+  cat ${inFile} >${outFile}
+  local funcName
+  for funcName in "${toBeReplaced[@]}"; do
+    local newFuncName
+    newFuncName="${funcName//-/__}"      # tf-check-tools -> tf__check__tools
+    newFuncName="exposed_${newFuncName}" # tf__check__tools -> exposed_tf__check__tools
+
+    # do the replacement
+    local tmpFile=$(mktemp)
+    sed "s/${funcName}/${newFuncName}/g" ${outFile} >"${tmpFile}"
+    mv "${tmpFile}" ${outFile}
+
+    replacements[${funcName}]="${newFuncName}" # record the replacement
+  done
+
+  # ignore unintresting functions
+  local ignoreStatic='(unset.*|_dsb_e|_dsb_i.*|_dsb_w|_dsb_d|_dsb_tf_error_.*|_dsb_tf_configure_shell|_dsb_tf_restore_shell|_dsb_tf_help.*|_dsb_tf_completions.*|_dsb_tf_register_.*|_dsb_tf_debug_.*'
+
+  # create a call graph containing all functions
+  "${callGraphDir}/callGraph" ${outFile} -output "${callGraphDir}/${inFile}-call-graph-all" -ignore "${ignoreStatic})"
+
+  rm "${callGraphDir}/${inFile}-call-graph-all.dot" # not interested in the dot files
+
+  # create call graphs for each function of the exposed functions
+  local startFunc
+  for startFunc in "${!replacements[@]}"; do
+    local graphFuncName="${replacements[$startFunc]}" # the name of the function in the call graph
+    local ignoreLocal="${ignoreStatic}"               # copy the static ignore list
+
+    # add all other than the current function to the ignore list
+    local funcName
+    for funcName in "${replacements[@]}"; do
+      if [[ ! "$funcName" == "${graphFuncName}" ]]; then
+        ignoreLocal+="|${funcName}" # append all exposed functions that is not the current function
+      fi
+    done
+    ignoreLocal+=")" # finalize the ignore list
+
+    # name of output file
+    local funcGraphFile="${callGraphDir}/${inFile}-call-graph-${startFunc//()/}"
+
+    # run callGraph
+    "${callGraphDir}/callGraph" ${outFile} -start "${graphFuncName}" -output "${funcGraphFile}" -ignore "${ignoreLocal}"
+
+    rm "$funcGraphFile.dot" # not interested in the dot files
+  done
+
+  # remove the copy of the shell script with the exposed functions renamed
+  rm ${outFile}
+}
+
+###################################################################################################
+#
 # Utility functions: error handling
 #
 ###################################################################################################
@@ -594,7 +726,7 @@ _dsb_tf_restore_shell() {
 #
 ###################################################################################################
 
-_ds_tf_help_get_commands_supported_by_help() {
+_dsb_tf_help_get_commands_supported_by_help() {
   local -a commands=(
     "az-login"
     "az-logout"
@@ -627,7 +759,7 @@ _dsb_tf_help_enumerate_supported_topics() {
     "general"
   )
   local -a validCommands
-  mapfile -t validCommands < <(_ds_tf_help_get_commands_supported_by_help)
+  mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
   echo "${validgroups[@]}" "${validCommands[@]}"
 }
 
@@ -660,7 +792,7 @@ _dsb_tf_help() {
     ;;
   *)
     local -a validCommands
-    mapfile -t validCommands < <(_ds_tf_help_get_commands_supported_by_help)
+    mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
     if [[ " ${validCommands[*]} " =~ (^|[[:space:]])"${arg}"($|[[:space:]]) ]]; then
       _dsb_tf_help_specific_command "${arg}"
     else
@@ -755,7 +887,7 @@ _dsb_tf_help_commands() {
   _dsb_i "All Commands:"
   _dsb_i ""
   local commands
-  commands=$(_ds_tf_help_get_commands_supported_by_help)
+  commands=$(_dsb_tf_help_get_commands_supported_by_help)
   local -a validCommands
   # shellcheck disable=SC2162
   read -a validCommands <<<"$commands"
@@ -2042,9 +2174,8 @@ _dsb_tf_set_env() {
     return 0 # caller reads _dsbTfReturnCode
   fi
 
-  _dsb_tf_enumerate_directories
-
   # check if the current root directory is a valid Terraform project
+  # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so we don't need to call it again in this function
   _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
   if [ "${_dsbTfReturnCode}" -ne 0 ]; then
     _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
@@ -2462,16 +2593,6 @@ _dsb_tf_az_set_sub() {
 # Exposed functions
 #
 ###################################################################################################
-
-# Utility functions
-# -----------------
-tf-enable-debug-logging() {
-  _dsbTfLogDebug=1
-}
-
-tf-disable-debug-logging() {
-  unset _dsbTfLogDebug
-}
 
 # Check functions
 # ---------------
