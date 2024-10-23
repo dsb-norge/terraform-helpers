@@ -1,7 +1,37 @@
 #!/usr/bin/env bash
 
-# enable debug logging  : _dsbTfLogDebug=1
-# disable debug logging : unset _dsbTfLogDebug
+# types of functions in this file:
+#   "exposed" functions
+#     are those prefixed with 'tf-' and 'az-'
+#     these are the functions that are intended to be called by the user from the command line
+#     these are suported by tf-help
+#     these should always return their exit code directly
+#
+#   internal functions
+#     are those prefixed with '_dsb_'
+#     these are not intended to be called directly from the command line
+#     they come in two flavors, see function documentation for details:
+#       - those that return their exit code in _dsbTfReturnCode
+#         - some of these may return 1 directly in case of internal errors
+#         - many of these populate global variables to persist results
+#       - those that return their exit code directly
+#         - these rarely update global variables
+#
+#   utility functions
+#     are also prefixed with '_dsb_'
+#     these are not intended to be called directly from the command line
+#     typically they do not return exit code explicitly
+#     they are for things like logging, error handling, displaying help, and other common tasks
+#
+# logging
+#   logging throughout the functions is controlled by the following variables:
+#     _dsbTfLogInfo     : 1 to log info, 0 to mute
+#     _dsbTfLogWarnings : 1 to log warnings, 0 to mute
+#     _dsbTfLogErrors   : 1 to log errors, 0 to mute
+#       note: _dsb_internal_error() ignores this setting
+#   debug logging should be controlled from the command line with:
+#     tf-enable-debug-logging
+#     tf-disable-debug-logging
 
 # DEBUG commands
 #   cd ~/code/github/dsb-norge/azure-ad ;
@@ -42,8 +72,6 @@
 #
 # TODO: functionality
 #
-# az
-#   az-set-account  -> set az account
 # tf operations
 #   tf-init-env     -> terraform init in chosen env
 #   tf-init-modules -> terraform init of submodules (requires env to be selected in advance)
@@ -89,7 +117,7 @@
 
 ###################################################################################################
 #
-# Remove any old code remnants
+# Init: remove any old code remnants
 #
 ###################################################################################################
 
@@ -138,12 +166,12 @@ unset -v varNames varName
 
 ###################################################################################################
 #
-# Global variables
+# Init: global variables
 #
 ###################################################################################################
 
-declare -g _dsbTfShellOldOpts=""
-declare -g _dsbTfShellHistoryState=""
+declare -g _dsbTfShellOldOpts=""      # used for persisting original shell options, and restoring them on exit
+declare -g _dsbTfShellHistoryState="" # used for persisting original shell history state, and restoring it on exit
 
 declare -g _dsbTfRootDir=""
 declare -g _dsbTfEnvsDir=""
@@ -167,7 +195,7 @@ declare -g _dsbTfSubscriptionName=""
 
 ###################################################################################################
 #
-# Utility functions
+# Utility functions: general
 #
 ###################################################################################################
 
@@ -183,12 +211,41 @@ _dsb_e() {
 }
 
 # what:
-#   error logger for internal errors, always logs
+#   internal error logger, always logs
+# input:
+#   $1 : calling function name
+#   $2 : message
+_dsb_ie() {
+  local caller=${1}
+  local message=${2}
+  echo -e "\e[31mERROR  : ${caller} : $message\e[0m"
+}
+
+# what:
+#   return 1
+# input:
+#   none
+# returns:
+#   1
+_dsb_ie_raise_error() {
+  return 1
+}
+
+# what:
+#   log and raise an internal error
 # input:
 #   $1 : message
 _dsb_internal_error() {
+  local messages=("$@")
   local caller=${FUNCNAME[1]}
-  echo -e "\e[31mERROR  : ${caller} : $1\e[0m"
+  local message
+  for message in "${messages[@]}"; do
+    _dsb_ie "${caller}" "${message}"
+  done
+  # trapping does not work if enabled from within the same function that returns 1
+  # thus we go one level deeper to raise the error
+  _dsb_tf_error_start_trapping
+  _dsb_ie_raise_error
 }
 
 # what:
@@ -250,12 +307,6 @@ _dsb_d() {
   fi
 }
 
-# TODO: need this?
-# _dsb_tf_get_rel_dir() {
-#   local dirName=$1
-#   realpath --relative-to="${_dsbTfRootDir}" "${dirName}"
-# }
-
 # what:
 #   use gh cli to get the currently logged in GitHub account
 # input:
@@ -299,23 +350,23 @@ _dsb_tf_report_status() {
     if _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
       local azUpn="${_dsbTfAzureUpn:-}"
       if [ -z "${azUpn}" ]; then
-        _dsb_internal_error "Internal error: Azure UPN not found."
-        _dsb_internal_error "  expected in _dsbTfAzureUpn, which is: ${_dsbTfAzureUpn:-}"
-        _dsb_internal_error "  azUpn is: ${azUpn}"
+        _dsb_internal_error "Internal error: Azure UPN not found." \
+          "  expected in _dsbTfAzureUpn, which is: ${_dsbTfAzureUpn:-}" \
+          "  azUpn is: ${azUpn}"
         return 1
       fi
       azSubId="${_dsbTfSubscriptionId:-}"
       azSubName="${_dsbTfSubscriptionName:-}"
       if [ -z "${azSubId}" ]; then
-        _dsb_internal_error "Internal error: Azure Subscription ID not found."
-        _dsb_internal_error "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionId:-}"
-        _dsb_internal_error "  azSubId is: ${azSubId}"
+        _dsb_internal_error "Internal error: Azure Subscription ID not found." \
+          "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionId:-}" \
+          "  azSubId is: ${azSubId}"
         return 1
       fi
       if [ -z "${azSubName}" ]; then
-        _dsb_internal_error "Internal error: Azure Subscription ID not found."
-        _dsb_internal_error "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionName:-}"
-        _dsb_internal_error "  azSubName is: ${azSubName}"
+        _dsb_internal_error "Internal error: Azure Subscription ID not found." \
+          "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionName:-}" \
+          "  azSubName is: ${azSubName}"
         return 1
       fi
       azureAccount="  \e[32m☑\e[0m  Logged in to Azure as       : ${_dsbTfAzureUpn}"
@@ -437,7 +488,109 @@ _dsb_tf_report_status() {
 
 ###################################################################################################
 #
-# Help functions
+# Utility functions: error handling
+#
+###################################################################################################
+
+_dsb_tf_error_handler() {
+  # Remove error trapping to prevent the error handler from being triggered
+  local returnCode=${1:-$?}
+
+  _dsb_d "error handler input: $*"
+
+  _dsbTfLogErrors=1
+  _dsb_tf_error_stop_trapping
+
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_e "Error occured:"
+    _dsb_e "  file      : dsb-tf-proj-helpers.sh" # hardcoded because file will be sourced by curl
+    _dsb_e "  line      : ${BASH_LINENO[0]} (dsb-tf-proj-helpers.sh:${BASH_LINENO[0]})"
+    _dsb_e "  function  : ${FUNCNAME[1]}"
+    _dsb_e "  command   : ${BASH_COMMAND}"
+    _dsb_e "  exit code : ${returnCode}"
+    _dsb_e "Call stack:"
+    for ((i = 1; i < ${#FUNCNAME[@]}; i++)); do
+      _dsb_e "  ${FUNCNAME[$i]} called at (dsb-tf-proj-helpers.sh:${BASH_LINENO[$((i - 1))]})"
+    done
+    _dsb_e "Operation aborted."
+  fi
+
+  _dsb_tf_restore_shell
+
+  _dsb_d "returning code: ${returnCode}"
+  return "${returnCode}"
+}
+
+_dsb_tf_error_start_trapping() {
+  # Enable strict mode with the following options:
+  # -E: Inherit ERR trap in subshells
+  # -o pipefail: Return the exit status of the last command in the pipeline that failed
+  set -Eo pipefail
+
+  # Signals:
+  # - ERR: This signal is triggered when a command fails. It is useful for error handling in scripts.
+  # - SIGHUP: This signal is sent to a process when its controlling terminal is closed. It is often used to reload configuration files.
+  # - SIGINT: This signal is sent when an interrupt is generated (usually by pressing Ctrl+C). It is used to stop a process gracefully.
+  trap '_dsb_tf_error_handler $?' ERR SIGHUP SIGINT
+
+  _dsb_d "error trapping started from ${FUNCNAME[1]}"
+}
+
+_dsb_tf_error_stop_trapping() {
+  set +Eo pipefail
+  trap - ERR SIGHUP SIGINT
+  _dsb_d "error trapping stopped ${FUNCNAME[1]}"
+}
+
+_dsb_tf_configure_shell() {
+  _dsb_d "configuring shell"
+
+  _dsbTfShellHistoryState=$(shopt -o history) # Save current history recording state
+  set +o history                              # Disable history recording
+
+  _dsbTfShellOldOpts=$(set +o) # Save current shell options
+
+  # -u: Treat unset variables as an error and exit immediately
+  set -u
+
+  _dsb_tf_error_start_trapping
+
+  # some default values
+  declare -g _dsbTfLogInfo=1
+  declare -g _dsbTfLogWarnings=1
+  declare -g _dsbTfLogErrors=1
+
+  declare -gA _dsbTfEnvsDirList=()
+  declare -ga _dsbTfAvailableEnvs=()
+  declare -gA _dsbTfModulesDirList=()
+  unset _dsbTfReturnCode
+}
+
+_dsb_tf_restore_shell() {
+  _dsb_d "restoring shell"
+
+  # Remove error trapping to prevent the error handler from being triggered
+  trap - ERR SIGHUP SIGINT
+
+  eval "$_dsbTfShellOldOpts" # Restore previous shell options
+
+  # Restore previous history recording state
+  if [[ $_dsbTfShellHistoryState =~ history[[:space:]]+off ]]; then
+    set +o history
+  else
+    set -o history
+  fi
+
+  # clear variables
+  unset _dsbTfLogInfo
+  unset _dsbTfLogWarnings
+  unset _dsbTfLogErrors
+  unset _dsbTfReturnCode
+}
+
+###################################################################################################
+#
+# Utility functions: Display help
 #
 ###################################################################################################
 
@@ -518,6 +671,12 @@ _dsb_tf_help() {
 }
 
 _dsb_tf_help_help() {
+  _dsb_i "DSB Terraform Project Helpers 🚀"
+  _dsb_i ""
+  _dsb_i "  A collection of functions to help working with Terraform projects."
+  _dsb_i "  All available commands are organized into groups."
+  _dsb_i "  Below are commands for getting help with groups or specific commands."
+  _dsb_i ""
   _dsb_i "General Help:"
   _dsb_i "  tf-help groups          -> show all command groups"
   _dsb_i "  tf-help [group]         -> show help for a specific command group"
@@ -532,6 +691,10 @@ _dsb_tf_help_help() {
   _dsb_i "  tf-check-prereqs        -> Run all prerequisite checks"
   _dsb_i "  tf-set-env [env]        -> Set environment"
   _dsb_i "  tf-check-env [env]      -> Check if environment is valid"
+  _dsb_i ""
+  _dsb_i "Note: "
+  _dsb_i "  tf-help supports tab completion for available arguments,"
+  _dsb_i "  simply add a space after the tf-help command and press tab."
 }
 
 _dsb_tf_help_groups() {
@@ -549,8 +712,8 @@ _dsb_tf_help_group_environments() {
   _dsb_i "  Environment Commands:"
   _dsb_i "    tf-list-envs          -> List existing environments"
   _dsb_i "    tf-select-env         -> List and select environment"
-  _dsb_i "    tf-set-env [env]      -> Set environment"
-  _dsb_i "    tf-check-env [env]    -> Check if environment is valid"
+  _dsb_i "    tf-set-env [env]      -> Set environment (tab completion supported for [env])"
+  _dsb_i "    tf-check-env [env]    -> Check if environment is valid (tab completion supported for [env])"
   _dsb_i "    tf-clear-env          -> Clear selected environment"
 }
 
@@ -616,17 +779,24 @@ _dsb_tf_help_specific_command() {
     _dsb_i "tf-select-env:"
     _dsb_i "  List and select an environment."
     _dsb_i ""
+    _dsb_i "  Additionally supply the environment as an argument to select it directly."
+    _dsb_i "  Tab completion is supportd for specifying environment."
+    _dsb_i ""
     _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-clear-env."
     ;;
   tf-set-env)
     _dsb_i "tf-set-env [env]:"
     _dsb_i "  Set the specified environment."
     _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
     _dsb_i "  Related commands: tf-list-envs, tf-select-env, tf-clear-env."
     ;;
   tf-check-env)
     _dsb_i "tf-check-env [env]:"
     _dsb_i "  Check if the specified environment is valid."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
     _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-select-env."
     ;;
@@ -695,7 +865,62 @@ _dsb_tf_help_specific_command() {
 
 ###################################################################################################
 #
-# Check functions
+# Utility functions: Tab completion
+#
+###################################################################################################
+
+# for _dsbTfAvailableEnvs
+# --------------------------------------------------
+_dsb_tf_completions_for_avalable_envs() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  # always enumerate, we do not know the directory the function is called from
+  # note: debug mode must be disabled, otherwise the debug output will mess up the completions
+  # TODO: does this slow things down?
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
+
+  # only complete if _dsbTfAvailableEnvs is set
+  if [[ -v _dsbTfAvailableEnvs ]]; then
+    if [[ -n "${_dsbTfAvailableEnvs[*]}" ]]; then
+      mapfile -t COMPREPLY < <(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "${cur}")
+    fi
+  fi
+}
+
+_dsb_tf_register_completions_for_available_envs() {
+  complete -F _dsb_tf_completions_for_avalable_envs tf-set-env
+  complete -F _dsb_tf_completions_for_avalable_envs tf-check-env
+  complete -F _dsb_tf_completions_for_avalable_envs tf-select-env
+}
+
+# for tf-help
+# --------------------------------------------------
+_dsb_tf_completions_for_tf_help() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  # note: debug mode must be disabled, otherwise the debug output will mess up the completions
+  local -a helpTopics
+  mapfile -t helpTopics < <(_dsbTfLogDebug=0 _dsb_tf_help_enumerate_supported_topics)
+  if [[ -n "${helpTopics[*]}" ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "${helpTopics[*]}" -- "${cur}")
+  fi
+}
+
+_dsb_tf_register_completions_for_tf_help() {
+  complete -F _dsb_tf_completions_for_tf_help tf-help
+}
+
+# make it easier to configure the shell
+_dsb_tf_register_all_completions() {
+  _dsb_tf_register_completions_for_available_envs
+  _dsb_tf_register_completions_for_tf_help
+}
+
+###################################################################################################
+#
+# Internal functions: checks
 #
 ###################################################################################################
 
@@ -1138,54 +1363,47 @@ _dsb_tf_check_prereqs() {
 }
 
 # what:
-#   check if the specified environment exists
+#   check if environment exists, either supplied or the currenlty selected environment
 # input:
-#   environment name
+#   environment name (optional)
 # on info:
 #   continuous output with summary of the check results
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_check_env() {
-  local envToCheck="${1:-}"
+  local selectedEnv="${_dsbTfSelectedEnv:-}" # allowed to be empty
+  local envToCheck="${1:-${selectedEnv}}"    # input with fallback to selected environment
 
-  # this function is used in two forms:
-  #   1. with a supplied environment name
-  #   2. with the globally selected environment name
-  local selectedEnv="${_dsbTfSelectedEnv:-}"
-  local lockFileStatus=0
-  local subscriptionHintFileStatus=0
   if [ -z "${envToCheck}" ]; then
-    if [ -z "${selectedEnv}" ]; then
-      _dsb_e "No environment specified and no environment selected."
-      _dsb_e "  either specify environment: tf-check-env [env]"
-      _dsb_e "  or run one of the following: tf-select-env, tf-set-env [env], tf-list-envs"
-      _dsbTfReturnCode=1
-      return 0 # caller reads _dsbTfReturnCode
-    fi
-
-    envToCheck="${selectedEnv}"
+    _dsb_e "No environment specified and no environment selected."
+    _dsb_e "  either specify environment: tf-check-env [env]"
+    _dsb_e "  or run one of the following: tf-select-env, tf-set-env [env], tf-list-envs"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
   fi
 
   _dsb_i "Environment: ${envToCheck}"
 
   _dsb_tf_enumerate_directories
-  _dsb_tf_error_stop_trapping # TODO: get rid of this?
 
   _dsb_i "Looking for environment ..."
-  _dsb_tf_look_for_env "${envToCheck}"
-  local envStatus=$?
-
-  if [ ${envStatus} -eq 0 ]; then
+  local envStatus=0
+  local lockFileStatus=0
+  local subscriptionHintFileStatus=0
+  if ! _dsb_tf_look_for_env "${envToCheck}"; then
+    envStatus=1
+  else
     _dsb_i "Checking lock file ..."
-    _dsb_tf_look_for_lock_file "${envToCheck}"
-    lockFileStatus=$?
+    if ! _dsb_tf_look_for_lock_file "${envToCheck}"; then
+      lockFileStatus=1
+    fi
 
     _dsb_i "Checking subscription hint file ..."
-    _dsb_tf_look_for_subscription_hint_file "${envToCheck}"
-    subscriptionHintFileStatus=$?
+    if ! _dsb_tf_look_for_subscription_hint_file "${envToCheck}"; then
+      subscriptionHintFileStatus=1
+    fi
   fi
 
-  _dsb_tf_error_start_trapping
   local returnCode=$((envStatus + lockFileStatus + subscriptionHintFileStatus))
 
   _dsb_i ""
@@ -1222,9 +1440,15 @@ _dsb_tf_check_env() {
 
 ###################################################################################################
 #
-# Directory enumeration
+# Internal functions: directory enumeration
 #
 ###################################################################################################
+
+# TODO: need this?
+# _dsb_tf_get_rel_dir() {
+#   local dirName=$1
+#   realpath --relative-to="${_dsbTfRootDir}" "${dirName}"
+# }
 
 # what:
 #   enumerate directories with current directory as root
@@ -1479,8 +1703,8 @@ _dsb_tf_look_for_env() {
   fi
 
   if ! declare -p _dsbTfEnvsDir &>/dev/null; then
-    _dsb_internal_error "Internal error: expected to find environments directory."
-    _dsb_internal_error "  expected in: _dsbTfEnvsDir"
+    _dsb_internal_error "Internal error: expected to find environments directory." \
+      "  expected in: _dsbTfEnvsDir"
     return 1
   fi
 
@@ -1540,22 +1764,22 @@ _dsb_tf_look_for_environment_file() {
     lookForFilename=".az-subscription"
     ;;
   *)
-    _dsb_internal_error "Internal error: expected suppliedFileType to be one of 'lock', 'subscriptionHint'."
-    _dsb_internal_error "  suppliedFileType: ${suppliedFileType}"
+    _dsb_internal_error "Internal error: expected suppliedFileType to be one of 'lock', 'subscriptionHint'." \
+      "  suppliedFileType: ${suppliedFileType}"
     return 1
     ;;
   esac
 
   if [ -z "${suppliedGlobalToSavePathTo}" ]; then
-    _dsb_internal_error "Internal error: expected suppliedGlobalToSavePathTo to be set."
-    _dsb_internal_error "  suppliedGlobalToSavePathTo: '${suppliedGlobalToSavePathTo}'"
+    _dsb_internal_error "Internal error: expected suppliedGlobalToSavePathTo to be set." \
+      "  suppliedGlobalToSavePathTo: '${suppliedGlobalToSavePathTo}'"
     return 1
   fi
 
   # make sure the global variable supplied in suppliedGlobalToSavePathTo is declared
   if ! declare -p "${suppliedGlobalToSavePathTo}" &>/dev/null; then
-    _dsb_internal_error "Internal error: the supplied global variable is not declared."
-    _dsb_internal_error "  expected in suppliedGlobalToSavePathTo: ${suppliedGlobalToSavePathTo}"
+    _dsb_internal_error "Internal error: the supplied global variable is not declared." \
+      "  expected in suppliedGlobalToSavePathTo: ${suppliedGlobalToSavePathTo}"
     return 1
   fi
 
@@ -1577,16 +1801,14 @@ _dsb_tf_look_for_environment_file() {
       _dsb_d "found suppliedEnv: ${suppliedEnv}"
 
       if ! declare -p _dsbTfEnvsDirList &>/dev/null; then
-        _dsb_tf_error_start_trapping
-        _dsb_internal_error "Internal error: expected to find environments directory list."
-        _dsb_internal_error "  expected in: _dsbTfEnvsDirList"
+        _dsb_internal_error "Internal error: expected to find environments directory list." \
+          "  expected in: _dsbTfEnvsDirList"
         return 1
       fi
 
       if [ -z "${_dsbTfEnvsDirList["${suppliedEnv}"]}" ]; then
-        _dsb_tf_error_start_trapping
-        _dsb_internal_error "Internal error: expected to find selected environment directory."
-        _dsb_internal_error "  expected in: _dsbTfEnvsDirList"
+        _dsb_internal_error "Internal error: expected to find selected environment directory." \
+          "  expected in: _dsbTfEnvsDirList"
         return 1
       fi
 
@@ -1608,9 +1830,8 @@ _dsb_tf_look_for_environment_file() {
 
     # expect _dsbTfSelectedEnvDir to be set if an environment is selected
     if [ -z "${_dsbTfSelectedEnvDir:-}" ]; then
-      _dsb_tf_error_start_trapping
-      _dsb_internal_error "Internal error: environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set."
-      _dsb_internal_error "  selected environment: ${selectedEnv}"
+      _dsb_internal_error "Internal error: environment set in '_dsbTfSelectedEnv', but '_dsbTfSelectedEnvDir' was not set." \
+        "  selected environment: ${selectedEnv}"
       return 1
     fi
 
@@ -1623,10 +1844,9 @@ _dsb_tf_look_for_environment_file() {
 
   # expect _dsbTfSelectedEnvDir to be a directory
   if [ ! -d "${selectedEnvDir}" ]; then
-    _dsb_tf_error_start_trapping
-    _dsb_internal_error "Internal error: environment set in '_dsbTfSelectedEnv', but directory not found."
-    _dsb_internal_error "  Selected environment: ${selectedEnv}"
-    _dsb_internal_error "  Expected directory: ${selectedEnvDir}"
+    _dsb_internal_error "Internal error: environment set in '_dsbTfSelectedEnv', but directory not found." \
+      "  Selected environment: ${selectedEnv}" \
+      "  Expected directory: ${selectedEnvDir}"
     return 1
   fi
 
@@ -1705,7 +1925,7 @@ _dsb_tf_look_for_subscription_hint_file() {
 
 ###################################################################################################
 #
-# Environment
+# Internal functions: environment
 #
 ###################################################################################################
 
@@ -1747,8 +1967,8 @@ _dsb_tf_list_envs() {
   fi
 
   if ! declare -p _dsbTfEnvsDir &>/dev/null; then
-    _dsb_internal_error "Internal error: expected to find environments directory."
-    _dsb_internal_error "  expected in: _dsbTfEnvsDir"
+    _dsb_internal_error "Internal error: expected to find environments directory." \
+      "  expected in: _dsbTfEnvsDir"
     return 1
   fi
 
@@ -1832,9 +2052,8 @@ _dsb_tf_set_env() {
   fi
 
   if ! declare -p _dsbTfEnvsDirList &>/dev/null; then
-    _dsb_tf_error_start_trapping
-    _dsb_internal_error "Internal error: expected to find environments directory list."
-    _dsb_internal_error "  expected in: _dsbTfEnvsDirList"
+    _dsb_internal_error "Internal error: expected to find environments directory list." \
+      "  expected in: _dsbTfEnvsDirList"
     return 1
   fi
 
@@ -1956,7 +2175,7 @@ _dsb_tf_select_env() {
 
 ###################################################################################################
 #
-# Azure CLI
+# Internal functions: azure CLI
 #
 ###################################################################################################
 
@@ -2240,163 +2459,6 @@ _dsb_tf_az_set_sub() {
 
 ###################################################################################################
 #
-# Error handling
-#
-###################################################################################################
-
-_dsb_tf_error_handler() {
-  # Remove error trapping to prevent the error handler from being triggered
-  local returnCode=${1:-$?}
-
-  _dsb_d "error handler input: $*"
-
-  _dsbTfLogErrors=1
-  _dsb_tf_error_stop_trapping
-
-  if [ "${returnCode}" -ne 0 ]; then
-    _dsb_e "Error occured:"
-    _dsb_e "  file      : dsb-tf-proj-helpers.sh" # hardcoded because file will be sourced by curl
-    _dsb_e "  line      : ${BASH_LINENO[0]} (dsb-tf-proj-helpers.sh:${BASH_LINENO[0]})"
-    _dsb_e "  function  : ${FUNCNAME[1]}"
-    _dsb_e "  command   : ${BASH_COMMAND}"
-    _dsb_e "  exit code : ${returnCode}"
-    _dsb_e "Call stack:"
-    for ((i = 1; i < ${#FUNCNAME[@]}; i++)); do
-      _dsb_e "  ${FUNCNAME[$i]} called at (dsb-tf-proj-helpers.sh:${BASH_LINENO[$((i - 1))]})"
-    done
-    _dsb_e "Operation aborted."
-  fi
-
-  _dsb_tf_restore_shell
-
-  _dsb_d "returning code: ${returnCode}"
-  return "${returnCode}"
-}
-
-_dsb_tf_error_start_trapping() {
-  # Enable strict mode with the following options:
-  # -E: Inherit ERR trap in subshells
-  # -o pipefail: Return the exit status of the last command in the pipeline that failed
-  set -Eo pipefail
-
-  # Signals:
-  # - ERR: This signal is triggered when a command fails. It is useful for error handling in scripts.
-  # - SIGHUP: This signal is sent to a process when its controlling terminal is closed. It is often used to reload configuration files.
-  # - SIGINT: This signal is sent when an interrupt is generated (usually by pressing Ctrl+C). It is used to stop a process gracefully.
-  trap '_dsb_tf_error_handler $?' ERR SIGHUP SIGINT
-
-  _dsb_d "error trapping started from ${FUNCNAME[1]}"
-}
-
-_dsb_tf_error_stop_trapping() {
-  set +Eo pipefail
-  trap - ERR SIGHUP SIGINT
-  _dsb_d "error trapping stopped ${FUNCNAME[1]}"
-}
-
-_dsb_tf_configure_shell() {
-  _dsb_d "configuring shell"
-
-  _dsbTfShellHistoryState=$(shopt -o history) # Save current history recording state
-  set +o history                              # Disable history recording
-
-  _dsbTfShellOldOpts=$(set +o) # Save current shell options
-
-  # -u: Treat unset variables as an error and exit immediately
-  set -u
-
-  _dsb_tf_error_start_trapping
-
-  # some default values
-  declare -g _dsbTfLogInfo=1
-  declare -g _dsbTfLogWarnings=1
-  declare -g _dsbTfLogErrors=1
-
-  declare -gA _dsbTfEnvsDirList=()
-  declare -ga _dsbTfAvailableEnvs=()
-  declare -gA _dsbTfModulesDirList=()
-  unset _dsbTfReturnCode
-}
-
-_dsb_tf_restore_shell() {
-  _dsb_d "restoring shell"
-
-  # Remove error trapping to prevent the error handler from being triggered
-  trap - ERR SIGHUP SIGINT
-
-  eval "$_dsbTfShellOldOpts" # Restore previous shell options
-
-  # Restore previous history recording state
-  if [[ $_dsbTfShellHistoryState =~ history[[:space:]]+off ]]; then
-    set +o history
-  else
-    set -o history
-  fi
-
-  # clear variables
-  unset _dsbTfLogInfo
-  unset _dsbTfLogWarnings
-  unset _dsbTfLogErrors
-  unset _dsbTfReturnCode
-}
-
-###################################################################################################
-#
-# Tab completion
-#
-###################################################################################################
-
-# for _dsbTfAvailableEnvs
-# --------------------------------------------------
-_dsb_tf_completions_for_avalable_envs() {
-  local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=()
-
-  # always enumerate, we do not know the directory the function is called from
-  # note: debug mode must be disabled, otherwise the debug output will mess up the completions
-  # TODO: does this slow things down?
-  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
-
-  # only complete if _dsbTfAvailableEnvs is set
-  if [[ -v _dsbTfAvailableEnvs ]]; then
-    if [[ -n "${_dsbTfAvailableEnvs[*]}" ]]; then
-      mapfile -t COMPREPLY < <(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "${cur}")
-    fi
-  fi
-}
-
-_dsb_tf_register_completions_for_available_envs() {
-  complete -F _dsb_tf_completions_for_avalable_envs tf-set-env
-  complete -F _dsb_tf_completions_for_avalable_envs tf-check-env
-  complete -F _dsb_tf_completions_for_avalable_envs tf-select-env
-}
-
-# for tf-help
-# --------------------------------------------------
-_dsb_tf_completions_for_tf_help() {
-  local cur="${COMP_WORDS[COMP_CWORD]}"
-  COMPREPLY=()
-
-  # note: debug mode must be disabled, otherwise the debug output will mess up the completions
-  local -a helpTopics
-  mapfile -t helpTopics < <(_dsbTfLogDebug=0 _dsb_tf_help_enumerate_supported_topics)
-  if [[ -n "${helpTopics[*]}" ]]; then
-    mapfile -t COMPREPLY < <(compgen -W "${helpTopics[*]}" -- "${cur}")
-  fi
-}
-
-_dsb_tf_register_completions_for_tf_help() {
-  complete -F _dsb_tf_completions_for_tf_help tf-help
-}
-
-# make it easier to configure the shell
-_dsb_tf_register_all_completions() {
-  _dsb_tf_register_completions_for_available_envs
-  _dsb_tf_register_completions_for_tf_help
-}
-
-###################################################################################################
-#
 # Exposed functions
 #
 ###################################################################################################
@@ -2427,8 +2489,6 @@ tf-check-prereqs() {
   local returnCode
 
   _dsb_tf_configure_shell
-  _dsbTfLogErrors=0
-  _dsbTfLogInfo=1
   _dsb_tf_check_prereqs
   returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
@@ -2437,7 +2497,7 @@ tf-check-prereqs() {
 
 tf-check-tools() {
   _dsb_tf_configure_shell
-  _dsbTfLogErrors=1
+  _dsbTfLogErrors=1 #get rid of this
   _dsbTfLogInfo=1
 
   _dsb_tf_error_stop_trapping
@@ -2507,8 +2567,6 @@ tf-clear-env() {
 tf-check-env() {
   local envToCheck="${1:-}"
   _dsb_tf_configure_shell
-  _dsbTfLogErrors=1
-  _dsbTfLogInfo=1
   _dsb_tf_check_env "${envToCheck}"
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
@@ -2570,12 +2628,12 @@ tf-help() {
 
 ###################################################################################################
 #
-# Code sourced message
+# Init: final setup
 #
 ###################################################################################################
 
 # TODO banner and eye candy
 _dsb_tf_enumerate_directories || :
 _dsb_tf_register_all_completions || :
-_dsb_i "DSB terraform project helpers loaded."
+_dsb_i "DSB Terraform Project Helpers 🚀"
 _dsb_i "  to get started, run 'tf-help' or 'tf-status'"
