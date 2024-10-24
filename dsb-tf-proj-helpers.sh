@@ -547,13 +547,16 @@ _dsb_tf_debug_install_call_graph_and_deps_ubuntu() {
 
 # what:
 #   generate call graphs for all exposed functions
+#   generates a single call graph if a function name is provided
 # input:
-#   none
+#   $1 : function to generate single call graph for (optional)
 # returns:
 #   none
 _dsb_tf_debug_generate_call_graphs() {
-  local inFile=dsb-tf-proj-helpers.sh
-  local outFile=dsb-tf-proj-helpers-underscored.sh
+  local functionToGenerateFor="${1:-}"
+
+  local inFile='dsb-tf-proj-helpers.sh'
+  local outFile='dsb-tf-proj-helpers-underscored.sh'
   local callGraphDir="./call-graphs"
   local toBeReplaced
   local -A replacements
@@ -585,37 +588,48 @@ _dsb_tf_debug_generate_call_graphs() {
   # ignore unintresting functions
   local ignoreStatic='(unset.*|_dsb_e|_dsb_i.*|_dsb_w|_dsb_d|_dsb_tf_error_.*|_dsb_tf_configure_shell|_dsb_tf_restore_shell|_dsb_tf_help.*|_dsb_tf_completions.*|_dsb_tf_register_.*|_dsb_tf_debug_.*'
 
-  # create a call graph containing all functions
-  "${callGraphDir}/callGraph" ${outFile} -output "${callGraphDir}/${inFile}-call-graph-all" -ignore "${ignoreStatic})"
+  if [ -n "${functionToGenerateFor}" ]; then
+    local startFuncStrip="${functionToGenerateFor//()/}" # no trailing ()
+    local startFunc="${functionToGenerateFor}()"         # with trailing ()
+    local funcGraphFile="${callGraphDir}/${inFile}-call-graph-${startFuncStrip}"
 
-  rm "${callGraphDir}/${inFile}-call-graph-all.dot" # not interested in the dot files
+    # create a call graph containing single function
+    "${callGraphDir}/callGraph" ${outFile} -start "${startFunc}" -output "${funcGraphFile}" -ignore "${ignoreStatic})"
 
-  # create call graphs for each function of the exposed functions
-  local startFunc
-  for startFunc in "${!replacements[@]}"; do
-    local graphFuncName="${replacements[$startFunc]}" # the name of the function in the call graph
-    local ignoreLocal="${ignoreStatic}"               # copy the static ignore list
+    rm "${funcGraphFile}.dot" # not interested in the dot files
+  else
+    # create a call graph containing all functions
+    "${callGraphDir}/callGraph" ${outFile} -output "${callGraphDir}/${inFile}-call-graph-all" -ignore "${ignoreStatic})"
 
-    # add all other than the current function to the ignore list
-    local funcName
-    for funcName in "${replacements[@]}"; do
-      if [[ ! "$funcName" == "${graphFuncName}" ]]; then
-        ignoreLocal+="|${funcName}" # append all exposed functions that is not the current function
-      fi
+    rm "${callGraphDir}/${inFile}-call-graph-all.dot" # not interested in the dot files
+
+    # create call graphs for each function of the exposed functions
+    local startFunc
+    for startFunc in "${!replacements[@]}"; do
+      local graphFuncName="${replacements[$startFunc]}" # the name of the function in the call graph
+      local ignoreLocal="${ignoreStatic}"               # copy the static ignore list
+
+      # add all other than the current function to the ignore list
+      local funcName
+      for funcName in "${replacements[@]}"; do
+        if [[ ! "$funcName" == "${graphFuncName}" ]]; then
+          ignoreLocal+="|${funcName}" # append all exposed functions that is not the current function
+        fi
+      done
+      ignoreLocal+=")" # finalize the ignore list
+
+      # name of output file
+      local funcGraphFile="${callGraphDir}/${inFile}-call-graph-${startFunc//()/}"
+
+      # run callGraph
+      "${callGraphDir}/callGraph" ${outFile} -start "${graphFuncName}" -output "${funcGraphFile}" -ignore "${ignoreLocal}"
+
+      rm "$funcGraphFile.dot" # not interested in the dot files
     done
-    ignoreLocal+=")" # finalize the ignore list
-
-    # name of output file
-    local funcGraphFile="${callGraphDir}/${inFile}-call-graph-${startFunc//()/}"
-
-    # run callGraph
-    "${callGraphDir}/callGraph" ${outFile} -start "${graphFuncName}" -output "${funcGraphFile}" -ignore "${ignoreLocal}"
-
-    rm "$funcGraphFile.dot" # not interested in the dot files
-  done
+  fi
 
   # remove the copy of the shell script with the exposed functions renamed
-  rm ${outFile}
+  # rm ${outFile}
 }
 
 ###################################################################################################
@@ -1742,7 +1756,7 @@ _dsb_tf_get_module_dirs() { # TODO: make sure to use this, possibly when perform
 #   nothing
 # returns:
 #   echos a list of environment names
-dsb_tf_get_env_names() {
+_dsb_tf_get_env_names() {
   local -a envNames=()
   if declare -p _dsbTfEnvsDirList &>/dev/null; then
     local key
@@ -1764,7 +1778,7 @@ dsb_tf_get_env_names() {
 #   echos a comma separated list of environment names
 _dsb_tf_get_env_names_commaseparated() {
   local -a availableEnvs
-  mapfile -t availableEnvs < <(dsb_tf_get_env_names)
+  mapfile -t availableEnvs < <(_dsb_tf_get_env_names)
   local availableEnvsCommaSeparated # declare and assign separately to avoid shellcheck warning
   availableEnvsCommaSeparated=$(
     IFS=,
@@ -1843,7 +1857,7 @@ _dsb_tf_look_for_env() {
   local envsDir="${_dsbTfEnvsDir:-}"
 
   local -a availableEnvs
-  mapfile -t availableEnvs < <(dsb_tf_get_env_names)
+  mapfile -t availableEnvs < <(_dsb_tf_get_env_names)
   local envCount=${#availableEnvs[@]}
 
   _dsb_d "available envs count in availableEnvs: ${envCount}"
@@ -2105,7 +2119,7 @@ _dsb_tf_list_envs() {
   fi
 
   local -a availableEnvs
-  mapfile -t availableEnvs < <(dsb_tf_get_env_names)
+  mapfile -t availableEnvs < <(_dsb_tf_get_env_names)
   local envCount=${#availableEnvs[@]}
 
   _dsb_d "available envs count in availableEnvs: ${envCount}"
@@ -2189,7 +2203,7 @@ _dsb_tf_set_env() {
   fi
 
   local -a availableEnvs
-  mapfile -t availableEnvs < <(dsb_tf_get_env_names)
+  mapfile -t availableEnvs < <(_dsb_tf_get_env_names)
   local envCount=${#availableEnvs[@]}
 
   _dsb_d "available envs count in availableEnvs: ${envCount}"
@@ -2227,8 +2241,10 @@ _dsb_tf_set_env() {
   if [ "${subscriptionHintFileStatus}" -ne 0 ]; then
     _dsb_e "Subscription hint file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
   else
+    # hint file exists, let's try to set the subscription
     _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_set_sub
     azSubStatus=${_dsbTfReturnCode}
+
     if [ "${azSubStatus}" -ne 0 ]; then
       _dsb_e "Failed to configure Azure subscription using subscription hint '${_dsbTfSelectedEnvSubscriptionHintContent}', please run 'az-set-sub'"
     else
@@ -2271,7 +2287,7 @@ _dsb_tf_select_env() {
   fi
 
   local -a availableEnvs
-  mapfile -t availableEnvs < <(dsb_tf_get_env_names)
+  mapfile -t availableEnvs < <(_dsb_tf_get_env_names)
   local envCount=${#availableEnvs[@]}
 
   _dsb_d "availableEnvs: ${availableEnvs[*]}"
@@ -2541,7 +2557,23 @@ _dsb_tf_az_set_sub() {
     return 0
   fi
 
-  # need to be logged in
+  # if the globally persisted subscription name matches the subscription hint, assume the user is logged in
+  # we do this because _dsb_tf_az_enumerate_account is time consuming
+  local subId="${_dsbTfSubscriptionId:-}"
+  local subName="${_dsbTfSubscriptionName:-}"
+  _dsb_d "subscription Name: ${_dsbTfSubscriptionName:-}"
+  _dsb_d "subscription hint: ${_dsbTfSelectedEnvSubscriptionHintContent:-}"
+  if [ -n "${subName}" ] && [[ "${subName,,}" == "${_dsbTfSelectedEnvSubscriptionHintContent,,}" ]]; then # ,, converts all characters in the variable's value to lowercase.
+    _dsb_d "subscription id matches subscription hint, assume user is logged in and subscription is set"
+    _dsb_d "subscription ID  : ${_dsbTfSubscriptionId:-}"
+    _dsbTfReturnCode=0
+    _dsb_d "returning exit code in _dsbTfReturnCode=$_dsbTfReturnCode"
+    return 0
+  fi
+
+  _dsb_d "current subscription name does not match subscription hint, proceed with cheking login status"
+
+  # chek if user is logged in
   if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
     _dsb_e "Azure CLI account enumeration failed, please run 'az-whoami'"
     return 0
