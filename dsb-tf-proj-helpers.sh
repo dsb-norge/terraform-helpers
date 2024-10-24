@@ -57,6 +57,7 @@
 #   tf-list-envs        -> list existing envs (exclude _*)
 #   tf-set-env [env]    -> set env/sub
 #   tf-clear-env        -> unset env/sub
+#   tf-unset-env        -> unset env/sub
 #   tf-select-env       -> list + select env/sub + set env/sub
 #   tf-select-env [env] -> set env/sub ie. same as tf-set-env
 #   tf-check-env        -> check if selected env is valid
@@ -67,6 +68,8 @@
 #   az-whoami           -> az account show
 #   az-set-sub          -> az account set --subscription
 #   tf-status           -> checks + help + show az upn if logged in + show sub if selected
+#   tf-init-env         -> terraform init in chosen env
+#   tf-init-env [env]   -> terraform init in given env
 #
 #   other:
 #     tab completion
@@ -83,20 +86,31 @@
 # TODO: functionality
 #
 # tf operations
-#   tf-init-env     -> terraform init in chosen env
-#   tf-init-modules -> terraform init of submodules (requires env to be selected in advance)
-#   tf-init         -> terraform init in chosen env + submodules
-#   tf-fmt          -> terraform fmt -check in chosen env
-#   tf-fmt-fix      -> terraform fmt in chosen env
-#   tf-validate     -> terraform validate in chosen env
-#   tf-plan         -> terraform plan in chosen env
-#   tf-apply        -> terraform apply in chosen env
-#   tf-clean        -> rm .terraform everywhere /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
-#   tf-clean-all    -> rm .terraform everywhere + rm .tflint everywhere
+#   tf-init-modules   -> terraform init of submodules (requires env to be selected in advance)
+#   tf-init-main      -> terraform init of main (requires env to be selected in advance)
+#   tf-init           -> terraform init in chosen env + submodules + main
+#   tf-init [env]     -> terraform init in given env + submodules + main
+#   tf-fmt            -> terraform fmt -check in chosen env
+#   tf-fmt-fix        -> terraform fmt in chosen env
+#   tf-validate       -> terraform validate in chosen env
+#   tf-validate [env] -> terraform validate in given env
+#   tf-plan           -> terraform plan in chosen env
+#   tf-plan [env]     -> terraform plan in given env
+#   tf-apply          -> terraform apply in chosen env
+#   tf-apply [env]    -> terraform apply in given env
+#
+# TODO: tf-help functionality
+#   tf-init-env (new help group)
+#   tf-init-modules
+#   tf-init-main
+#
+# directory operations
+#   tf-clean          -> rm .terraform everywhere /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
+#   tf-clean-all      -> rm .terraform everywhere + rm .tflint everywhere
+#   tf-lint-clean   -> rm .tflint everywhere
 #
 # linting
 #   tf-lint         -> tflint in chosen env, using tflint-wrapper, download and store locally? in root/.tflint ?
-#   tf-lint-clean   -> rm .tflint everywhere
 #
 # upgrading
 #  look into:
@@ -186,7 +200,6 @@ declare -g _dsbTfShellHistoryState="" # used for persisting original shell histo
 declare -g _dsbTfRootDir=""
 declare -g _dsbTfEnvsDir=""
 declare -g _dsbTfMainDir=""
-declare -g _dsbTfModulesDir=""
 declare -gA _dsbTfEnvsDirList   # Associative array
 declare -ga _dsbTfAvailableEnvs # Indexed array
 
@@ -753,6 +766,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-check-prereqs"
     "tf-check-tools"
     "tf-clear-env"
+    "tf-unset-env"
     "tf-list-envs"
     "tf-select-env"
     "tf-set-env"
@@ -861,6 +875,7 @@ _dsb_tf_help_group_environments() {
   _dsb_i "    tf-set-env [env]      -> Set environment (tab completion supported for [env])"
   _dsb_i "    tf-check-env [env]    -> Check if environment is valid (tab completion supported for [env])"
   _dsb_i "    tf-clear-env          -> Clear selected environment"
+  _dsb_i "    tf-unset-env          -> Alias for tf-clear-env"
 }
 
 _dsb_tf_help_group_checks() {
@@ -947,7 +962,13 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-select-env."
     ;;
   tf-clear-env)
-    _dsb_i "tf-clear-env:"
+    _dsb_i "tf-clear-env / tf-unset-env:"
+    _dsb_i "  Clear the selected environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-select-env."
+    ;;
+  tf-unset-env)
+    _dsb_i "tf-clear-env / tf-unset-env:"
     _dsb_i "  Clear the selected environment."
     _dsb_i ""
     _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-select-env."
@@ -1038,6 +1059,7 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_avalable_envs tf-set-env
   complete -F _dsb_tf_completions_for_avalable_envs tf-check-env
   complete -F _dsb_tf_completions_for_avalable_envs tf-select-env
+  complete -F _dsb_tf_completions_for_avalable_envs tf-init-env
 }
 
 # for tf-help
@@ -1590,11 +1612,18 @@ _dsb_tf_check_env() {
 #
 ###################################################################################################
 
-# TODO: need this?
-# _dsb_tf_get_rel_dir() {
-#   local dirName=$1
-#   realpath --relative-to="${_dsbTfRootDir}" "${dirName}"
-# }
+# what:
+#   gets the relative path of a directory to the root directory of the Terraform project
+# input:
+#   directory path
+# on info:
+#   nothing
+# returns:
+#   echos the relative path
+_dsb_tf_get_rel_dir() {
+  local dirName=${1}
+  realpath --relative-to="${_dsbTfRootDir:-.}" "${dirName}"
+}
 
 # what:
 #   enumerate directories with current directory as root
@@ -1609,7 +1638,7 @@ _dsb_tf_check_env() {
 #   nothing
 # returns:
 #   exit code directly
-#   populates deveral global variables:
+#   populates several global variables:
 #     - _dsbTfRootDir
 #     - _dsbTfModulesDir
 #       - _dsbTfModulesDirList
@@ -1736,7 +1765,7 @@ _dsb_tf_get_module_names_commaseparated() {
 #   nothing
 # returns:
 #   echos a list of available project module directory paths
-_dsb_tf_get_module_dirs() { # TODO: make sure to use this, possibly when performing terraform operations
+_dsb_tf_get_module_dirs() {
   local -a moduleDirs=()
   if declare -p _dsbTfModulesDirList &>/dev/null; then
     local value
@@ -2597,6 +2626,268 @@ _dsb_tf_az_set_sub() {
 
 ###################################################################################################
 #
+# terraform operations functions
+#
+###################################################################################################
+
+# what:
+#   preflight checks for terraform operations functions
+#   checks if an environment is selected
+#   checks if terraform is installed
+#   checks if the selected environment is valid
+#   sets the subscription to the selected environment
+# input:
+#   $1: environment name
+# on info:
+#   nothing
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_terraform_preflight() {
+  local selectedEnv="${1}"
+
+  if [ -z "${selectedEnv}" ]; then
+    _dsb_e "No environment selected, please run 'tf-select-env' or 'tf-set-env <env>'"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  # terraform must be installed
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_terraform; then
+    _dsb_e "Terraform check failed, please run 'tf-check-tools'"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  # leverage _dsb_tf_set_env, this validates the environment and sets the subscription
+  _dsbTfLogInfo=1 _dsbTfLogErrors=0 _dsb_tf_set_env "${selectedEnv}"
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_e "Failed to set environment '${selectedEnv}'."
+    _dsb_e "  please run 'tf-check-env ${selectedEnv}'"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  # should be set when _dsbTfSelectedEnv is set
+  local envDir="${_dsbTfSelectedEnvDir:-}"
+  if [ -z "${envDir}" ]; then
+    _dsb_internal_error "Internal error: expected to find selected environment directory." \
+      "  expected in: _dsbTfSelectedEnvDir"
+    return 1
+  fi
+
+  # should be set when _dsb_tf_set_env was successful
+  local subId="${_dsbTfSubscriptionId:-}"
+  if [ -z "${subId}" ]; then
+    _dsb_internal_error "Internal error: expected to find subscription ID." \
+      "  expected in: _dsbTfSubscriptionId"
+    return 1
+  fi
+
+  return 0
+}
+
+# what:
+#   the function that runs terraform init in selected environment
+#   this function does not perform any pre flight checks
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   no return, terraform will potentially return non-zero exit code
+_dsb_tf_init_env_actual() {
+  local envDir="${_dsbTfSelectedEnvDir}"
+  local subId="${_dsbTfSubscriptionId}"
+
+  _dsb_d "envDir: ${envDir}"
+  _dsb_d "subId: ${subId}"
+
+  # required by azurerm terraform provider
+  export ARM_SUBSCRIPTION_ID="${subId}"
+
+  _dsb_d "exported ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
+
+  terraform -chdir="${envDir}" init -reconfigure
+}
+
+# what:
+#   runs terraform init in the the given environment directory
+#   if no environment directory name is given, attempts to use the selected environment
+# input:
+#   $1: environment name (optional)
+# on info:
+#   nothing
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_init_env() {
+  local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+    _dsbTfReturnCode=1
+    _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  fi
+
+  _dsb_i ""
+  _dsb_i "Initializing environment: $(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvDir}")"
+  if ! _dsb_tf_init_env_actual; then
+    _dsb_e "init in ./$(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvDir:-}") failed"
+    _dsbTfReturnCode=1
+  fi
+
+  return 0
+}
+
+# what:
+#   runs terraform init in the given directory
+#   uses lock file from the selected environment
+#   uses .terraform/providers from the selected environment from plugin cache
+#   NOTE: this means init in the selected environment must have been run before this
+#   ALSO NOTE: function does not perform any pre flight checks
+# input:
+#   $1: directory path
+# on info:
+#   nothing
+# returns:
+#   no explicit return
+_dsb_tf_init_dir() {
+  local dirPath="${1}"
+  local envDir="${_dsbTfSelectedEnvDir}"
+
+  _dsb_d "dirPath: ${dirPath}"
+  _dsb_d "envDir: ${envDir}"
+
+  _dsb_d "copying from ${envDir}/.terraform.lock.hcl"
+  _dsb_d "to ${dirPath}/.terraform.lock.hcl"
+  cp -f "${envDir}/.terraform.lock.hcl" "${dirPath}/.terraform.lock.hcl"
+
+  _dsb_d "removing ${dirPath}/.terraform"
+  rm -rf "${dirPath}/.terraform"
+
+  _dsb_d "init in ${dirPath}"
+  _dsb_d "with plugin-dir: ${envDir}/.terraform/providers"
+
+  TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true \
+    terraform -chdir="${dirPath}" init -input=false -plugin-dir="${envDir}/.terraform/providers" -backend=false -reconfigure
+
+  _dsb_d "removing ${dirPath}/.terraform.lock.hcl"
+  rm "${dirPath}/.terraform.lock.hcl"
+}
+
+# what:
+#   initializes all local sub modules in the current directory / terraform project
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_init_modules() {
+  local selectedEnv="${_dsbTfSelectedEnv:-}"
+
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+    _dsbTfReturnCode=1
+    _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  fi
+
+  # to able to init modules, we need to have the lock file and the providers directory
+  # environment lock file's existence was checked implicitly by _dsb_tf_terraform_preflight -> _dsb_tf_set_env further up
+  local envProvidersDir="${_dsbTfSelectedEnvDir:-}/.terraform/providers" # this exists when init has been run in the selected environment
+
+  if [ ! -d "${envProvidersDir}" ]; then
+    _dsb_e "Providers directory not found in selected environment."
+    _dsb_e "  expected to find: ${envProvidersDir}"
+    _dsb_e "  please run 'tf-init-env ${selectedEnv}' first"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  local -a moduleDirs
+  mapfile -t moduleDirs < <(_dsb_tf_get_module_dirs "${selectedEnv}")
+  local moduleDirsCount=${#moduleDirs[@]}
+
+  _dsb_d "moduleDirsCount: ${moduleDirsCount}"
+
+  if [ "${moduleDirsCount}" -eq 0 ]; then
+    _dsb_i "No modules found in: ${selectedEnv}"
+    _dsb_i "  nothing to init"
+    _dsbTfReturnCode=0
+    return 0
+  fi
+
+  local moduleDir
+  for moduleDir in "${moduleDirs[@]}"; do
+    _dsb_d "init module in: ${moduleDir}"
+    _dsb_i_append ""
+    _dsb_i "Initializing module in: $(_dsb_tf_get_rel_dir "${moduleDir}")"
+    if ! _dsb_tf_init_dir "${moduleDir}"; then
+      _dsb_e "Failed to init module in: ${moduleDir}"
+      _dsb_e "  init operation not complete, consider enabling debug mode"
+      _dsbTfReturnCode=1
+      return 0
+    fi
+  done
+
+  _dsbTfReturnCode=0
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+_dsb_tf_init_main() {
+  local selectedEnv="${_dsbTfSelectedEnv:-}"
+
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+    _dsbTfReturnCode=1
+    _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  fi
+
+  # to able to init naib, we need to have the lock file and the providers directory
+  # environment lock file's existence was checked implicitly by _dsb_tf_terraform_preflight -> _dsb_tf_set_env further up
+  local envProvidersDir="${_dsbTfSelectedEnvDir:-}/.terraform/providers" # this exists when init has been run in the selected environment
+
+  if [ ! -d "${envProvidersDir}" ]; then
+    _dsb_e "Providers directory not found in selected environment."
+    _dsb_e "  expected to find: ${envProvidersDir}"
+    _dsb_e "  please run 'tf-init-env ${selectedEnv}' first"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  _dsb_d "Main dir: ${_dsbTfMainDir}"
+
+  _dsb_i ""
+  _dsb_i "Initializing dir : $(_dsb_tf_get_rel_dir "${_dsbTfMainDir}")"
+  if ! _dsb_tf_init_dir "${_dsbTfMainDir}"; then
+    _dsb_e "Failed to init directory: ${moduleDir_dsbTfMainDir}"
+    _dsb_e "  init operation not complete, consider enabling debug mode"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  _dsbTfReturnCode=0
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+###################################################################################################
+#
 # Exposed functions
 #
 ###################################################################################################
@@ -2692,6 +2983,12 @@ tf-clear-env() {
   _dsb_tf_restore_shell
 }
 
+tf-unset-env() {
+  _dsb_tf_configure_shell
+  _dsb_tf_clear_env # has no return code
+  _dsb_tf_restore_shell
+}
+
 tf-check-env() {
   local envToCheck="${1:-}"
   _dsb_tf_configure_shell
@@ -2726,6 +3023,16 @@ az-login() {
   return "${returnCode}"
 }
 
+# TODO: theres a bug:
+# INFO   : Logged out from Azure CLI.
+# jq: parse error: Invalid numeric literal at line 1, column 6
+# jq: parse error: Invalid numeric literal at line 1, column 6
+# jq: parse error: Invalid numeric literal at line 1, column 6
+# jq: parse error: Invalid numeric literal at line 1, column 6
+# jq: parse error: Invalid numeric literal at line 1, column 6
+# jq: parse error: Invalid numeric literal at line 1, column 6
+# jq: parse error: Invalid numeric literal at line 1, column 6
+# jq: parse error: Invalid numeric literal at line 1, column 6
 az-relog() {
   _dsb_tf_configure_shell
   _dsb_tf_az_relogin
@@ -2737,6 +3044,33 @@ az-relog() {
 az-set-sub() {
   _dsb_tf_configure_shell
   _dsb_tf_az_set_sub
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# Terraform functions
+# -------------------
+tf-init-env() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_init_env "${envName}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-init-modules() {
+  _dsb_tf_configure_shell
+  _dsb_tf_init_modules
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-init-main() {
+  _dsb_tf_configure_shell
+  _dsb_tf_init_main
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
