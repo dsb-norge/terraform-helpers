@@ -70,6 +70,10 @@
 #   tf-status           -> checks + help + show az upn if logged in + show sub if selected
 #   tf-init-env         -> terraform init in chosen env
 #   tf-init-env [env]   -> terraform init in given env
+#   tf-init-modules   -> terraform init of submodules (requires env to be selected in advance)
+#   tf-init-main      -> terraform init of main (requires env to be selected in advance)
+#   tf-init           -> terraform init in chosen env + submodules + main
+#   tf-init [env]     -> terraform init in given env + submodules + main
 #
 #   other:
 #     tab completion
@@ -86,10 +90,6 @@
 # TODO: functionality
 #
 # tf operations
-#   tf-init-modules   -> terraform init of submodules (requires env to be selected in advance)
-#   tf-init-main      -> terraform init of main (requires env to be selected in advance)
-#   tf-init           -> terraform init in chosen env + submodules + main
-#   tf-init [env]     -> terraform init in given env + submodules + main
 #   tf-fmt            -> terraform fmt -check in chosen env
 #   tf-fmt-fix        -> terraform fmt in chosen env
 #   tf-validate       -> terraform validate in chosen env
@@ -100,9 +100,7 @@
 #   tf-apply [env]    -> terraform apply in given env
 #
 # TODO: tf-help functionality
-#   tf-init-env (new help group)
-#   tf-init-modules
-#   tf-init-main
+#
 #
 # directory operations
 #   tf-clean          -> rm .terraform everywhere /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
@@ -755,22 +753,31 @@ _dsb_tf_restore_shell() {
 
 _dsb_tf_help_get_commands_supported_by_help() {
   local -a commands=(
+    # azure
     "az-login"
     "az-logout"
     "az-relog"
     "az-set-sub"
     "az-whoami"
+    # checks
     "tf-check-dir"
     "tf-check-env"
     "tf-check-gh-auth"
     "tf-check-prereqs"
     "tf-check-tools"
+    # environments
     "tf-clear-env"
     "tf-unset-env"
     "tf-list-envs"
     "tf-select-env"
     "tf-set-env"
+    # general
     "tf-status"
+    # terraform
+    "tf-init"
+    "tf-init-env"
+    "tf-init-main"
+    "tf-init-modules"
   )
   echo "${commands[@]}"
 }
@@ -785,6 +792,7 @@ _dsb_tf_help_enumerate_supported_topics() {
     "checks"
     "azure"
     "general"
+    "terraform"
   )
   local -a validCommands
   mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
@@ -818,6 +826,9 @@ _dsb_tf_help() {
   azure)
     _dsb_tf_help_group_azure
     ;;
+  terraform)
+    _dsb_tf_help_group_terraform
+    ;;
   *)
     local -a validCommands
     mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
@@ -847,10 +858,8 @@ _dsb_tf_help_help() {
   _dsb_i "Common Commands:"
   _dsb_i "  tf-status               -> Show status of tools, authentication, and environment"
   _dsb_i "  az-relog                -> Azure relogin"
-  _dsb_i "  az-whoami               -> Show Azure account information"
-  _dsb_i "  tf-check-prereqs        -> Run all prerequisite checks"
   _dsb_i "  tf-set-env [env]        -> Set environment"
-  _dsb_i "  tf-check-env [env]      -> Check if environment is valid"
+  _dsb_i "  tf-init [env]           -> Initialize Terraform project with selected or given environment"
   _dsb_i ""
   _dsb_i "Note: "
   _dsb_i "  tf-help supports tab completion for available arguments,"
@@ -860,6 +869,7 @@ _dsb_tf_help_help() {
 _dsb_tf_help_groups() {
   _dsb_i "Help Groups:"
   _dsb_i "  environments            -> Environment related commands"
+  _dsb_i "  terraform               -> Terraform related commands"
   _dsb_i "  checks                  -> Check related commands"
   _dsb_i "  general                 -> General help"
   _dsb_i "  azure                   -> Azure related commands"
@@ -900,12 +910,22 @@ _dsb_tf_help_group_azure() {
   _dsb_i "    az-set-sub            -> Set Azure subscription from current env hint file"
 }
 
+_dsb_tf_help_group_terraform() {
+  _dsb_i "  Terraform Commands:"
+  _dsb_i "    tf-init [env]         -> Initialize Terraform project with selected or given environment"
+  _dsb_i "    tf-init-env [env]     -> Initialize Terraform environment"
+  _dsb_i "    tf-init-main          -> Initialize Terraform project's main module"
+  _dsb_i "    tf-init-modules       -> Initialize Terraform project's local sub modules"
+}
+
 _dsb_tf_help_commands() {
   _dsb_tf_help_help
   _dsb_i ""
   _dsb_i "Groups:"
   _dsb_i ""
   _dsb_tf_help_group_environments
+  _dsb_i ""
+  _dsb_tf_help_group_terraform
   _dsb_i ""
   _dsb_tf_help_group_checks
   _dsb_i ""
@@ -956,6 +976,7 @@ _dsb_tf_help_specific_command() {
   tf-check-env)
     _dsb_i "tf-check-env [env]:"
     _dsb_i "  Check if the specified environment is valid."
+    _dsb_i "  If environment is not specified, the selected environment is checked."
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
@@ -1024,6 +1045,62 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: az-login, az-whoami."
     ;;
+  # terraform
+  tf-init)
+    _dsb_i "tf-init [env]:"
+    _dsb_i "  Initialize Terraform project with the specified environment."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  This initializes the project completely, environment directory sub modules and main."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-plan, tf-apply."
+    ;;
+  tf-init-env)
+    _dsb_i "tf-init-env [env]:"
+    _dsb_i "  Initialize the specified Terraform environment."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Note:"
+    _dsb_i "    This initializes just the environment directory, not sub modules and main."
+    _dsb_i "    Use 'tf-init' for a complete initialization of the project."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-init."
+    ;;
+  tf-init-main)
+    _dsb_i "tf-init-main:"
+    _dsb_i "  Initialize Terraform project's main module."
+    _dsb_i ""
+    _dsb_i "  Note:"
+    _dsb_i "    Since the environment directory is used as plugin cache during the operation,"
+    _dsb_i "    it is required that an environment has been select and initialized first."
+    _dsb_i "    For example by running 'tf-init-env'."
+    _dsb_i ""
+    _dsb_i "  Also note:"
+    _dsb_i "    This initializes just the main directory, not sub modules."
+    _dsb_i "    Use 'tf-init' for a complete initialization of the project."
+    _dsb_i ""
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init-env, tf-init."
+    ;;
+  tf-init-modules)
+    _dsb_i "tf-init-modules:"
+    _dsb_i "  Initialize Terraform project's local sub modules."
+    _dsb_i ""
+    _dsb_i "  Note:"
+    _dsb_i "    Since the environment directory is used as plugin cache during the operation,"
+    _dsb_i "    it is required that an environment has been select and initialized first."
+    _dsb_i "    For example by running 'tf-init-env'."
+    _dsb_i ""
+    _dsb_i "  Also note:"
+    _dsb_i "    This initializes just the su module directories, not the main directory."
+    _dsb_i "    Use 'tf-init' for a complete initialization of the project."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init-env, tf-init"
+    ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
     ;;
@@ -1060,6 +1137,7 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_avalable_envs tf-check-env
   complete -F _dsb_tf_completions_for_avalable_envs tf-select-env
   complete -F _dsb_tf_completions_for_avalable_envs tf-init-env
+  complete -F _dsb_tf_completions_for_avalable_envs tf-init
 }
 
 # for tf-help
@@ -2788,17 +2866,22 @@ _dsb_tf_init_dir() {
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_init_modules() {
+  local skipPreflight="${1:-0}"
   local selectedEnv="${_dsbTfSelectedEnv:-}"
 
-  if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
-    _dsbTfReturnCode=1
-    _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
-    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
-    return 0
-  elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
-    _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
-    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
-    return 0
+  _dsb_d "skipPreflight: ${skipPreflight}"
+
+  if [ "${skipPreflight}" -ne 1 ]; then
+    if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+      _dsbTfReturnCode=1
+      _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      return 0
+    elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+      _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      return 0
+    fi
   fi
 
   # to able to init modules, we need to have the lock file and the providers directory
@@ -2829,7 +2912,7 @@ _dsb_tf_init_modules() {
   local moduleDir
   for moduleDir in "${moduleDirs[@]}"; do
     _dsb_d "init module in: ${moduleDir}"
-    _dsb_i_append ""
+    _dsb_i_append "" # newline without any prefix
     _dsb_i "Initializing module in: $(_dsb_tf_get_rel_dir "${moduleDir}")"
     if ! _dsb_tf_init_dir "${moduleDir}"; then
       _dsb_e "Failed to init module in: ${moduleDir}"
@@ -2845,17 +2928,22 @@ _dsb_tf_init_modules() {
 }
 
 _dsb_tf_init_main() {
+  local skipPreflight="${1:-0}"
   local selectedEnv="${_dsbTfSelectedEnv:-}"
 
-  if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
-    _dsbTfReturnCode=1
-    _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
-    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
-    return 0
-  elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
-    _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
-    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
-    return 0
+  _dsb_d "skipPreflight: ${skipPreflight}"
+
+  if [ "${skipPreflight}" -ne 1 ]; then
+    if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+      _dsbTfReturnCode=1
+      _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      return 0
+    elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+      _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      return 0
+    fi
   fi
 
   # to able to init naib, we need to have the lock file and the providers directory
@@ -2872,7 +2960,7 @@ _dsb_tf_init_main() {
 
   _dsb_d "Main dir: ${_dsbTfMainDir}"
 
-  _dsb_i ""
+  _dsb_i_append "" # newline without any prefix
   _dsb_i "Initializing dir : $(_dsb_tf_get_rel_dir "${_dsbTfMainDir}")"
   if ! _dsb_tf_init_dir "${_dsbTfMainDir}"; then
     _dsb_e "Failed to init directory: ${moduleDir_dsbTfMainDir}"
@@ -2882,6 +2970,30 @@ _dsb_tf_init_main() {
   fi
 
   _dsbTfReturnCode=0
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+_dsb_tf_init() {
+  local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+
+  _dsb_tf_init_env "${selectedEnv}"
+  local initEnvStatus=${_dsbTfReturnCode}
+  if [ "${initEnvStatus}" -ne 0 ]; then
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsb_tf_init_modules 1 # $1 = 1 means skip preflight checks
+  local initModulesStatus=${_dsbTfReturnCode}
+  if [ "${initModulesStatus}" -ne 0 ]; then
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsb_tf_init_main 1 # $1 = 1 means skip preflight checks
+  local initMainStatus=${_dsbTfReturnCode}
+
+  _dsbTfReturnCode=$((initEnvStatus + initModulesStatus + initMainStatus))
+
   _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0
 }
@@ -3071,6 +3183,15 @@ tf-init-modules() {
 tf-init-main() {
   _dsb_tf_configure_shell
   _dsb_tf_init_main
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-init() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_init "${envName}"
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
