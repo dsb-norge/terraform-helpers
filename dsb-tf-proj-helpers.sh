@@ -786,6 +786,9 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-upgrade-env"
     "tf-fmt"
     "tf-fmt-fix"
+    "tf-validate"
+    "tf-plan"
+    "tf-apply"
   )
   echo "${commands[@]}"
 }
@@ -870,6 +873,9 @@ _dsb_tf_help_help() {
   _dsb_i "  tf-init [env]           -> Initialize Terraform project with selected or given environment"
   _dsb_i "  tf-upgrade [env]        -> Upgrade Terraform dependencies with selected or given environment"
   _dsb_i "  tf-fmt-fix              -> Run syntax check and fix recursively from current directory"
+  _dsb_i "  tf-validate [env]       -> Make Terraform validate the project with selected or given environment"
+  _dsb_i "  tf-plan [env]           -> Make Terraform create a plan for the selected or given environment"
+  _dsb_i "  tf-apply [env]          -> Make Terraform apply changes forthe selected or given environment"
   _dsb_i ""
   _dsb_i "Note: "
   _dsb_i "  tf-help supports tab completion for available arguments,"
@@ -930,6 +936,9 @@ _dsb_tf_help_group_terraform() {
   _dsb_i "    tf-upgrade-env [env]  -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
   _dsb_i "    tf-fmt                -> Run syntax check recursively from current directory"
   _dsb_i "    tf-fmt-fix            -> Run syntax check and fix recursively from current directory"
+  _dsb_i "    tf-validate [env]     -> Make Terraform validate the project with selected or given environment"
+  _dsb_i "    tf-plan [env]         -> Make Terraform create a plan for the selected or given environment"
+  _dsb_i "    tf-apply [env]        -> Make Terraform apply changes forthe selected or given environment"
 }
 
 _dsb_tf_help_commands() {
@@ -1157,6 +1166,33 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-fmt."
     ;;
+  tf-validate)
+    _dsb_i "tf-validate [env]:"
+    _dsb_i "  Make Terraform validate the project with the specified environment."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init, tf-plan, tf-apply."
+    ;;
+  tf-plan)
+    _dsb_i "tf-plan [env]:"
+    _dsb_i "  Make Terraform create a plan for the specified environment."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init, tf-validate, tf-apply."
+    ;;
+  tf-apply)
+    _dsb_i "tf-apply [env]:"
+    _dsb_i "  Make Terraform apply changes for the specified environment."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init, tf-validate, tf-plan."
+    ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
     ;;
@@ -1196,6 +1232,9 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_avalable_envs tf-init
   complete -F _dsb_tf_completions_for_avalable_envs tf-upgrade-env
   complete -F _dsb_tf_completions_for_avalable_envs tf-upgrade
+  complete -F _dsb_tf_completions_for_avalable_envs tf-validate
+  complete -F _dsb_tf_completions_for_avalable_envs tf-plan
+  complete -F _dsb_tf_completions_for_avalable_envs tf-apply
 }
 
 # for tf-help
@@ -2814,9 +2853,15 @@ _dsb_tf_terraform_preflight() {
   # should be set when _dsb_tf_set_env was successful
   local subId="${_dsbTfSubscriptionId:-}"
   if [ -z "${subId}" ]; then
+    _dsb_d "unset ARM_SUBSCRIPTION_ID"
+    unset ARM_SUBSCRIPTION_ID
     _dsb_internal_error "Internal error: expected to find subscription ID." \
       "  expected in: _dsbTfSubscriptionId"
     return 1
+  else
+    # required by azurerm terraform provider
+    export ARM_SUBSCRIPTION_ID="${subId}"
+    _dsb_d "exported ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
   fi
 
   return 0
@@ -2846,11 +2891,7 @@ _dsb_tf_init_env_actual() {
   _dsb_d "doUpgrade: ${doUpgrade}"
   _dsb_d "envDir: ${envDir}"
   _dsb_d "subId: ${subId}"
-
-  # required by azurerm terraform provider
-  export ARM_SUBSCRIPTION_ID="${subId}"
-
-  _dsb_d "exported ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
+  _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
 
   terraform -chdir="${envDir}" init -reconfigure ${extraInitArgs}
 }
@@ -3089,7 +3130,16 @@ _dsb_tf_init() {
   return 0
 }
 
-# TODO: describe the function
+# what:
+#   runs terraform format in the given directory
+#   if $1 is set to 1 (performFix), it will run terraform fmt -recursive
+#   otherwise, it will run terraform fmt -recursive -check (ie. check only)
+# input:
+#   $1: performFix (optional)
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
 _dsb_tf_fmt() {
   local performFix="${1:-0}"
   local extraFmtArgs="-check"
@@ -3131,6 +3181,126 @@ _dsb_tf_fmt() {
     else
       _dsb_e "Terraform fmt check failed, please review the output above."
     fi
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+# what:
+#   runs terraform validate in the given environment directory
+#   if environment is not supplied, uses the selected environment
+# input:
+#   $1: environment name (optional)
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_validate_env() {
+  local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+    _dsbTfReturnCode=1
+    _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  fi
+
+  local envDir="${_dsbTfSelectedEnvDir}"
+  _dsb_i ""
+  _dsb_i "Validating environment: $(_dsb_tf_get_rel_dir "${envDir}")"
+
+  _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
+
+  if ! terraform -chdir="${envDir}" validate; then
+    _dsb_e "terraform validate in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
+    _dsbTfReturnCode=1
+  else
+    _dsbTfReturnCode=0
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+# what:
+#   runs terraform plan in the given environment directory
+#   if environment is not supplied, uses the selected environment
+# input:
+#   $1: environment name (optional)
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_plan_env() {
+  local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+    _dsbTfReturnCode=1
+    _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  fi
+
+  local envDir="${_dsbTfSelectedEnvDir}"
+  _dsb_i ""
+  _dsb_i "Creating plan for environment: $(_dsb_tf_get_rel_dir "${envDir}")"
+
+  _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
+
+  if ! terraform -chdir="${envDir}" plan; then
+    _dsb_e "terraform plan in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
+    _dsbTfReturnCode=1
+  else
+    _dsbTfReturnCode=0
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+# what:
+#   runs terraform apply in the given environment directory
+#   if environment is not supplied, uses the selected environment
+# input:
+#   $1: environment name (optional)
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_apply_env() {
+  local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+    _dsbTfReturnCode=1
+    _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  fi
+
+  local envDir="${_dsbTfSelectedEnvDir}"
+  _dsb_i ""
+  _dsb_i "Running apply in environment: $(_dsb_tf_get_rel_dir "${envDir}")"
+
+  _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
+
+  if ! terraform -chdir="${envDir}" apply; then
+    _dsb_e "terraform apply in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
+    _dsbTfReturnCode=1
+  else
+    _dsbTfReturnCode=0
   fi
 
   _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
@@ -3370,6 +3540,33 @@ tf-fmt-fix() {
   return "${returnCode}"
 }
 
+tf-validate() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_validate_env "${envName}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-plan() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_plan_env "${envName}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-apply() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_apply_env "${envName}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
 # Help functions
 # --------------
 tf-help() {
@@ -3385,6 +3582,8 @@ tf-help() {
 #
 ###################################################################################################
 
+# TODO: consider this everywhere
+printf "\033[2J\033[H" # Scroll the shell output to hide previous output without clearing the buffer
 _dsb_tf_enumerate_directories || :
 _dsb_tf_register_all_completions || :
 _dsb_i "DSB Terraform Project Helpers 🚀"
