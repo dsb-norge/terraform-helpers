@@ -784,6 +784,8 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-init-modules"
     "tf-upgrade"
     "tf-upgrade-env"
+    "tf-fmt"
+    "tf-fmt-fix"
   )
   echo "${commands[@]}"
 }
@@ -867,6 +869,7 @@ _dsb_tf_help_help() {
   _dsb_i "  tf-set-env [env]        -> Set environment"
   _dsb_i "  tf-init [env]           -> Initialize Terraform project with selected or given environment"
   _dsb_i "  tf-upgrade [env]        -> Upgrade Terraform dependencies with selected or given environment"
+  _dsb_i "  tf-fmt-fix              -> Run syntax check and fix recursively from current directory"
   _dsb_i ""
   _dsb_i "Note: "
   _dsb_i "  tf-help supports tab completion for available arguments,"
@@ -925,6 +928,8 @@ _dsb_tf_help_group_terraform() {
   _dsb_i "    tf-init-modules       -> Initialize Terraform project's local sub modules"
   _dsb_i "    tf-upgrade [env]      -> Upgrade Terraform dependencies for entire project with selected or given environment"
   _dsb_i "    tf-upgrade-env [env]  -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
+  _dsb_i "    tf-fmt                -> Run syntax check recursively from current directory"
+  _dsb_i "    tf-fmt-fix            -> Run syntax check and fix recursively from current directory"
 }
 
 _dsb_tf_help_commands() {
@@ -1133,6 +1138,24 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
     _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade."
+    ;;
+  tf-fmt)
+    _dsb_i "tf-fmt:"
+    _dsb_i "  Run Terraform syntax check recursively from current directory."
+    _dsb_i ""
+    _dsb_i "  This command only checks the syntax of the files."
+    _dsb_i "  Use 'tf-fmt-fix' to fix syntax issues."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-fmt-fix."
+    ;;
+  tf-fmt-fix)
+    _dsb_i "tf-fmt-fix:"
+    _dsb_i "  Run Terraform syntax check and fix recursively from current directory."
+    _dsb_i ""
+    _dsb_i "  This command checks and fixes syntax issues in the files."
+    _dsb_i "  Use 'tf-fmt' to only check the syntax."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-fmt."
     ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
@@ -3331,7 +3354,6 @@ tf-upgrade() {
   return "${returnCode}"
 }
 
-# TODO: implement help
 tf-fmt() {
   _dsb_tf_configure_shell
   _dsb_tf_fmt 0 # $1 = 0 means perform check
@@ -3340,7 +3362,6 @@ tf-fmt() {
   return "${returnCode}"
 }
 
-# TODO: implement help
 tf-fmt-fix() {
   _dsb_tf_configure_shell
   _dsb_tf_fmt 1 # $1 = 1 means perform fix
