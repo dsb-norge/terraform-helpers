@@ -78,6 +78,8 @@
 #   tf-upgrade-env [env]  -> terraform init -upgrade in given env
 #   tf-upgrade            -> terraform init -upgrade in chosen env + submodules + main
 #   tf-upgrade [env]      -> terraform init -upgrade in given env + submodules + main
+#   tf-fmt                -> terraform fmt -check in root
+#   tf-fmt-fix            -> terraform fmt in root
 #
 #   other:
 #     tab completion
@@ -94,8 +96,6 @@
 # TODO: functionality
 #
 # tf operations
-#   tf-fmt            -> terraform fmt -check in chosen env
-#   tf-fmt-fix        -> terraform fmt in chosen env
 #   tf-validate       -> terraform validate in chosen env
 #   tf-validate [env] -> terraform validate in given env
 #   tf-plan           -> terraform plan in chosen env
@@ -3066,6 +3066,54 @@ _dsb_tf_init() {
   return 0
 }
 
+# TODO: describe the function
+_dsb_tf_fmt() {
+  local performFix="${1:-0}"
+  local extraFmtArgs="-check"
+
+  _dsb_d "performFix: ${performFix}"
+
+  if [ "${performFix}" -eq 1 ]; then
+    extraFmtArgs="" # not passing -check means terraform will fix the files
+  fi
+
+  _dsb_d "extraFmtArgs: ${extraFmtArgs}"
+
+  # terraform must be installed
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_terraform; then
+    _dsb_e "Terraform check failed, please run 'tf-check-tools'"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  # enumerate directories with current directory as root and
+  # check if the current root directory is a valid Terraform project
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  local dirCheckStatus=${_dsbTfReturnCode}
+  if [ "${dirCheckStatus}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsb_i "Running terraform fmt recursively"
+  _dsb_i "  directory ${_dsbTfRootDir}"
+
+  if terraform fmt -recursive ${extraFmtArgs} "${_dsbTfRootDir}"; then
+    _dsbTfReturnCode=0
+    _dsb_i "Done."
+  else
+    _dsbTfReturnCode=1
+    if [ "${performFix}" -eq 1 ]; then
+      _dsb_e "Terraform fmt operation failed."
+    else
+      _dsb_e "Terraform fmt check failed, please review the output above."
+    fi
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
 ###################################################################################################
 #
 # Exposed functions
@@ -3278,6 +3326,24 @@ tf-upgrade() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
   _dsb_tf_init 1 "${envName}" # $1 = 1 means do -upgrade
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# TODO: implement help
+tf-fmt() {
+  _dsb_tf_configure_shell
+  _dsb_tf_fmt 0 # $1 = 0 means perform check
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# TODO: implement help
+tf-fmt-fix() {
+  _dsb_tf_configure_shell
+  _dsb_tf_fmt 1 # $1 = 1 means perform fix
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
