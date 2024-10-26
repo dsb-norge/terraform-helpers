@@ -50,30 +50,34 @@
 #   source <(gh api -H "Accept: application/vnd.github.v3.raw" /repos/dsb-norge/terraform-helpers/contents/dsb-tf-proj-helpers.sh?ref=key-bonobo) ;
 #
 # Implemented functionality
-#   tf-check-tools      -> az cli, gh cli, terraform, jq, yq, golang, hcledit, terraform-docs, realpath
-#   tf-check-gh-auth    -> need to be logged in to gh
-#   tf-check-dir        -> check if in valid tf project structure
-#   tf-check-prereqs    -> all checks
-#   tf-list-envs        -> list existing envs (exclude _*)
-#   tf-set-env [env]    -> set env/sub
-#   tf-clear-env        -> unset env/sub
-#   tf-unset-env        -> unset env/sub
-#   tf-select-env       -> list + select env/sub + set env/sub
-#   tf-select-env [env] -> set env/sub ie. same as tf-set-env
-#   tf-check-env        -> check if selected env is valid
-#   tf-check-env [env]  -> check if supplied env is valid
-#   az-logout           -> az logout
-#   az-login            -> az login --use-device-code
-#   az-relog            -> same as az-login
-#   az-whoami           -> az account show
-#   az-set-sub          -> az account set --subscription
-#   tf-status           -> checks + help + show az upn if logged in + show sub if selected
-#   tf-init-env         -> terraform init in chosen env
-#   tf-init-env [env]   -> terraform init in given env
-#   tf-init-modules   -> terraform init of submodules (requires env to be selected in advance)
-#   tf-init-main      -> terraform init of main (requires env to be selected in advance)
-#   tf-init           -> terraform init in chosen env + submodules + main
-#   tf-init [env]     -> terraform init in given env + submodules + main
+#   tf-check-tools        -> az cli, gh cli, terraform, jq, yq, golang, hcledit, terraform-docs, realpath
+#   tf-check-gh-auth      -> need to be logged in to gh
+#   tf-check-dir          -> check if in valid tf project structure
+#   tf-check-prereqs      -> all checks
+#   tf-list-envs          -> list existing envs (exclude _*)
+#   tf-set-env [env]      -> set env/sub
+#   tf-clear-env          -> unset env/sub
+#   tf-unset-env          -> unset env/sub
+#   tf-select-env         -> list + select env/sub + set env/sub
+#   tf-select-env [env]   -> set env/sub ie. same as tf-set-env
+#   tf-check-env          -> check if selected env is valid
+#   tf-check-env [env]    -> check if supplied env is valid
+#   az-logout             -> az logout
+#   az-login              -> az login --use-device-code
+#   az-relog              -> same as az-login
+#   az-whoami             -> az account show
+#   az-set-sub            -> az account set --subscription
+#   tf-status             -> checks + help + show az upn if logged in + show sub if selected
+#   tf-init-env           -> terraform init in chosen env
+#   tf-init-env [env]     -> terraform init in given env
+#   tf-init-modules       -> terraform init of submodules (requires env to be selected in advance)
+#   tf-init-main          -> terraform init of main (requires env to be selected in advance)
+#   tf-init               -> terraform init in chosen env + submodules + main
+#   tf-init [env]         -> terraform init in given env + submodules + main
+#   tf-upgrade-env        -> terraform init -upgrade in chosen env
+#   tf-upgrade-env [env]  -> terraform init -upgrade in given env
+#   tf-upgrade            -> terraform init -upgrade in chosen env + submodules + main
+#   tf-upgrade [env]      -> terraform init -upgrade in given env + submodules + main
 #
 #   other:
 #     tab completion
@@ -124,7 +128,7 @@
 #       - show possible upgrades
 #     note: there is also a list command: fupdate release list --source-type tfregistryModule --max-length 3 "Azure/naming/azurerm"
 #  proposed commands:
-#   tf-bump-providers       -> upgrade within given constraints: terraform init -upgrade in chosen env
+#   tf-bump-providers       -> find latest version of providers and modify versions.tf (tf-upgrade after?)
 #   tf-bump-tflint-plugins  -> tflint-plugins in chosen env
 #   tf-bump                 -> providers og tflint-plugins in chosen env
 #   tf-bump-gh              -> terraform and tflint in GitHub workflows
@@ -778,6 +782,8 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-init-env"
     "tf-init-main"
     "tf-init-modules"
+    "tf-upgrade"
+    "tf-upgrade-env"
   )
   echo "${commands[@]}"
 }
@@ -860,6 +866,7 @@ _dsb_tf_help_help() {
   _dsb_i "  az-relog                -> Azure relogin"
   _dsb_i "  tf-set-env [env]        -> Set environment"
   _dsb_i "  tf-init [env]           -> Initialize Terraform project with selected or given environment"
+  _dsb_i "  tf-upgrade [env]        -> Upgrade Terraform dependencies with selected or given environment"
   _dsb_i ""
   _dsb_i "Note: "
   _dsb_i "  tf-help supports tab completion for available arguments,"
@@ -912,10 +919,12 @@ _dsb_tf_help_group_azure() {
 
 _dsb_tf_help_group_terraform() {
   _dsb_i "  Terraform Commands:"
-  _dsb_i "    tf-init [env]         -> Initialize Terraform project with selected or given environment"
-  _dsb_i "    tf-init-env [env]     -> Initialize Terraform environment"
+  _dsb_i "    tf-init [env]         -> Initialize entire Terraform project with selected or given environment"
+  _dsb_i "    tf-init-env [env]     -> Initialize selected or given environment (environment directory only)"
   _dsb_i "    tf-init-main          -> Initialize Terraform project's main module"
   _dsb_i "    tf-init-modules       -> Initialize Terraform project's local sub modules"
+  _dsb_i "    tf-upgrade [env]      -> Upgrade Terraform dependencies for entire project with selected or given environment"
+  _dsb_i "    tf-upgrade-env [env]  -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
 }
 
 _dsb_tf_help_commands() {
@@ -1048,14 +1057,14 @@ _dsb_tf_help_specific_command() {
   # terraform
   tf-init)
     _dsb_i "tf-init [env]:"
-    _dsb_i "  Initialize Terraform project with the specified environment."
+    _dsb_i "  Initialize the entire Terraform project with the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
     _dsb_i "  This initializes the project completely, environment directory sub modules and main."
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-plan, tf-apply."
+    _dsb_i "  Related commands: tf-upgrade, tf-plan, tf-apply."
     ;;
   tf-init-env)
     _dsb_i "tf-init-env [env]:"
@@ -1101,6 +1110,30 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-init-env, tf-init"
     ;;
+  tf-upgrade)
+    _dsb_i "tf-upgrade [env]:"
+    _dsb_i "  Upgrade Terraform dependencies and initialize the entire project."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  This upgrades and initializes the project completely, environment directory sub modules and main."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init, tf-plan, tf-apply."
+    ;;
+  tf-upgrade-env)
+    _dsb_i "tf-upgrade-env [env]:"
+    _dsb_i "  Upgrade Terraform dependencies and initialize the specified environment."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Note:"
+    _dsb_i "    This upgrades and initializes just the environment directory, not sub modules and main."
+    _dsb_i "    Use 'tf-upgrade' for a complete depenedency upgrade and initialization of the entire project."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade."
+    ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
     ;;
@@ -1138,6 +1171,8 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_avalable_envs tf-select-env
   complete -F _dsb_tf_completions_for_avalable_envs tf-init-env
   complete -F _dsb_tf_completions_for_avalable_envs tf-init
+  complete -F _dsb_tf_completions_for_avalable_envs tf-upgrade-env
+  complete -F _dsb_tf_completions_for_avalable_envs tf-upgrade
 }
 
 # for tf-help
@@ -2767,16 +2802,25 @@ _dsb_tf_terraform_preflight() {
 # what:
 #   the function that runs terraform init in selected environment
 #   this function does not perform any pre flight checks
+#   if $1 is set to 1 (do upgrade), it will run terraform init -upgrade
 # input:
-#   none
+#   $1: do upgrade (optional)
 # on info:
 #   nothing
 # returns:
 #   no return, terraform will potentially return non-zero exit code
 _dsb_tf_init_env_actual() {
+  local doUpgrade="${1:-0}"
+
   local envDir="${_dsbTfSelectedEnvDir}"
   local subId="${_dsbTfSubscriptionId}"
+  local extraInitArgs=""
 
+  if [ "${doUpgrade}" -eq 1 ]; then
+    extraInitArgs="-upgrade"
+  fi
+
+  _dsb_d "doUpgrade: ${doUpgrade}"
   _dsb_d "envDir: ${envDir}"
   _dsb_d "subId: ${subId}"
 
@@ -2785,20 +2829,22 @@ _dsb_tf_init_env_actual() {
 
   _dsb_d "exported ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
 
-  terraform -chdir="${envDir}" init -reconfigure
+  terraform -chdir="${envDir}" init -reconfigure ${extraInitArgs}
 }
 
 # what:
 #   runs terraform init in the the given environment directory
-#   if no environment directory name is given, attempts to use the selected environment
+#   if $2 is set to 1 (do upgrade), it will run terraform init -upgrade
 # input:
-#   $1: environment name (optional)
+#   $1: do upgrade
+#   $2: environment directory (optional, defaults to selected environment directory)
 # on info:
 #   nothing
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_init_env() {
-  local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+  local doUpgrade="${1}"
+  local selectedEnv="${2:-${_dsbTfSelectedEnv:-}}"
 
   if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
     _dsbTfReturnCode=1
@@ -2813,7 +2859,7 @@ _dsb_tf_init_env() {
 
   _dsb_i ""
   _dsb_i "Initializing environment: $(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvDir}")"
-  if ! _dsb_tf_init_env_actual; then
+  if ! _dsb_tf_init_env_actual "${doUpgrade}"; then
     _dsb_e "init in ./$(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvDir:-}") failed"
     _dsbTfReturnCode=1
   fi
@@ -2825,8 +2871,10 @@ _dsb_tf_init_env() {
 #   runs terraform init in the given directory
 #   uses lock file from the selected environment
 #   uses .terraform/providers from the selected environment from plugin cache
-#   NOTE: this means init in the selected environment must have been run before this
-#   ALSO NOTE: function does not perform any pre flight checks
+#   NOTE:
+#     this means init in the selected environment must have been run before this
+#   ALSO NOTE:
+#     function does not perform any pre flight checks
 # input:
 #   $1: directory path
 # on info:
@@ -2860,9 +2908,9 @@ _dsb_tf_init_dir() {
 # what:
 #   initializes all local sub modules in the current directory / terraform project
 # input:
-#   none
+#   $1: skip preflight checks (optional)
 # on info:
-#   nothing
+#   status messages are printed
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_init_modules() {
@@ -2927,6 +2975,14 @@ _dsb_tf_init_modules() {
   return 0
 }
 
+# what:
+#   initializes the main directory of the terraform project
+# input:
+#   $1: skip preflight checks (optional)
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
 _dsb_tf_init_main() {
   local skipPreflight="${1:-0}"
   local selectedEnv="${_dsbTfSelectedEnv:-}"
@@ -2974,10 +3030,22 @@ _dsb_tf_init_main() {
   return 0
 }
 
+# what:
+#   initializes the terraform project
+#   performs preflight checks
+#   initializes the environment, modules and main directory
+# input:
+#   $1: do upgrade
+#   $2: environment directory (optional, defaults to selected environment directory)
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
 _dsb_tf_init() {
-  local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+  local doUpgrade="${1}"
+  local selectedEnv="${2:-${_dsbTfSelectedEnv:-}}"
 
-  _dsb_tf_init_env "${selectedEnv}"
+  _dsb_tf_init_env "${doUpgrade}" "${selectedEnv}"
   local initEnvStatus=${_dsbTfReturnCode}
   if [ "${initEnvStatus}" -ne 0 ]; then
     return 0 # caller reads _dsbTfReturnCode
@@ -3166,7 +3234,16 @@ az-set-sub() {
 tf-init-env() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_init_env "${envName}"
+  _dsb_tf_init_env 0 "${envName}" # $1 = 0 means do not -upgrade
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-upgrade-env() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_init_env 1 "${envName}" # $1 = 1 means do -upgrade
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
@@ -3191,7 +3268,16 @@ tf-init-main() {
 tf-init() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_init "${envName}"
+  _dsb_tf_init 0 "${envName}" # $1 = 0 means do not -upgrade
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-upgrade() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_init 1 "${envName}" # $1 = 1 means do -upgrade
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
