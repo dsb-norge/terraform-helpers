@@ -789,6 +789,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-validate"
     "tf-plan"
     "tf-apply"
+    "tf-destroy"
   )
   echo "${commands[@]}"
 }
@@ -939,6 +940,7 @@ _dsb_tf_help_group_terraform() {
   _dsb_i "    tf-validate [env]     -> Make Terraform validate the project with selected or given environment"
   _dsb_i "    tf-plan [env]         -> Make Terraform create a plan for the selected or given environment"
   _dsb_i "    tf-apply [env]        -> Make Terraform apply changes forthe selected or given environment"
+  _dsb_i "    tf-destroy [env]      -> Show command to manually destroy the selected or given environment"
 }
 
 _dsb_tf_help_commands() {
@@ -1193,6 +1195,15 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-init, tf-validate, tf-plan."
     ;;
+  tf-destroy)
+    _dsb_i "tf-destroy [env]:"
+    _dsb_i "  Show command to manually destroy the specified environment."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init, tf-validate, tf-plan, tf-apply."
+    ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
     ;;
@@ -1235,6 +1246,7 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_avalable_envs tf-validate
   complete -F _dsb_tf_completions_for_avalable_envs tf-plan
   complete -F _dsb_tf_completions_for_avalable_envs tf-apply
+  complete -F _dsb_tf_completions_for_avalable_envs tf-destroy
 }
 
 # for tf-help
@@ -3307,6 +3319,39 @@ _dsb_tf_apply_env() {
   return 0
 }
 
+# what:
+#   echos the command to manually run terraform destroy in the given environment directory
+#   if environment is not supplied, uses the selected environment
+# input:
+#   $1: environment name (optional)
+# on info:
+#   the information is printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_destroy_env() {
+  local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+    _dsbTfReturnCode=1
+    _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    return 0
+  fi
+
+  _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
+
+  local envDir="${_dsbTfSelectedEnvDir}"
+  _dsb_i ""
+  _dsb_i "To run terraform destroy for environment: $(_dsb_tf_get_rel_dir "${envDir}"), run the following command manually:"
+  _dsb_i "  terraform -chdir='${envDir}' destroy"
+
+  return 0 # caller reads _dsbTfReturnCode
+}
+
 ###################################################################################################
 #
 # Exposed functions
@@ -3562,6 +3607,15 @@ tf-apply() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
   _dsb_tf_apply_env "${envName}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-destroy() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_destroy_env "${envName}"
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
