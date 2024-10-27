@@ -80,6 +80,14 @@
 #   tf-upgrade [env]      -> terraform init -upgrade in given env + submodules + main
 #   tf-fmt                -> terraform fmt -check in root
 #   tf-fmt-fix            -> terraform fmt in root
+#   tf-validate           -> terraform validate in chosen env
+#   tf-validate [env]     -> terraform validate in given env
+#   tf-plan               -> terraform plan in chosen env
+#   tf-plan [env]         -> terraform plan in given env
+#   tf-apply              -> terraform apply in chosen env
+#   tf-apply [env]        -> terraform apply in given env
+#   tf-destroy            -> print destroy command for chosen env
+#   tf-lint               -> tflint in chosen env, using tflint-wrapper, download and store locally? in root/.tflint ?
 #
 #   other:
 #     tab completion
@@ -93,26 +101,19 @@
 #     tf-help [command]       -> show help for command
 #     tf-help help            -> show help for help
 #
-# TODO: functionality
-#
-# tf operations
-#   tf-validate       -> terraform validate in chosen env
-#   tf-validate [env] -> terraform validate in given env
-#   tf-plan           -> terraform plan in chosen env
-#   tf-plan [env]     -> terraform plan in given env
-#   tf-apply          -> terraform apply in chosen env
-#   tf-apply [env]    -> terraform apply in given env
-#
-# TODO: tf-help functionality
-#
+# TODO: implement functionality
 #
 # directory operations
 #   tf-clean          -> rm .terraform everywhere /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
 #   tf-clean-all      -> rm .terraform everywhere + rm .tflint everywhere
-#   tf-lint-clean   -> rm .tflint everywhere
+#   tf-lint-clean     -> rm .tflint everywhere
 #
-# linting
-#   tf-lint         -> tflint in chosen env, using tflint-wrapper, download and store locally? in root/.tflint ?
+# TODO: future functionality
+#
+# other
+#   tf-test         -> terraform test in chosen env, use poc from lock module
+#   tf-bump-modules -> upgrade modules in code everywhere
+#   tf-* functions for _terraform-state env
 #
 # upgrading
 #  look into:
@@ -133,12 +134,6 @@
 #   tf-bump                 -> providers og tflint-plugins in chosen env
 #   tf-bump-gh              -> terraform and tflint in GitHub workflows
 #   tf-bump-all             -> providers og tflint-plugins in alle env + terraform and tflint in GitHub workflows
-#
-# TODO: future functionality
-#
-#   tf-test         -> terraform test in chosen env, use poc from lock module
-#   tf-bump-modules -> upgrade modules in code everywhere
-#   tf-* functions for _terraform-state env
 #
 
 ###################################################################################################
@@ -204,6 +199,9 @@ declare -g _dsbTfEnvsDir=""
 declare -g _dsbTfMainDir=""
 declare -gA _dsbTfEnvsDirList   # Associative array
 declare -ga _dsbTfAvailableEnvs # Indexed array
+
+declare -g _dsbTfTflintWrapperDir=""
+declare -g _dsbTfTflintWrapperScript=""
 
 declare -g _dsbTfSelectedEnv=""
 declare -g _dsbTfSelectedEnvDir=""
@@ -777,6 +775,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-set-env"
     # general
     "tf-status"
+    "tf-lint"
     # terraform
     "tf-init"
     "tf-init-env"
@@ -861,22 +860,23 @@ _dsb_tf_help_help() {
   _dsb_i "  Below are commands for getting help with groups or specific commands."
   _dsb_i ""
   _dsb_i "General Help:"
-  _dsb_i "  tf-help groups          -> show all command groups"
-  _dsb_i "  tf-help [group]         -> show help for a specific command group"
-  _dsb_i "  tf-help commands        -> show all commands, make sure to group and indent commands by group"
-  _dsb_i "  tf-help [command]       -> show help for a specific command"
-  _dsb_i "  tf-help all             -> show all help"
+  _dsb_i "  tf-help groups    -> show all command groups"
+  _dsb_i "  tf-help [group]   -> show help for a specific command group"
+  _dsb_i "  tf-help commands  -> show all commands, make sure to group and indent commands by group"
+  _dsb_i "  tf-help [command] -> show help for a specific command"
+  _dsb_i "  tf-help all       -> show all help"
   _dsb_i ""
   _dsb_i "Common Commands:"
-  _dsb_i "  tf-status               -> Show status of tools, authentication, and environment"
-  _dsb_i "  az-relog                -> Azure relogin"
-  _dsb_i "  tf-set-env [env]        -> Set environment"
-  _dsb_i "  tf-init [env]           -> Initialize Terraform project with selected or given environment"
-  _dsb_i "  tf-upgrade [env]        -> Upgrade Terraform dependencies with selected or given environment"
-  _dsb_i "  tf-fmt-fix              -> Run syntax check and fix recursively from current directory"
-  _dsb_i "  tf-validate [env]       -> Make Terraform validate the project with selected or given environment"
-  _dsb_i "  tf-plan [env]           -> Make Terraform create a plan for the selected or given environment"
-  _dsb_i "  tf-apply [env]          -> Make Terraform apply changes forthe selected or given environment"
+  _dsb_i "  tf-status         -> Show status of tools, authentication, and environment"
+  _dsb_i "  az-relog          -> Azure relogin"
+  _dsb_i "  tf-set-env [env]  -> Set environment"
+  _dsb_i "  tf-init           -> Initialize Terraform project"
+  _dsb_i "  tf-upgrade        -> Upgrade Terraform dependencies (within existing version constraints)"
+  _dsb_i "  tf-fmt-fix        -> Run syntax check and fix recursively from current directory"
+  _dsb_i "  tf-validate       -> Make Terraform validate the project"
+  _dsb_i "  tf-plan           -> Make Terraform create a plan"
+  _dsb_i "  tf-apply          -> Make Terraform apply changes"
+  _dsb_i "  tf-lint           -> Run tflint"
   _dsb_i ""
   _dsb_i "Note: "
   _dsb_i "  tf-help supports tab completion for available arguments,"
@@ -916,6 +916,7 @@ _dsb_tf_help_group_checks() {
 _dsb_tf_help_group_general() {
   _dsb_i "  General Commands:"
   _dsb_i "    tf-status             -> Show status of tools, authentication, and environment"
+  _dsb_i "    tf-lint [env]         -> Run tflint for the selected or given environment"
 }
 
 _dsb_tf_help_group_azure() {
@@ -1041,6 +1042,15 @@ _dsb_tf_help_specific_command() {
     _dsb_i "tf-status:"
     _dsb_i "  Show the status of tools, authentication, and environment."
     ;;
+  tf-lint)
+    _dsb_i "tf-lint [env]:"
+    _dsb_i "  Run tflint for the specified environment."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init, tf-validate."
+    ;;
   # azure
   az-logout)
     _dsb_i "az-logout:"
@@ -1132,6 +1142,8 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
     _dsb_i "  This upgrades and initializes the project completely, environment directory sub modules and main."
+    _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
+    _dsb_i ""
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
@@ -1141,6 +1153,8 @@ _dsb_tf_help_specific_command() {
     _dsb_i "tf-upgrade-env [env]:"
     _dsb_i "  Upgrade Terraform dependencies and initialize the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
     _dsb_i ""
     _dsb_i "  Note:"
     _dsb_i "    This upgrades and initializes just the environment directory, not sub modules and main."
@@ -1247,6 +1261,7 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_avalable_envs tf-plan
   complete -F _dsb_tf_completions_for_avalable_envs tf-apply
   complete -F _dsb_tf_completions_for_avalable_envs tf-destroy
+  complete -F _dsb_tf_completions_for_avalable_envs tf-lint
 }
 
 # for tf-help
@@ -1839,6 +1854,9 @@ _dsb_tf_enumerate_directories() {
   _dsbTfModulesDir="${_dsbTfRootDir}/modules"
   _dsbTfMainDir="${_dsbTfRootDir}/main"
   _dsbTfEnvsDir="${_dsbTfRootDir}/envs"
+
+  _dsbTfTflintWrapperDir="${_dsbTfRootDir}/.tflint"
+  _dsbTfTflintWrapperPath="${_dsbTfTflintWrapperDir}/tflint.sh"
 
   _dsbTfModulesDirList=()
   if [ -d "${_dsbTfModulesDir}" ]; then
@@ -3354,6 +3372,126 @@ _dsb_tf_destroy_env() {
 
 ###################################################################################################
 #
+# Linting functions
+#
+###################################################################################################
+
+# what:
+#   downloads the tflint wrapper script and store it locally
+#   Note: this function does not perform any pre flight checks
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+_dsb_tf_install_tflint_wrapper() {
+
+  _dsb_d "_dsbTfTflintWrapperDir: ${_dsbTfTflintWrapperDir:-}"
+  _dsb_d "_dsbTfTflintWrapperPath: ${_dsbTfTflintWrapperPath:-}"
+
+  local wrapperDir="${_dsbTfTflintWrapperDir:-}"
+  local wrapperPath="${_dsbTfTflintWrapperPath:-}"
+  local wrapperApiUrl="/repos/dsb-norge/terraform-tflint-wrappers/contents/tflint_linux.sh"
+
+  if [ -z "${wrapperDir}" ] || [ -z "${wrapperPath}" ]; then
+    _dsb_e "Internal error: expected to find tflint wrapper directory and path."
+    _dsb_e "  expected in: _dsbTfTflintWrapperDir and _dsbTfTflintWrapperPath"
+    return 1
+  fi
+
+  if [ -f "${wrapperPath}" ]; then
+    _dsb_d "tflint wrapper already exists at: ${wrapperPath}"
+    return 0
+  fi
+
+  if [ ! -d "${wrapperDir}" ]; then
+    _dsb_d "creating tflint wrapper directory at: ${wrapperDir}"
+    mkdir -p "${wrapperDir}"
+  fi
+
+  _dsb_d "downloading tflint wrapper"
+  _dsb_d "  from: ${wrapperApiUrl}"
+  _dsb_d "  to: ${wrapperPath}"
+
+  gh api -H 'Accept: application/vnd.github.v3.raw' "${wrapperApiUrl}" >"${wrapperPath}"
+
+  return 0
+}
+
+# what:
+#   runs tflint in the selected environment directory
+#   if environment is not supplied, uses the selected environment
+# input:
+#   $1: environment name (optional)
+# on info:
+#   status messages and linting results are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_run_tflint() {
+  local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+
+  if [ -z "${selectedEnv}" ]; then
+    _dsb_e "No environment selected, please run 'tf-select-env' or 'tf-set-env <env>'"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  # check that gh cli is installed and user is logged in
+  if ! _dsb_tf_check_gh_auth; then
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  # leverage _dsb_tf_set_env, this enumerates diresctories and validates the environment
+  _dsbTfLogInfo=1 _dsbTfLogErrors=0 _dsb_tf_set_env "${selectedEnv}"
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_e "Failed to set environment '${selectedEnv}'."
+    _dsb_e "  please run 'tf-check-env ${selectedEnv}'"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  # make sure tflint is installed
+  if ! _dsbTfLogErrors=0 _dsb_tf_install_tflint_wrapper; then
+    _dsb_e "Failed to install tflint wrapper, consider enabling debug mode"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  # should be set when _dsbTfSelectedEnv is set
+  local envDir="${_dsbTfSelectedEnvDir:-}"
+  if [ -z "${envDir}" ]; then
+    _dsb_internal_error "Internal error: expected to find selected environment directory." \
+      "  expected in: _dsbTfSelectedEnvDir"
+    return 1
+  fi
+
+  if ! pushd "${envDir}" >/dev/null; then
+    _dsb_e "Failed to change to environment directory: ${envDir}"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  # invoke the tflint wrapper script
+  if ! bash -s -- <"${_dsbTfTflintWrapperPath}"; then
+    _dsb_i_append "" # newline without any prefix
+    _dsb_w "tflint operation resulted in non-zero exit code."
+    _dsbTfReturnCode=1
+  else
+    _dsbTfReturnCode=0
+  fi
+
+  if ! popd >/dev/null; then
+    _dsb_w "Failed to change back to root directory after linting."
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+###################################################################################################
+#
 # Exposed functions
 #
 ###################################################################################################
@@ -3616,6 +3754,18 @@ tf-destroy() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
   _dsb_tf_destroy_env "${envName}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# Linintg functions
+# -----------------
+
+tf-lint() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_run_tflint "${envName}"
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
