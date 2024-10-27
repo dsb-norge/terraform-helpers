@@ -38,10 +38,15 @@
 #     _dsb_tf_debug_enable_debug_logging
 #   debug logging can be disabled from the command line by calling
 #     _dsb_tf_debug_disable_debug_logging
+#
+# maintainance and development
 #   call graph functionality can be installed from the command line by calling
 #     _dsb_tf_debug_install_call_graph_and_deps_ubuntu
-#   call graphs can be generated from the command line by calling
-#     _dsb_tf_debug_generate_call_graphs
+#   call graphs can be generated from the command line
+#     for all exposed functions:
+#       _dsb_tf_debug_generate_call_graphs
+#     for a single function (note: only non-exposed functions can be used):
+#       _dsb_tf_debug_generate_call_graphs '_dsb_tf_enumerate_directories'
 #
 # DEBUG commands
 #   cd ~/code/github/dsb-norge/azure-ad ;
@@ -105,8 +110,8 @@
 #
 # directory operations
 #   tf-clean          -> rm .terraform everywhere /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
+#   tf-clean-tflint   -> rm .tflint (including in root dir)
 #   tf-clean-all      -> rm .terraform everywhere + rm .tflint everywhere
-#   tf-lint-clean     -> rm .tflint everywhere
 #
 # TODO: future functionality
 #
@@ -599,12 +604,20 @@ _dsb_tf_debug_generate_call_graphs() {
   done
 
   # ignore unintresting functions
-  local ignoreStatic='(unset.*|_dsb_e|_dsb_i.*|_dsb_w|_dsb_d|_dsb_tf_error_.*|_dsb_tf_configure_shell|_dsb_tf_restore_shell|_dsb_tf_help.*|_dsb_tf_completions.*|_dsb_tf_register_.*|_dsb_tf_debug_.*'
+  # shellcheck disable=SC2016
+  local ignoreStatic='($unset.*|_dsb_[wedi](\(\))?|$_dsb_tf_error_.*|_dsb_tf_configure_shell(\(\))?|_dsb_tf_restore_shell.*(\(\))?|$_dsb_tf_help.*|_dsb_tf_completions(\(\))?|$_dsb_tf_register_.*|$_dsb_tf_debug_.*'
 
   if [ -n "${functionToGenerateFor}" ]; then
     local startFuncStrip="${functionToGenerateFor//()/}" # no trailing ()
     local startFunc="${functionToGenerateFor}()"         # with trailing ()
     local funcGraphFile="${callGraphDir}/${inFile}-call-graph-${startFuncStrip}"
+
+    # echo "Generating call graph for function: ${functionToGenerateFor}"
+    # echo "  input file : ${inFile}"
+    # echo "  start func : ${startFunc}"
+    # echo "  stripped   : ${startFuncStrip}"
+    # echo "  output file: ${funcGraphFile}"
+    # echo "  ignore     : ${ignoreStatic}"
 
     # create a call graph containing single function
     "${callGraphDir}/callGraph" ${outFile} -start "${startFunc}" -output "${funcGraphFile}" -ignore "${ignoreStatic})"
@@ -620,19 +633,26 @@ _dsb_tf_debug_generate_call_graphs() {
     local startFunc
     for startFunc in "${!replacements[@]}"; do
       local graphFuncName="${replacements[$startFunc]}" # the name of the function in the call graph
+      # local graphFuncNameStrip="${graphFuncName//()/}"  # the name of the function in the call graph without trailing ()
       local ignoreLocal="${ignoreStatic}"               # copy the static ignore list
 
       # add all other than the current function to the ignore list
       local funcName
       for funcName in "${replacements[@]}"; do
         if [[ ! "$funcName" == "${graphFuncName}" ]]; then
-          ignoreLocal+="|${funcName}" # append all exposed functions that is not the current function
+          ignoreLocal+="|\$${funcName}.*" # append all exposed functions that is not the current function
         fi
       done
       ignoreLocal+=")" # finalize the ignore list
 
       # name of output file
       local funcGraphFile="${callGraphDir}/${inFile}-call-graph-${startFunc//()/}"
+
+      # echo "Generating call graph for function: ${graphFuncName}"
+      # echo "  input file : ${inFile}"
+      # echo "  start func : ${graphFuncName}"
+      # echo "  output file: ${funcGraphFile}"
+      # echo "  ignore     : ${ignoreLocal}"
 
       # run callGraph
       "${callGraphDir}/callGraph" ${outFile} -start "${graphFuncName}" -output "${funcGraphFile}" -ignore "${ignoreLocal}"
@@ -642,7 +662,7 @@ _dsb_tf_debug_generate_call_graphs() {
   fi
 
   # remove the copy of the shell script with the exposed functions renamed
-  # rm ${outFile}
+  rm ${outFile}
 }
 
 ###################################################################################################
