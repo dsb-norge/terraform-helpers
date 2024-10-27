@@ -93,6 +93,9 @@
 #   tf-apply [env]        -> terraform apply in given env
 #   tf-destroy            -> print destroy command for chosen env
 #   tf-lint               -> tflint in chosen env, using tflint-wrapper, download and store locally? in root/.tflint ?
+#   tf-clean              -> rm .terraform everywhere /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
+#   tf-clean-tflint       -> rm .tflint (including in root dir)
+#   tf-clean-all          -> rm .terraform everywhere + rm .tflint everywhere
 #
 #   other:
 #     tab completion
@@ -105,13 +108,6 @@
 #     tf-help all             -> show all help
 #     tf-help [command]       -> show help for command
 #     tf-help help            -> show help for help
-#
-# TODO: implement functionality
-#
-# directory operations
-#   tf-clean          -> rm .terraform everywhere /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
-#   tf-clean-tflint   -> rm .tflint (including in root dir)
-#   tf-clean-all      -> rm .terraform everywhere + rm .tflint everywhere
 #
 # TODO: future functionality
 #
@@ -634,7 +630,7 @@ _dsb_tf_debug_generate_call_graphs() {
     for startFunc in "${!replacements[@]}"; do
       local graphFuncName="${replacements[$startFunc]}" # the name of the function in the call graph
       # local graphFuncNameStrip="${graphFuncName//()/}"  # the name of the function in the call graph without trailing ()
-      local ignoreLocal="${ignoreStatic}"               # copy the static ignore list
+      local ignoreLocal="${ignoreStatic}" # copy the static ignore list
 
       # add all other than the current function to the ignore list
       local funcName
@@ -796,6 +792,9 @@ _dsb_tf_help_get_commands_supported_by_help() {
     # general
     "tf-status"
     "tf-lint"
+    "tf-clean"
+    "tf-clean-tflint"
+    "tf-clean-all"
     # terraform
     "tf-init"
     "tf-init-env"
@@ -937,6 +936,9 @@ _dsb_tf_help_group_general() {
   _dsb_i "  General Commands:"
   _dsb_i "    tf-status             -> Show status of tools, authentication, and environment"
   _dsb_i "    tf-lint [env]         -> Run tflint for the selected or given environment"
+  _dsb_i "    tf-clean              -> Look for an delete '.terraform' directories"
+  _dsb_i "    tf-clean-tflint       -> Look for and delete '.tflint' directories"
+  _dsb_i "    tf-clean-all          -> Look for and delete both '.terraform' and '.tflint' directories"
 }
 
 _dsb_tf_help_group_azure() {
@@ -1070,6 +1072,24 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
     _dsb_i "  Related commands: tf-init, tf-validate."
+    ;;
+  tf-clean)
+    _dsb_i "tf-clean:"
+    _dsb_i "  Look for and delete '.terraform' directories."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-clean-tflint, tf-clean-all."
+    ;;
+  tf-clean-tflint)
+    _dsb_i "tf-clean-tflint:"
+    _dsb_i "  Look for and delete '.tflint' directories."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-clean, tf-clean-all."
+    ;;
+  tf-clean-all)
+    _dsb_i "tf-clean-all:"
+    _dsb_i "  Look for and delete both '.terraform' and '.tflint' directories."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-clean, tf-clean-tflint."
     ;;
   # azure
   az-logout)
@@ -1869,6 +1889,8 @@ _dsb_tf_get_rel_dir() {
 #       - _dsbTfEnvsDirList
 #       - _dsbTfAvailableEnvs
 #       - _dsbTfSelectedEnvDir
+#     - _dsbTfTflintWrapperDir
+#     - _dsbTfTflintWrapperPath
 _dsb_tf_enumerate_directories() {
   _dsbTfRootDir="$(realpath .)"
   _dsbTfModulesDir="${_dsbTfRootDir}/modules"
@@ -2042,17 +2064,24 @@ _dsb_tf_get_env_names_commaseparated() {
   echo "${availableEnvsCommaSeparated}"
 }
 
-# TODO: is this needed?
-# _dsb_tf_get_env_dirs() {
-#   local -a envDirs=()
-#   if declare -p _dsbTfEnvsDirList &>/dev/null; then
-#     local value
-#     for value in "${_dsbTfEnvsDirList[@]}"; do
-#         envDirs+=("${value}")
-#     done
-#   fi
-#   printf "%s\n" "${envDirs[@]}"
-# }
+# what:
+#   get a list of available environment directory paths in a graceful way, without causing unbound variable errors
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos a list of available environment directory paths
+_dsb_tf_get_env_dirs() {
+  local -a envDirs=()
+  if declare -p _dsbTfEnvsDirList &>/dev/null; then
+    local value
+    for value in "${_dsbTfEnvsDirList[@]}"; do
+      envDirs+=("${value}")
+    done
+  fi
+  printf "%s\n" "${envDirs[@]}"
+}
 
 # what:
 #   checks if the path stored in _dsbTfEnvsDir actually exists as a directory
@@ -3059,7 +3088,7 @@ _dsb_tf_init_modules() {
   fi
 
   local -a moduleDirs
-  mapfile -t moduleDirs < <(_dsb_tf_get_module_dirs "${selectedEnv}")
+  mapfile -t moduleDirs < <(_dsb_tf_get_module_dirs)
   local moduleDirsCount=${#moduleDirs[@]}
 
   _dsb_d "moduleDirsCount: ${moduleDirsCount}"
@@ -3512,6 +3541,163 @@ _dsb_tf_run_tflint() {
 
 ###################################################################################################
 #
+# Clean functions
+#
+###################################################################################################
+
+# what:
+#   returns an array of dot directories of given type
+#   looks through the current directory, environment directories, main directory and module directories
+# input:
+#   $1: type of dot directory (.terraform or .tflint or all)
+# on info:
+#   nothing
+# returns:
+#   array of dot directories
+_dsb_tf_get_dot_dirs() {
+  local searchForType="${1}"
+  local searchForDirType=""
+  local -a dotDirs=()
+
+  if [ "${searchForType}" = ".terraform" ]; then
+    searchForDirType=".terraform"
+  elif [ "${searchForType}" = ".tflint" ]; then
+    searchForDirType=".tflint"
+  elif [ "${searchForType}" = "all" ]; then
+    # incepetion
+    local -a dotDirsTerraform=()
+    mapfile -t dotDirsTerraform < <(_dsb_tf_get_dot_dirs ".terraform")
+    local -a dotDirsTflint=()
+    mapfile -t dotDirsTflint < <(_dsb_tf_get_dot_dirs ".tflint")
+    dotDirs=("${dotDirsTerraform[@]}" "${dotDirsTflint[@]}")
+  else
+    return 1
+  fi
+
+  if [ "${searchForType}" != "all" ]; then
+    local -a envDirs
+    mapfile -t envDirs < <(_dsb_tf_get_env_dirs)
+    local envDirsCount=${#envDirs[@]}
+
+    local -a moduleDirs
+    mapfile -t moduleDirs < <(_dsb_tf_get_module_dirs)
+    local moduleDirsCount=${#moduleDirs[@]}
+
+    local -a searchInDirs=()
+    searchInDirs+=("${_dsbTfRootDir}")
+    if [ "${envDirsCount}" -gt 0 ]; then
+      searchInDirs+=("${envDirs[@]}")
+    fi
+    searchInDirs+=("${_dsbTfMainDir}")
+    if [ "${moduleDirsCount}" -gt 0 ]; then
+      searchInDirs+=("${moduleDirs[@]}")
+    fi
+
+    local dir
+    for dir in "${searchInDirs[@]}"; do
+      if [ -d "${dir}/${searchForDirType}" ]; then
+        dotDirs+=("${dir}/${searchForDirType}")
+      fi
+    done
+  fi
+
+  local dotDirsCount=${#dotDirs[@]}
+
+  if [ "${dotDirsCount}" -gt 0 ]; then
+    printf "%s\n" "${dotDirs[@]}"
+  fi
+}
+
+# what:
+#   removes dot directories from the current directory, environment directories, main directory and module directories
+#   if $1 is set to "terraform", it will remove .terraform directories
+#   if $1 is set to "tflint", it will remove .tflint directories
+# input:
+#   $1: type of dot directory (.terraform or .tflint or all)
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_clean_dot_directories() {
+  local searchForType="${1}"
+  local searchForDirType=""
+
+  if [ "${searchForType}" = "terraform" ]; then
+    searchForDirType=".terraform"
+  elif [ "${searchForType}" = "tflint" ]; then
+    searchForDirType=".tflint"
+  elif [ "${searchForType}" = "all" ]; then
+    searchForDirType="all"
+  else
+    return 1
+  fi
+
+  # this also enumerates directories
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsb_d "start looking for '${searchForDirType}' directories"
+
+  local -a dotDirs
+  mapfile -t dotDirs < <(_dsb_tf_get_dot_dirs "${searchForDirType}")
+  local dotDirsCount=${#dotDirs[@]}
+
+  _dsb_d "dotDirsCount: ${dotDirsCount}"
+
+  if [ "${dotDirsCount}" -eq 0 ]; then
+    _dsb_i "No '${searchForDirType}' directories found."
+    _dsb_i "  nothing to clean"
+    _dsbTfReturnCode=0
+    return 0
+  fi
+
+  _dsb_i "Ready to delete the following '${searchForDirType}' directories:"
+  local dotDir
+  for dotDir in "${dotDirs[@]}"; do
+    _dsb_i "  - $(_dsb_tf_get_rel_dir "${dotDir}")"
+  done
+
+  local userInput idx
+  local gotValidInput=0
+  while [ "${gotValidInput}" -ne 1 ]; do
+    read -r -p "Proceed with deletion? [y/n]: " userInput
+    echo -en "\033[1A\033[2K" # clear the current console line
+    if [ "${userInput}" = "y" ] || [ "${userInput}" = "Y" ]; then
+      break
+    elif [ "${userInput}" = "n" ] || [ "${userInput}" = "N" ]; then
+      _dsb_i "Operation cancelled."
+      _dsbTfReturnCode=0
+      return 0
+    fi
+  done
+
+  _dsb_i "Deleting '${searchForDirType}' directories ..."
+
+  _dsbTfReturnCode=0
+  for idx in "${!dotDirs[@]}"; do
+    local dotDir="${dotDirs[idx]}"
+    if ! rm -rf "${dotDir}"; then
+      _dsb_e "Failed to delete: $(_dsb_tf_get_rel_dir "${dotDir}")"
+      _dsbTfReturnCode=1
+    fi
+  done
+
+  if [ "${_dsbTfReturnCode}" -eq 0 ]; then
+    _dsb_i "Done."
+  else
+    _dsb_e "Some delete operation(s) failed, please review the output above."
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+###################################################################################################
+#
 # Exposed functions
 #
 ###################################################################################################
@@ -3779,13 +3965,40 @@ tf-destroy() {
   return "${returnCode}"
 }
 
-# Linintg functions
+# Linting functions
 # -----------------
 
 tf-lint() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
   _dsb_tf_run_tflint "${envName}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# Clean functions
+# ---------------
+
+tf-clean() {
+  _dsb_tf_configure_shell
+  _dsb_tf_clean_dot_directories "terraform"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-clean-tflint() {
+  _dsb_tf_configure_shell
+  _dsb_tf_clean_dot_directories "tflint"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-clean-all() {
+  _dsb_tf_configure_shell
+  _dsb_tf_clean_dot_directories "all"
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
