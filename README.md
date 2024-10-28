@@ -9,6 +9,14 @@ Collection of helper scripts for terraform projects.
 
 ### How to use `dsb-tf-proj-helpers.sh`
 
+```bash
+# load with GitHub cli
+source <(gh api -H "Accept: application/vnd.github.v3.raw" /repos/dsb-norge/terraform-helpers/contents/dsb-tf-proj-helpers.sh) ;
+
+# load with curl
+source <(curl -s https://raw.githubusercontent.com/dsb-norge/terraform-helpers/refs/heads/key-bonobo/dsb-tf-proj-helpers.sh) ;
+
+```
 
 ### Develop `dsb-tf-proj-helpers.sh`
 
