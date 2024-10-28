@@ -1,140 +1,82 @@
 #!/usr/bin/env bash
-
-# types of functions in this file:
-#   "exposed" functions
-#     are those prefixed with 'tf-' and 'az-'
-#     these are the functions that are intended to be called by the user from the command line
-#     these are suported by tf-help
-#     these should always return their exit code directly
 #
-#   internal functions
-#     are those prefixed with '_dsb_'
-#     these are not intended to be called directly from the command line
-#     they come in two flavors, see function documentation for details:
-#       - those that return their exit code in _dsbTfReturnCode
-#         - some of these may return 1 directly in case of internal errors
-#         - many of these populate global variables to persist results
-#       - those that return their exit code directly
-#         - these rarely update global variables
+# Developer notes
 #
-#   utility functions
-#     are also prefixed with '_dsb_'
-#     these are not intended to be called directly from the command line
-#     typically they do not return exit code explicitly
-#     they are for things like logging, error handling, displaying help, and other common tasks
+#   types of functions in this file:
+#     "exposed" functions
+#       are those prefixed with 'tf-' and 'az-'
+#       these are the functions that are intended to be called by the user from the command line
+#       these are suported by tf-help
+#       these should always return their exit code directly
 #
-# logging
-#   logging throughout the functions is controlled by the following variables:
-#     _dsbTfLogInfo     : 1 to log info, 0 to mute
-#     _dsbTfLogWarnings : 1 to log warnings, 0 to mute
-#     _dsbTfLogErrors   : 1 to log errors, 0 to mute
-#       note: _dsb_internal_error() ignores this setting
-#   debug logging should be controlled from the command line by calling
-#     _dsb_tf_debug_enable_debug_logging
-#     _dsb_tf_debug_disable_debug_logging
+#     internal functions
+#       are those prefixed with '_dsb_'
+#       these are not intended to be called directly from the command line
+#       they come in two flavors, see function documentation for details:
+#         - those that return their exit code in _dsbTfReturnCode
+#           - some of these may return 1 directly in case of internal errors
+#           - many of these populate global variables to persist results
+#         - those that return their exit code directly
+#           - these rarely update global variables
 #
-# debug functionality
-#   debug logging can be enabled from the command line by calling
-#     _dsb_tf_debug_enable_debug_logging
-#   debug logging can be disabled from the command line by calling
-#     _dsb_tf_debug_disable_debug_logging
+#     utility functions
+#       are also prefixed with '_dsb_'
+#       these are not intended to be called directly from the command line
+#       typically they do not return exit code explicitly
+#       they are for things like logging, error handling, displaying help, and other common tasks
 #
-# maintainance and development
-#   call graph functionality can be installed from the command line by calling
-#     _dsb_tf_debug_install_call_graph_and_deps_ubuntu
-#   call graphs can be generated from the command line
-#     for all exposed functions:
-#       _dsb_tf_debug_generate_call_graphs
-#     for a single function (note: only non-exposed functions can be used):
-#       _dsb_tf_debug_generate_call_graphs '_dsb_tf_enumerate_directories'
+#   logging
+#     logging throughout the functions is controlled by the following variables:
+#       _dsbTfLogInfo     : 1 to log info, 0 to mute
+#       _dsbTfLogWarnings : 1 to log warnings, 0 to mute
+#       _dsbTfLogErrors   : 1 to log errors, 0 to mute
+#         note: _dsb_internal_error() ignores this setting
+#     debug logging should be controlled from the command line by calling
+#       _dsb_tf_debug_enable_debug_logging
+#       _dsb_tf_debug_disable_debug_logging
 #
-# DEBUG commands
-#   cd ~/code/github/dsb-norge/azure-ad ;
-#   source <(cat ~/code/github/dsb-norge/terraform-helpers/dsb-tf-proj-helpers.sh) ;
-#   source <(curl -s https://raw.githubusercontent.com/dsb-norge/terraform-helpers/refs/heads/key-bonobo/dsb-tf-proj-helpers.sh) ;
-#   source <(gh api -H "Accept: application/vnd.github.v3.raw" /repos/dsb-norge/terraform-helpers/contents/dsb-tf-proj-helpers.sh?ref=key-bonobo) ;
+#   debug functionality
+#     debug logging can be enabled from the command line by calling
+#       _dsb_tf_debug_enable_debug_logging
+#     debug logging can be disabled from the command line by calling
+#       _dsb_tf_debug_disable_debug_logging
 #
-# Implemented functionality
-#   tf-check-tools        -> az cli, gh cli, terraform, jq, yq, golang, hcledit, terraform-docs, realpath
-#   tf-check-gh-auth      -> need to be logged in to gh
-#   tf-check-dir          -> check if in valid tf project structure
-#   tf-check-prereqs      -> all checks
-#   tf-list-envs          -> list existing envs (exclude _*)
-#   tf-set-env [env]      -> set env/sub
-#   tf-clear-env          -> unset env/sub
-#   tf-unset-env          -> unset env/sub
-#   tf-select-env         -> list + select env/sub + set env/sub
-#   tf-select-env [env]   -> set env/sub ie. same as tf-set-env
-#   tf-check-env          -> check if selected env is valid
-#   tf-check-env [env]    -> check if supplied env is valid
-#   az-logout             -> az logout
-#   az-login              -> az login --use-device-code
-#   az-relog              -> same as az-login
-#   az-whoami             -> az account show
-#   az-set-sub            -> az account set --subscription
-#   tf-status             -> checks + help + show az upn if logged in + show sub if selected
-#   tf-init-env           -> terraform init in chosen env
-#   tf-init-env [env]     -> terraform init in given env
-#   tf-init-modules       -> terraform init of submodules (requires env to be selected in advance)
-#   tf-init-main          -> terraform init of main (requires env to be selected in advance)
-#   tf-init               -> terraform init in chosen env + submodules + main
-#   tf-init [env]         -> terraform init in given env + submodules + main
-#   tf-upgrade-env        -> terraform init -upgrade in chosen env
-#   tf-upgrade-env [env]  -> terraform init -upgrade in given env
-#   tf-upgrade            -> terraform init -upgrade in chosen env + submodules + main
-#   tf-upgrade [env]      -> terraform init -upgrade in given env + submodules + main
-#   tf-fmt                -> terraform fmt -check in root
-#   tf-fmt-fix            -> terraform fmt in root
-#   tf-validate           -> terraform validate in chosen env
-#   tf-validate [env]     -> terraform validate in given env
-#   tf-plan               -> terraform plan in chosen env
-#   tf-plan [env]         -> terraform plan in given env
-#   tf-apply              -> terraform apply in chosen env
-#   tf-apply [env]        -> terraform apply in given env
-#   tf-destroy            -> print destroy command for chosen env
-#   tf-lint               -> tflint in chosen env, using tflint-wrapper, download and store locally? in root/.tflint ?
-#   tf-clean              -> rm .terraform everywhere /home/peder/code/github/dsb-norge/terraform-tflint-wrappers/tf_clean.sh
-#   tf-clean-tflint       -> rm .tflint (including in root dir)
-#   tf-clean-all          -> rm .terraform everywhere + rm .tflint everywhere
+#   maintainance and development
+#     call graph functionality can be installed from the command line by calling
+#       _dsb_tf_debug_install_call_graph_and_deps_ubuntu
+#     call graphs can be generated from the command line
+#       for all exposed functions:
+#         _dsb_tf_debug_generate_call_graphs
+#       for a single function (note: only non-exposed functions can be used):
+#         _dsb_tf_debug_generate_call_graphs '_dsb_tf_enumerate_directories'
 #
-#   other:
-#     tab completion
-#     require az sub hint file
-#
-#   help
-#     tf-help                 -> show short help, will list most used commands and command groups
-#     tf-help [group]         -> show help for command group
-#     tf-help general         -> show general help
-#     tf-help all             -> show all help
-#     tf-help [command]       -> show help for command
-#     tf-help help            -> show help for help
 #
 # TODO: future functionality
 #
-# other
-#   tf-test         -> terraform test in chosen env, use poc from lock module
-#   tf-bump-modules -> upgrade modules in code everywhere
-#   tf-* functions for _terraform-state env
+#   other
+#     tf-test         -> terraform test in chosen env, use poc from lock module
+#     tf-bump-modules -> upgrade modules in code everywhere
+#     tf-* functions for _terraform-state env
 #
-# upgrading
-#  look into:
-#   tfupdate :
-#     install  : go install github.com/minamijoyo/tfupdate@latest
-#     providers:
-#       - read 'version' from lock file
-#       - use tfupdate: tfupdate release latest --source-type tfregistryProvider 'hashicorp/azurerm'
-#       - show possible upgrades
-#     modules  :
-#       - read 'source' from tf files
-#       - use tfupdate: tfupdate release latest --source-type tfregistryModule "Azure/naming/azurerm"
-#       - show possible upgrades
-#     note: there is also a list command: fupdate release list --source-type tfregistryModule --max-length 3 "Azure/naming/azurerm"
-#  proposed commands:
-#   tf-bump-providers       -> find latest version of providers and modify versions.tf (tf-upgrade after?)
-#   tf-bump-tflint-plugins  -> tflint-plugins in chosen env
-#   tf-bump                 -> providers og tflint-plugins in chosen env
-#   tf-bump-gh              -> terraform and tflint in GitHub workflows
-#   tf-bump-all             -> providers og tflint-plugins in alle env + terraform and tflint in GitHub workflows
+#   upgrading
+#    look into:
+#     tfupdate :
+#       install  : go install github.com/minamijoyo/tfupdate@latest
+#       providers:
+#         - read 'version' from lock file
+#         - use tfupdate: tfupdate release latest --source-type tfregistryProvider 'hashicorp/azurerm'
+#         - show possible upgrades
+#       modules  :
+#         - read 'source' from tf files
+#         - use tfupdate: tfupdate release latest --source-type tfregistryModule "Azure/naming/azurerm"
+#         - show possible upgrades
+#       note: there is also a list command: fupdate release list --source-type tfregistryModule --max-length 3 "Azure/naming/azurerm"
+#    proposed commands:
+#     tf-bump-providers       -> find latest version of providers and modify versions.tf (tf-upgrade after?)
+#     tf-bump-tflint-plugins  -> tflint-plugins in chosen env
+#     tf-bump                 -> providers og tflint-plugins in chosen env
+#     tf-bump-cicd            -> terraform and tflint in GitHub workflows
+#     tf-bump-all             -> providers og tflint-plugins in alle env + terraform and tflint in GitHub workflows
 #
 
 ###################################################################################################
@@ -195,27 +137,26 @@ unset -v varNames varName
 declare -g _dsbTfShellOldOpts=""      # used for persisting original shell options, and restoring them on exit
 declare -g _dsbTfShellHistoryState="" # used for persisting original shell history state, and restoring it on exit
 
-declare -g _dsbTfRootDir=""
-declare -g _dsbTfEnvsDir=""
-declare -g _dsbTfMainDir=""
-declare -gA _dsbTfEnvsDirList   # Associative array
-declare -ga _dsbTfAvailableEnvs # Indexed array
+declare -g _dsbTfRootDir=""      # root directory of the project, ie. the current directory when a function is called
+declare -g _dsbTfEnvsDir=""      # environments directory of the project
+declare -g _dsbTfMainDir=""      # main directory of the project
+declare -g _dsbTfModulesDir=""   # modules directory of the project
+declare -gA _dsbTfEnvsDirList    # Associative array, key is environment name, value is directory
+declare -ga _dsbTfAvailableEnvs  # Indexed array, list of available environment names in the project
+declare -gA _dsbTfModulesDirList # Associative array, key is module name, value is directory
 
-declare -g _dsbTfTflintWrapperDir=""
-declare -g _dsbTfTflintWrapperScript=""
+declare -g _dsbTfTflintWrapperDir=""    # directory where the tflint wrapper script will be placed
+declare -g _dsbTfTflintWrapperScript="" # full path to the tflint wrapper script
 
-declare -g _dsbTfSelectedEnv=""
-declare -g _dsbTfSelectedEnvDir=""
-declare -g _dsbTfSelectedEnvLockFile=""
-declare -g _dsbTfSelectedEnvSubscriptionHintFile=""
-declare -g _dsbTfSelectedEnvSubscriptionHintContent=""
+declare -g _dsbTfSelectedEnv=""                        # the currently selected environment is persisted here
+declare -g _dsbTfSelectedEnvDir=""                     # full path to the directory of the currently selected environment
+declare -g _dsbTfSelectedEnvLockFile=""                # full path to the lock file of the currently selected environment
+declare -g _dsbTfSelectedEnvSubscriptionHintFile=""    # full path to the subscription hint file of the currently selected environment
+declare -g _dsbTfSelectedEnvSubscriptionHintContent="" # content of the subscription hint file of the currently selected environment
 
-declare -g _dsbTfModulesDir=""
-declare -gA _dsbTfModulesDirList # Associative array
-
-declare -g _dsbTfAzureUpn=""
-declare -g _dsbTfSubscriptionId=""
-declare -g _dsbTfSubscriptionName=""
+declare -g _dsbTfAzureUpn=""         # Azure UPN of the currently logged in user
+declare -g _dsbTfSubscriptionId=""   # Azure subscription ID of the currently selected subscription
+declare -g _dsbTfSubscriptionName="" # Azure subscription name of the currently selected subscription
 
 ###################################################################################################
 #
@@ -1278,7 +1219,6 @@ _dsb_tf_completions_for_avalable_envs() {
 
   # always enumerate, we do not know the directory the function is called from
   # note: debug mode must be disabled, otherwise the debug output will mess up the completions
-  # TODO: does this slow things down?
   _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
 
   # only complete if _dsbTfAvailableEnvs is set
@@ -2635,19 +2575,20 @@ _dsb_tf_az_enumerate_account() {
   _dsb_d "showStatus: ${showStatus}"
   _dsb_d "showOutput: ${showOutput}"
 
-  local azUpn subId subName tenantDisplayName
-  azUpn=$(echo "${showOutput}" | jq -r '.user.name')
-  subId=$(echo "${showOutput}" | jq -r '.id')
-  subName=$(echo "${showOutput}" | jq -r '.name')
-  tenantDisplayName=$(echo "${showOutput}" | jq -r '.tenantDisplayName')
-
-  _dsb_d "azUpn: ${azUpn}"
-  _dsb_d "subId: ${subId}"
-
   if [ "${showStatus}" -eq 0 ]; then
+    local azUpn subId subName tenantDisplayName
+    azUpn=$(echo "${showOutput}" | jq -r '.user.name')
+    subId=$(echo "${showOutput}" | jq -r '.id')
+    subName=$(echo "${showOutput}" | jq -r '.name')
+    tenantDisplayName=$(echo "${showOutput}" | jq -r '.tenantDisplayName')
+
+    _dsb_d "azUpn: ${azUpn}"
+    _dsb_d "subId: ${subId}"
+
     _dsb_i "Logged in with Azure CLI: '${azUpn}' in tenant '${tenantDisplayName}'"
     _dsb_i "  Subscription ID   : ${subId}"
     _dsb_i "  Subscription Name : ${subName}"
+
     _dsbTfAzureUpn="${azUpn}"
     _dsbTfSubscriptionId="${subId}"
     _dsbTfSubscriptionName="${subName}"
@@ -3833,16 +3774,6 @@ az-login() {
   return "${returnCode}"
 }
 
-# TODO: theres a bug:
-# INFO   : Logged out from Azure CLI.
-# jq: parse error: Invalid numeric literal at line 1, column 6
-# jq: parse error: Invalid numeric literal at line 1, column 6
-# jq: parse error: Invalid numeric literal at line 1, column 6
-# jq: parse error: Invalid numeric literal at line 1, column 6
-# jq: parse error: Invalid numeric literal at line 1, column 6
-# jq: parse error: Invalid numeric literal at line 1, column 6
-# jq: parse error: Invalid numeric literal at line 1, column 6
-# jq: parse error: Invalid numeric literal at line 1, column 6
 az-relog() {
   _dsb_tf_configure_shell
   _dsb_tf_az_relogin
@@ -4019,7 +3950,7 @@ tf-help() {
 #
 ###################################################################################################
 
-# TODO: consider this everywhere
+# TODO: consider this scrolling other places as well
 printf "\033[2J\033[H" # Scroll the shell output to hide previous output without clearing the buffer
 _dsb_tf_enumerate_directories || :
 _dsb_tf_register_all_completions || :
