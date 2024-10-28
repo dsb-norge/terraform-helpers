@@ -1842,9 +1842,14 @@ _dsb_tf_enumerate_directories() {
 
   _dsbTfModulesDirList=()
   if [ -d "${_dsbTfModulesDir}" ]; then
+    _dsb_d "Enumerating modules ..."
+
     local dir
-    for dir in "${_dsbTfRootDir}"/modules/*; do
-      _dsbTfModulesDirList[$(basename "${dir}")]="${dir}"
+    for dir in "${_dsbTfRootDir}"/modules/*/; do
+      if [ -d "${dir}" ]; then # is a directory
+        _dsb_d "Found module: $(basename "${dir}")"
+        _dsbTfModulesDirList[$(basename "${dir}")]="${dir}"
+      fi
     done
   fi
 
@@ -1855,7 +1860,7 @@ _dsb_tf_enumerate_directories() {
     _dsb_d "Enumerating environments ..."
 
     local item
-    for item in "${_dsbTfRootDir}"/envs/*; do
+    for item in "${_dsbTfRootDir}"/envs/*/; do
       if [ -d "${item}" ]; then # is a directory
         # this exclude directories starting with _
         if [[ "$(basename "${item}")" =~ ^_ ]]; then
@@ -1914,13 +1919,20 @@ _dsb_tf_enumerate_directories() {
 #   echos a list of available project modules
 _dsb_tf_get_module_names() {
   local -a moduleNames=()
+
   if declare -p _dsbTfModulesDirList &>/dev/null; then
     local key
     for key in "${!_dsbTfModulesDirList[@]}"; do
       moduleNames+=("${key}")
     done
+
+    local elemCount=${#moduleNames[@]}
+
+    # print only when there are elements, otherwise calling function will receive array with 1 empty element
+    if [ "${elemCount}" -gt 0 ]; then
+      printf "%s\n" "${moduleNames[@]}"
+    fi
   fi
-  printf "%s\n" "${moduleNames[@]}"
 }
 
 # a reusable way to get a comma separated list of available project modules
@@ -1954,13 +1966,20 @@ _dsb_tf_get_module_names_commaseparated() {
 #   echos a list of available project module directory paths
 _dsb_tf_get_module_dirs() {
   local -a moduleDirs=()
+
   if declare -p _dsbTfModulesDirList &>/dev/null; then
     local value
     for value in "${_dsbTfModulesDirList[@]}"; do
       moduleDirs+=("${value}")
     done
+
+    local elemCount=${#moduleDirs[@]}
+
+    # print only when there are elements, otherwise calling function will receive array with 1 empty element
+    if [ "${elemCount}" -gt 0 ]; then
+      printf "%s\n" "${moduleDirs[@]}"
+    fi
   fi
-  printf "%s\n" "${moduleDirs[@]}"
 }
 
 # what:
@@ -1974,13 +1993,20 @@ _dsb_tf_get_module_dirs() {
 #   echos a list of environment names
 _dsb_tf_get_env_names() {
   local -a envNames=()
+
   if declare -p _dsbTfEnvsDirList &>/dev/null; then
     local key
     for key in "${!_dsbTfEnvsDirList[@]}"; do
       envNames+=("${key}")
     done
+
+    local elemCount=${#envNames[@]}
+
+    # print only when there are elements, otherwise calling function will receive array with 1 empty element
+    if [ "${elemCount}" -gt 0 ]; then
+      printf "%s\n" "${envNames[@]}"
+    fi
   fi
-  printf "%s\n" "${envNames[@]}"
 }
 
 # a reusable way to get a comma separated list of available environments
@@ -2014,13 +2040,20 @@ _dsb_tf_get_env_names_commaseparated() {
 #   echos a list of available environment directory paths
 _dsb_tf_get_env_dirs() {
   local -a envDirs=()
+
   if declare -p _dsbTfEnvsDirList &>/dev/null; then
     local value
     for value in "${_dsbTfEnvsDirList[@]}"; do
       envDirs+=("${value}")
     done
+
+    local elemCount=${#envDirs[@]}
+
+    # print only when there are elements, otherwise calling function will receive array with 1 empty element
+    if [ "${elemCount}" -gt 0 ]; then
+      printf "%s\n" "${envDirs[@]}"
+    fi
   fi
-  printf "%s\n" "${envDirs[@]}"
 }
 
 # what:
@@ -3035,8 +3068,7 @@ _dsb_tf_init_modules() {
   _dsb_d "moduleDirsCount: ${moduleDirsCount}"
 
   if [ "${moduleDirsCount}" -eq 0 ]; then
-    _dsb_i "No modules found in: ${selectedEnv}"
-    _dsb_i "  nothing to init"
+    _dsb_i "No modules found to init in: ${selectedEnv}"
     _dsbTfReturnCode=0
     return 0
   fi
