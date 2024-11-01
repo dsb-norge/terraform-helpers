@@ -55,7 +55,6 @@
 #
 #   other
 #     tf-test         -> terraform test in chosen env, use poc from lock module
-#     tf-bump-modules -> upgrade modules in code everywhere
 #     tf-* functions for _terraform-state env
 #
 #   upgrading
@@ -72,10 +71,10 @@
 #         - show possible upgrades
 #       note: there is also a list command: fupdate release list --source-type tfregistryModule --max-length 3 "Azure/naming/azurerm"
 #    proposed commands:
-#     tf-bump-providers       -> find latest version of providers and modify versions.tf (tf-upgrade after?)
 #     tf-bump-tflint-plugins  -> tflint-plugins in chosen env
+#     tf-bump-modules         -> upgrade modules in code everywhere
+#     tf-bump-providers       -> find latest version of providers and modify versions.tf (tf-upgrade after?)
 #     tf-bump                 -> providers og tflint-plugins in chosen env
-#     tf-bump-cicd            -> terraform and tflint in GitHub workflows
 #     tf-bump-all             -> providers og tflint-plugins in alle env + terraform and tflint in GitHub workflows
 #
 
@@ -741,14 +740,16 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-init-env"
     "tf-init-main"
     "tf-init-modules"
-    "tf-upgrade"
-    "tf-upgrade-env"
     "tf-fmt"
     "tf-fmt-fix"
     "tf-validate"
     "tf-plan"
     "tf-apply"
     "tf-destroy"
+    # upgrading
+    "tf-upgrade"
+    "tf-upgrade-env"
+    "tf-bump-cicd"
   )
   echo "${commands[@]}"
 }
@@ -764,6 +765,7 @@ _dsb_tf_help_enumerate_supported_topics() {
     "azure"
     "general"
     "terraform"
+    "upgrading"
   )
   local -a validCommands
   mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
@@ -800,6 +802,9 @@ _dsb_tf_help() {
   terraform)
     _dsb_tf_help_group_terraform
     ;;
+  upgrading)
+    _dsb_tf_help_group_upgrading
+    ;;
   *)
     local -a validCommands
     mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
@@ -815,7 +820,7 @@ _dsb_tf_help() {
 _dsb_tf_help_help() {
   _dsb_i "DSB Terraform Project Helpers 🚀"
   _dsb_i ""
-  _dsb_i "  A collection of functions to help working with Terraform projects."
+  _dsb_i "  A collection of functions to help working with DSB Terraform projects."
   _dsb_i "  All available commands are organized into groups."
   _dsb_i "  Below are commands for getting help with groups or specific commands."
   _dsb_i ""
@@ -845,12 +850,13 @@ _dsb_tf_help_help() {
 
 _dsb_tf_help_groups() {
   _dsb_i "Help Groups:"
-  _dsb_i "  environments            -> Environment related commands"
-  _dsb_i "  terraform               -> Terraform related commands"
-  _dsb_i "  checks                  -> Check related commands"
-  _dsb_i "  general                 -> General help"
-  _dsb_i "  azure                   -> Azure related commands"
-  _dsb_i "  all                     -> All help"
+  _dsb_i "  environments  -> Environment related commands"
+  _dsb_i "  terraform     -> Terraform related commands"
+  _dsb_i "  upgrading     -> Upgrade related commands"
+  _dsb_i "  checks        -> Check related commands"
+  _dsb_i "  general       -> General help"
+  _dsb_i "  azure         -> Azure related commands"
+  _dsb_i "  all           -> All help"
   _dsb_i ""
   _dsb_i "Use 'tf-help [group]' to get detailed help for a specific group."
 }
@@ -897,14 +903,19 @@ _dsb_tf_help_group_terraform() {
   _dsb_i "    tf-init-env [env]     -> Initialize selected or given environment (environment directory only)"
   _dsb_i "    tf-init-main          -> Initialize Terraform project's main module"
   _dsb_i "    tf-init-modules       -> Initialize Terraform project's local sub modules"
-  _dsb_i "    tf-upgrade [env]      -> Upgrade Terraform dependencies for entire project with selected or given environment"
-  _dsb_i "    tf-upgrade-env [env]  -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
   _dsb_i "    tf-fmt                -> Run syntax check recursively from current directory"
   _dsb_i "    tf-fmt-fix            -> Run syntax check and fix recursively from current directory"
   _dsb_i "    tf-validate [env]     -> Make Terraform validate the project with selected or given environment"
   _dsb_i "    tf-plan [env]         -> Make Terraform create a plan for the selected or given environment"
   _dsb_i "    tf-apply [env]        -> Make Terraform apply changes forthe selected or given environment"
   _dsb_i "    tf-destroy [env]      -> Show command to manually destroy the selected or given environment"
+}
+
+_dsb_tf_help_group_upgrading() {
+  _dsb_i "  Upgrade Commands:"
+  _dsb_i "    tf-upgrade [env]      -> Upgrade Terraform dependencies for entire project with selected or given environment"
+  _dsb_i "    tf-upgrade-env [env]  -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
+  _dsb_i "    tf-bump-cicd          -> Bump versions in GitHub workflows"
 }
 
 _dsb_tf_help_commands() {
@@ -916,13 +927,15 @@ _dsb_tf_help_commands() {
   _dsb_i ""
   _dsb_tf_help_group_terraform
   _dsb_i ""
+  _dsb_tf_help_group_upgrading
+  _dsb_i ""
   _dsb_tf_help_group_checks
   _dsb_i ""
   _dsb_tf_help_group_general
   _dsb_i ""
   _dsb_tf_help_group_azure
   _dsb_i ""
-  _dsb_i "All Commands:"
+  _dsb_i "Detailed Help For All Commands:"
   _dsb_i ""
   local commands
   commands=$(_dsb_tf_help_get_commands_supported_by_help)
@@ -1117,34 +1130,6 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-init-env, tf-init"
     ;;
-  tf-upgrade)
-    _dsb_i "tf-upgrade [env]:"
-    _dsb_i "  Upgrade Terraform dependencies and initialize the entire project."
-    _dsb_i "  If environment is not specified, the selected environment is used."
-    _dsb_i ""
-    _dsb_i "  This upgrades and initializes the project completely, environment directory sub modules and main."
-    _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
-    _dsb_i ""
-    _dsb_i ""
-    _dsb_i "  Supports tab completion for environment."
-    _dsb_i ""
-    _dsb_i "  Related commands: tf-init, tf-plan, tf-apply."
-    ;;
-  tf-upgrade-env)
-    _dsb_i "tf-upgrade-env [env]:"
-    _dsb_i "  Upgrade Terraform dependencies and initialize the specified environment."
-    _dsb_i "  If environment is not specified, the selected environment is used."
-    _dsb_i ""
-    _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
-    _dsb_i ""
-    _dsb_i "  Note:"
-    _dsb_i "    This upgrades and initializes just the environment directory, not sub modules and main."
-    _dsb_i "    Use 'tf-upgrade' for a complete depenedency upgrade and initialization of the entire project."
-    _dsb_i ""
-    _dsb_i "  Supports tab completion for environment."
-    _dsb_i ""
-    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade."
-    ;;
   tf-fmt)
     _dsb_i "tf-fmt:"
     _dsb_i "  Run Terraform syntax check recursively from current directory."
@@ -1198,6 +1183,52 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
     _dsb_i "  Related commands: tf-init, tf-validate, tf-plan, tf-apply."
+    ;;
+    # upgrading
+  tf-upgrade)
+    _dsb_i "tf-upgrade [env]:"
+    _dsb_i "  Upgrade Terraform dependencies and initialize the entire project."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  This upgrades and initializes the project completely, environment directory sub modules and main."
+    _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
+    _dsb_i ""
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init, tf-plan, tf-apply."
+    ;;
+  tf-upgrade-env)
+    _dsb_i "tf-upgrade-env [env]:"
+    _dsb_i "  Upgrade Terraform dependencies and initialize the specified environment."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
+    _dsb_i ""
+    _dsb_i "  Note:"
+    _dsb_i "    This upgrades and initializes just the environment directory, not sub modules and main."
+    _dsb_i "    Use 'tf-upgrade' for a complete depenedency upgrade and initialization of the entire project."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade."
+    ;;
+  tf-bump-cicd)
+    _dsb_i "tf-bump-cicd:"
+    _dsb_i "  Bump versions in GitHub workflows."
+    _dsb_i "  Currently supports bumping Terraform and tflint versions."
+    _dsb_i ""
+    _dsb_i "  Retreives the latest versions from GitHub and updates all workflow files in .github/workflows."
+    _dsb_i "  If a tool is configured with 'latest' it will not be updated."
+    _dsb_i ""
+    _dsb_i "  If a tool is configured with partial semver version or x as wildcard, the syntax is preserved and versions updated as needed."
+    _dsb_i "  Examples where latest version is 'v1.13.7':"
+    _dsb_i "    - \e[90m'v1.12.2'\e[0m becomes \e[32m'v1.13.7'\e[0m"
+    _dsb_i "    - \e[90m'v1.12.x'\e[0m becomes \e[32m'v1.13.x'\e[0m"
+    _dsb_i "    - \e[90m'v1.12'\e[0m becomes \e[32m'v1.13'\e[0m"
+    _dsb_i "    - \e[90m'v0'\e[0m becomes \e[32m'v1'\e[0m"
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-upgrade."
     ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
@@ -1266,6 +1297,189 @@ _dsb_tf_register_completions_for_tf_help() {
 _dsb_tf_register_all_completions() {
   _dsb_tf_register_completions_for_available_envs
   _dsb_tf_register_completions_for_tf_help
+}
+
+###################################################################################################
+#
+# Utility functions: Version parsing
+#
+###################################################################################################
+
+# what:
+#   check if a version string is a valid semver
+#   supports x as wildcard in last number of version string, default is not allowed
+#   supports v as first character, default is not allowed
+# input:
+#   $1: version string
+#   $2: xInLastNumberIsWildcard (optional, default 0)
+#   $3: vAsFirstCharacterAllowed (optional, default 0)
+# on info:
+#   nothing
+# return:
+#   0: valid semver
+#   1: not a valid semver
+_dsb_tf_semver_is_semver() {
+  local inputVersion="${1}"
+  local xInLastNumberIsWildcard="${2:-0}"
+  local vAsFirstCharacterAllowed="${3:-0}"
+
+  local isSemver=0
+
+  if [ "${xInLastNumberIsWildcard}" -eq 1 ]; then
+    if [ "${vAsFirstCharacterAllowed}" -eq 1 ]; then
+      if [[ "${inputVersion}" =~ ^v?[0-9]+\.[0-9]+\.([0-9]+|[xX])$ ]]; then
+        isSemver=1
+      elif [[ "${inputVersion}" =~ ^v?[0-9]+\.([0-9]+|[xX])$ ]]; then
+        isSemver=1
+      elif [[ "${inputVersion}" =~ ^v?[0-9]+$ ]]; then
+        isSemver=1
+      fi
+    else
+      if [[ "${inputVersion}" =~ ^[0-9]+\.[0-9]+\.([0-9]+|[xX])$ ]]; then
+        isSemver=1
+      elif [[ "${inputVersion}" =~ ^[0-9]+\.([0-9]+|[xX])$ ]]; then
+        isSemver=1
+      elif [[ "${inputVersion}" =~ ^[0-9]+$ ]]; then
+        isSemver=1
+      fi
+    fi
+  else
+    if [ "${vAsFirstCharacterAllowed}" -eq 1 ]; then
+      if [[ "${inputVersion}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        isSemver=1
+      elif [[ "${inputVersion}" =~ ^v?[0-9]+\.[0-9]+$ ]]; then
+        isSemver=1
+      elif [[ "${inputVersion}" =~ ^v?[0-9]+$ ]]; then
+        isSemver=1
+      fi
+    else
+      if [[ "${inputVersion}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        isSemver=1
+      elif [[ "${inputVersion}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+        isSemver=1
+      elif [[ "${inputVersion}" =~ ^[0-9]+$ ]]; then
+        isSemver=1
+      fi
+    fi
+  fi
+
+  [ "${isSemver}" -eq 1 ] && return 0 || return 1
+}
+
+# what:
+#   check if a version string is a valid semver
+#   allows x as wildcard in last number of version string
+# input:
+#   $1: version string
+# on info:
+#   nothing
+# return:
+#   0: valid semver
+#   1: not a valid semver
+_dsb_tf_semver_is_semver_allow_x_as_wildcard_in_last() {
+  local inputVersion="${1}"
+
+  _dsb_tf_semver_is_semver "${inputVersion}" 1 0 # $2 = xInLastNumberIsWildcard, $3 = vAsFirstCharacterAllowed
+}
+
+# what:
+#   check if a version string is a valid semver
+#   allows v as first character
+# input:
+#   $1: version string
+# on info:
+#   nothing
+# return:
+#   0: valid semver
+#   1: not a valid semver
+_dsb_tf_semver_is_semver_allow_v_as_first_character() {
+  local inputVersion="${1}"
+
+  _dsb_tf_semver_is_semver "${inputVersion}" 0 1 # $2 = xInLastNumberIsWildcard, $3 = vAsFirstCharacterAllowed
+}
+
+# what:
+#   given a version string, return the major version part
+# input:
+#   $1: version string
+# on info:
+#   nothing
+# return:
+#   echos the major version part
+#   returns 1 if version string is not a valid semver
+_dsb_tf_semver_get_major_version() {
+  local inputVersion="${1}"
+
+  local countOfDots
+  countOfDots=$(grep -o '\.' <<<"${inputVersion}" | wc -l)
+
+  local majorVersion
+  if [ "${countOfDots}" -eq 0 ]; then
+    majorVersion="${inputVersion}"
+  elif [ "${countOfDots}" -eq 1 ] || [ "${countOfDots}" -eq 2 ]; then
+    majorVersion="${inputVersion%%.*}" # removes the longest match of .* from the end
+  else
+    return 1 # invalid version format
+  fi
+
+  echo "${majorVersion}"
+}
+
+# what:
+#   given a version string, return the minor version part
+# input:
+#   $1: version string
+# on info:
+#   nothing
+# return:
+#   echos the minor version part
+#   returns 1 if version string is not a valid semver
+_dsb_tf_semver_get_minor_version() {
+  local inputVersion="${1}"
+
+  local countOfDots
+  countOfDots=$(grep -o '\.' <<<"${inputVersion}" | wc -l)
+
+  local minorVersion
+  if [ "${countOfDots}" -eq 0 ]; then
+    minorVersion=""
+  elif [ "${countOfDots}" -eq 1 ]; then
+    minorVersion="${inputVersion#*.}" # remove everything up to and including the first dot
+  elif [ "${countOfDots}" -eq 2 ]; then
+    minorVersion="${inputVersion#*.}"  # remove everything up to and including the first dot
+    minorVersion="${minorVersion%%.*}" # removes the longest match of .* from the end
+  else
+    return 1 # invalid version format
+  fi
+
+  echo "${minorVersion}"
+}
+
+# what:
+#   given a version string, return the patch version part
+# input:
+#   $1: version string
+# on info:
+#   nothing
+# return:
+#   echos the patch version part
+#   returns 1 if version string is not a valid semver
+_dsb_tf_semver_get_patch_version() {
+  local inputVersion="${1}"
+
+  local countOfDots
+  countOfDots=$(grep -o '\.' <<<"${inputVersion}" | wc -l)
+
+  local patchVersion
+  if [ "${countOfDots}" -eq 0 ] || [ "${countOfDots}" -eq 1 ]; then
+    patchVersion=""
+  elif [ "${countOfDots}" -eq 2 ]; then
+    patchVersion="${inputVersion##*.}" # remove everything up to and including the last dot
+  else
+    return 1 # invalid version format
+  fi
+
+  echo "${patchVersion}"
 }
 
 ###################################################################################################
@@ -2323,6 +2537,18 @@ _dsb_tf_look_for_subscription_hint_file() {
   fi
 
   return 0
+}
+
+# what:
+#   returns all the GitHub workflow files in the .github/workflows directory
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   array of GitHub workflow files
+_dsb_tf_get_github_workflow_files() {
+  find "${_dsbTfRootDir}/.github/workflows" -name "*.yml" -type f
 }
 
 ###################################################################################################
@@ -3671,6 +3897,361 @@ _dsb_tf_clean_dot_directories() {
 
 ###################################################################################################
 #
+# Upgrade functions
+#
+###################################################################################################
+
+# what:
+#   returns the latest version of terraform on the form vX.Y.Z
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   latest version tag of terraform in the GitHub repo hashicorp/terraform
+_dsb_tf_get_latest_terraform_version_tag() {
+  gh api \
+    -H "Accept: application/vnd.github.v3+json" \
+    '/repos/hashicorp/terraform/releases/latest' \
+    --jq '.tag_name'
+}
+
+# TODO: need this?
+# _dsb_tf_get_all_terraform_versions() {
+#   gh api \
+#     -H "Accept: application/vnd.github.v3+json" \
+#     '/repos/hashicorp/terraform/releases?per_page=100' \
+#     --paginate \
+#     --jq '.[].tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))'
+# }
+
+# what:
+#   returns the latest version of tflint on the form X.Y.Z
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   latest version tag of tflint in the GitHub repo terraform-linters/tflint
+_dsb_tf_get_latest_tflint_version() {
+  gh api \
+    -H "Accept: application/vnd.github.v3+json" \
+    '/repos/terraform-linters/tflint/releases/latest' \
+    --jq '.tag_name'
+}
+
+# TODO: need this?
+# _dsb_tf_get_all_tflint_versions() {
+#   gh api \
+#     -H "Accept: application/vnd.github.v3+json" \
+#     '/repos/terraform-linters/tflint/releases?per_page=100' \
+#     --paginate \
+#     --jq '.[].tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))'
+# }
+
+# what:
+#   given a current version and a latest version, returns the current version or the bumped version
+#   the function is able to handle partial semver versions and version numbers with x as wildcard
+#   examples:
+#     1.2.3 -> 1.2.4
+#     1.2 -> 1.3
+#     1 -> 2
+#     1.2.x -> 1.3.x
+#     1.x -> 2.x
+#     1.2 -> 1.2
+#     1.2.x -> 1.2.x
+#     1.x -> 1.x
+# input:
+#   $1: current version
+#   $2: latest version
+# on info:
+#   nothing
+# returns:
+#   echos the resolved version
+_dsb_tf_resolve_bump_version() {
+  local currentVersion="${1}" # can be multiple formats: 1.2.3, 1.2, 1, 1.2.x, 1.x, 1.2
+  local latestVersion="${2}"  # expect full semver version
+
+  local currentMajorVersion currentMinorVersion currentPatchVersion
+  local latestMajorVersion latestMinorVersion latestPatchVersion
+
+  # will be 1 for all cases of 1.2.3, 1.2, 1, 1.2.x, 1.x, 1.2
+  currentMajorVersion="$(_dsb_tf_semver_get_major_version "${currentVersion}")" || return 1
+
+  # will be 2 for 1.2.3, 2 for 1.2, "" for 1, 2 for 1.2.x, x for 1.x, 2 for 1.2
+  currentMinorVersion="$(_dsb_tf_semver_get_minor_version "${currentVersion}")" || return 1
+
+  # will be 3 for 1.2.3, "" for 1.2, "" for 1, x for 1.2.x, "" for 1.x, "" for 1.2
+  currentPatchVersion="$(_dsb_tf_semver_get_patch_version "${currentVersion}")" || return 1
+
+  # full semver version
+  latestMajorVersion="$(_dsb_tf_semver_get_major_version "${latestVersion}")" || return 1
+  latestMinorVersion="$(_dsb_tf_semver_get_minor_version "${latestVersion}")" || return 1
+  latestPatchVersion="$(_dsb_tf_semver_get_patch_version "${latestVersion}")" || return 1
+
+  local finalVersion
+  finalVersion="${currentMajorVersion}"
+  if [ "${latestMajorVersion}" -gt "${currentMajorVersion}" ]; then # always a number
+    finalVersion="${latestMajorVersion}"
+    if [ -n "${currentMinorVersion}" ]; then
+      finalVersion="${finalVersion}.${latestMinorVersion}"
+      if [ -n "${currentPatchVersion}" ]; then
+        finalVersion="${finalVersion}.${latestPatchVersion}"
+      elif [ "${currentPatchVersion}" = "x" ]; then
+        finalVersion="${finalVersion}.x"
+      fi
+    elif [ "${currentMinorVersion}" = "x" ]; then
+      finalVersion="${finalVersion}.x"
+    fi
+  elif [ "${currentMajorVersion}" -gt "${latestMajorVersion}" ]; then
+    finalVersion="${currentMajorVersion}.${currentMinorVersion}.${currentPatchVersion}"
+  else
+    # minor can be "", x or a number
+    if [ -n "${currentMinorVersion}" ]; then
+      if [ "${currentMinorVersion}" = "x" ]; then
+        finalVersion="${finalVersion}.x"
+      else
+        if [ "${latestMinorVersion}" -gt "${currentMinorVersion}" ]; then
+          finalVersion="${finalVersion}.${latestMinorVersion}"
+
+          # patch can be "", x or a number
+          if [ -n "${currentPatchVersion}" ]; then
+            if [ "${currentPatchVersion}" = "x" ]; then
+              finalVersion="${finalVersion}.x"
+            else
+              finalVersion="${finalVersion}.${latestPatchVersion}"
+            fi
+          fi
+        else
+          finalVersion="${finalVersion}.${currentMinorVersion}"
+
+          # patch can be "", x or a number
+          if [ -n "${currentPatchVersion}" ]; then
+            if [ "${currentPatchVersion}" = "x" ]; then
+              finalVersion="${finalVersion}.x"
+            else
+              finalVersion="${finalVersion}.${currentPatchVersion}"
+            fi
+          fi
+        fi
+      fi
+    fi
+  fi
+
+  echo "${finalVersion}"
+}
+
+# what:
+#   given a current version and a latest version, returns the current version or the bumped version
+#   this is a wrapper function for _dsb_tf_resolve_bump_version that supports tflint version format, where version is prefixed with v
+# input:
+#   $1: current version
+#   $2: latest version
+# on info:
+#   nothing
+# returns:
+#   echos the resolved version
+_dsb_tf_resolve_tflint_bump_version() {
+  local currentVersion="${1}" # expect full semver version, possibly with v prefix
+  local latestVersion="${2}"  # expect full semver version, possibly with v prefix
+
+  # if versions strings are prefixed with 'v', remove it
+  currentVersion="${currentVersion#v}"
+  latestVersion="${latestVersion#v}"
+
+  _dsb_tf_resolve_bump_version "${currentVersion}" "${latestVersion}"
+}
+
+# what:
+#   this function updates the version of a specified tool (either terraform or tflint) in a GitHub workflow YAML file.
+#   the given latest version is compared with the currently configured version, if the given version is newer the workflow file is updated.
+# input:
+#   $1: tool name (terraform or tflint)
+#   $2: path to the GitHub workflow file
+#   $3: latest version of the tool
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_bump_tool_in_github_workflow_file() {
+  local tool="${1}"
+  local workflowFile="${2}"
+  local toolLatestVersion="${3}"
+
+  local fieldName isSemverFunction versionResolveFunction versionPrefix
+  if [ "${tool}" = "terraform" ]; then
+    # name of field in yaml to look for
+    fieldName='terraform-version'
+
+    # terraform version number in gh workflow file can contain x as the last number or be a full semver
+    isSemverFunction='_dsb_tf_semver_is_semver_allow_x_as_wildcard_in_last'
+
+    versionResolveFunction='_dsb_tf_resolve_bump_version'
+    versionPrefix=''
+  elif [ "${tool}" = "tflint" ]; then
+    # name of field in yaml to look for
+    fieldName='tflint-version'
+
+    # tflint version number in gh workflow file can contain v as the first character or be a full semver
+    isSemverFunction='_dsb_tf_semver_is_semver_allow_v_as_first_character'
+
+    versionResolveFunction='_dsb_tf_resolve_tflint_bump_version' # need a different function for tflint as version is prefixed with v
+    versionPrefix='v'
+  else
+    _dsb_internal_error "Internal error: unknown tool '${tool}'"
+    _dsbTfReturnCode=1
+    return 1
+  fi
+
+  _dsb_d "called with workflowFile: ${workflowFile}"
+  _dsb_d "  toolLatestVersion: ${toolLatestVersion}"
+
+  # look up all instances of the field with the given name in the workflow file
+  declare -a fieldInstances
+  mapfile -t fieldInstances < <(FIELD_NAME="${fieldName}" yq eval '.. | select(has(env(FIELD_NAME))) | path | join(".")' "${workflowFile}")
+  local fieldInstancesCount=${#fieldInstances[@]}
+
+  _dsb_d "fieldInstances: ${fieldInstances[*]}"
+  _dsb_d "fieldInstances count: ${fieldInstancesCount}"
+
+  if [ "${fieldInstancesCount}" -eq 0 ]; then
+    _dsb_i "    ${fieldName} version string not found"
+    _dsbTfReturnCode=0
+    return 0
+  fi
+
+  local fieldPath
+  for fieldPath in "${fieldInstances[@]}"; do
+
+    _dsb_d "checking fieldPath: ${fieldPath}"
+
+    # read the current version from the workflow file
+    local currentVersion
+    currentVersion=$(FIELD_NAME="${fieldName}" yq eval ".${fieldPath}.[env(FIELD_NAME)]" "${workflowFile}")
+
+    _dsb_d "currentVersion: ${currentVersion}"
+
+    # test if the current version is a valid semver
+    local currentVersionIsSemver=0
+    if "${isSemverFunction}" "${currentVersion}"; then
+      currentVersionIsSemver=1
+    fi
+
+    _dsb_d "currentVersionIsSemver: ${currentVersionIsSemver}"
+
+    _dsbTfReturnCode=0
+
+    if [ "${currentVersion}" = "latest" ]; then
+      # we do not touch the version if it is set to 'latest'
+      _dsb_i "    ${fieldName} : set to \e[32m'latest\e[0m', not changing"
+    elif [ "${currentVersionIsSemver}" -ne 1 ]; then
+      _dsb_w "    ${fieldName} : '${currentVersion}' is not a valid semver, yml path: '${fieldPath}'"
+    else
+      _dsb_d "start resolving new version"
+
+      local newVersion
+      if ! newVersion=${versionPrefix}$("${versionResolveFunction}" "${currentVersion}" "${toolLatestVersion}"); then
+        _dsb_e "    ${fieldName} : '${currentVersion}' at '${fieldPath}', unable to resolve new version"
+        _dsbTfReturnCode=1
+      fi
+
+      _dsb_d "newVersion: ${newVersion}"
+
+      if [ "${newVersion}" = "${currentVersion}" ]; then
+        _dsb_i "    ${fieldName} : already at \e[32m${newVersion}\e[0m"
+      else
+        _dsb_i "    ${fieldName} : from \e[90m${currentVersion}\e[0m to \e[32m${newVersion}\e[0m"
+        _dsb_d "  fieldPath: ${fieldPath}"
+        _dsb_d "  versionPrefix: ${versionPrefix}"
+        _dsb_d "  workflowFile: ${workflowFile}"
+
+        # actual update of version in the workflow file
+        if ! yq eval ".${fieldPath}.[\"${fieldName}\"] = \"${newVersion}\"" -i "${workflowFile}"; then
+          _dsb_e "      failed to update version in file."
+          _dsbTfReturnCode=1
+        fi
+      fi
+    fi
+  done
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+# what:
+#   this function bumps the versions of terraform and tflint in all GitHub workflow files in the .github/workflows directory
+# input:
+#   none
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_bump_github() {
+
+  # check that gh cli is installed and user is logged in
+  if ! _dsb_tf_check_gh_auth; then
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  # enumerate directories with current directory as root and
+  # check if the current root directory is a valid Terraform project
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  local dirCheckStatus=${_dsbTfReturnCode}
+  if [ "${dirCheckStatus}" -ne 0 ]; then
+    _dsbTfLogErrors=1 _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsb_i "Bump versions in GitHub workflow file(s):"
+
+  # lookup all github workflow files in .github/workflows
+  local -a workflowFiles
+  mapfile -t workflowFiles < <(_dsb_tf_get_github_workflow_files)
+  local workflowFilesCount=${#workflowFiles[@]}
+
+  if [ "${workflowFilesCount}" -eq 0 ]; then
+    _dsb_i "  no github workflow files found in .github/workflows, nothing to update"
+    _dsbTfReturnCode=0
+    return 0
+  fi
+
+  local terraformLatestVersionTag
+  terraformLatestVersionTag=$(_dsb_tf_get_latest_terraform_version_tag)
+
+  _dsb_d "terraform latestVersion tag: ${terraformLatestVersionTag}"
+
+  local terraformLatestVersion="${terraformLatestVersionTag:1}" # ex. 'v1.5.7' becomes '1.5.7'
+
+  local tflintLatestVersion
+  tflintLatestVersion=$(_dsb_tf_get_latest_tflint_version)
+
+  _dsb_i "  terraform latest version is : ${terraformLatestVersionTag}"
+  _dsb_i "  tflint latest version is    : ${tflintLatestVersion}"
+
+  # loop through all the workflow files and bump versions where needed
+  local returnCode=0
+  local workflowFile
+  for workflowFile in "${workflowFiles[@]}"; do
+    _dsb_i "  checking file: $(_dsb_tf_get_rel_dir "${workflowFile}")"
+
+    _dsb_tf_bump_tool_in_github_workflow_file "terraform" "${workflowFile}" "${terraformLatestVersion}"
+    returnCode=$((returnCode + _dsbTfReturnCode))
+
+    _dsb_tf_bump_tool_in_github_workflow_file "tflint" "${workflowFile}" "${tflintLatestVersion}"
+    returnCode=$((returnCode + _dsbTfReturnCode))
+  done
+
+  _dsb_i "Done."
+  _dsbTfReturnCode="${returnCode}"
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+###################################################################################################
+#
 # Exposed functions
 #
 ###################################################################################################
@@ -3833,15 +4414,6 @@ tf-init-env() {
   return "${returnCode}"
 }
 
-tf-upgrade-env() {
-  local envName="${1:-}"
-  _dsb_tf_configure_shell
-  _dsb_tf_init_env 1 "${envName}" # $1 = 1 means do -upgrade
-  local returnCode="${_dsbTfReturnCode}"
-  _dsb_tf_restore_shell
-  return "${returnCode}"
-}
-
 tf-init-modules() {
   _dsb_tf_configure_shell
   _dsb_tf_init_modules
@@ -3862,15 +4434,6 @@ tf-init() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
   _dsb_tf_init 0 "${envName}" # $1 = 0 means do not -upgrade
-  local returnCode="${_dsbTfReturnCode}"
-  _dsb_tf_restore_shell
-  return "${returnCode}"
-}
-
-tf-upgrade() {
-  local envName="${1:-}"
-  _dsb_tf_configure_shell
-  _dsb_tf_init 1 "${envName}" # $1 = 1 means do -upgrade
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
@@ -3962,6 +4525,35 @@ tf-clean-tflint() {
 tf-clean-all() {
   _dsb_tf_configure_shell
   _dsb_tf_clean_dot_directories "all"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# Upgrade functions
+# -----------------
+
+tf-upgrade-env() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_init_env 1 "${envName}" # $1 = 1 means do -upgrade
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-upgrade() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_init 1 "${envName}" # $1 = 1 means do -upgrade
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-bump-cicd() {
+  _dsb_tf_configure_shell
+  _dsb_tf_bump_github
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
