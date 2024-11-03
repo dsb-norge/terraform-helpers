@@ -54,8 +54,9 @@
 # TODO: future functionality
 #
 #   other
-#     tf-test         -> terraform test in chosen env, use poc from lock module
-#     tf-* functions for _terraform-state env
+#     support for module projects, need to update directory enumeration functions, and block env input for many functions?
+#     tf-test         -> terraform test, could support both tf projects and module projects
+#     tf-* functions support for _terraform-state env
 #
 #   upgrading
 #    look into:
@@ -72,7 +73,6 @@
 #       note: there is also a list command: fupdate release list --source-type tfregistryModule --max-length 3 "Azure/naming/azurerm"
 #    proposed commands:
 #     tf-bump-tflint-plugins  -> tflint-plugins in chosen env
-#     tf-bump-modules         -> upgrade modules in code everywhere
 #     tf-bump-providers       -> find latest version of providers and modify versions.tf (tf-upgrade after?)
 #     tf-bump                 -> providers og tflint-plugins in chosen env
 #     tf-bump-all             -> providers og tflint-plugins in alle env + terraform and tflint in GitHub workflows
@@ -140,6 +140,7 @@ declare -g _dsbTfRootDir=""      # root directory of the project, ie. the curren
 declare -g _dsbTfEnvsDir=""      # environments directory of the project
 declare -g _dsbTfMainDir=""      # main directory of the project
 declare -g _dsbTfModulesDir=""   # modules directory of the project
+declare -ga _dsbTfFilesList      # Indexed array, list of all .tf files in the project
 declare -gA _dsbTfEnvsDirList    # Associative array, key is environment name, value is directory
 declare -ga _dsbTfAvailableEnvs  # Indexed array, list of available environment names in the project
 declare -gA _dsbTfModulesDirList # Associative array, key is module name, value is directory
@@ -675,6 +676,7 @@ _dsb_tf_configure_shell() {
   declare -g _dsbTfLogWarnings=1
   declare -g _dsbTfLogErrors=1
 
+  declare -ga _dsbTfFilesList=()
   declare -gA _dsbTfEnvsDirList=()
   declare -ga _dsbTfAvailableEnvs=()
   declare -gA _dsbTfModulesDirList=()
@@ -750,6 +752,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-upgrade"
     "tf-upgrade-env"
     "tf-bump-cicd"
+    "tf-bump-modules"
   )
   echo "${commands[@]}"
 }
@@ -915,6 +918,7 @@ _dsb_tf_help_group_upgrading() {
   _dsb_i "  Upgrade Commands:"
   _dsb_i "    tf-upgrade [env]      -> Upgrade Terraform dependencies for entire project with selected or given environment"
   _dsb_i "    tf-upgrade-env [env]  -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
+  _dsb_i "    tf-bump-modules       -> Bump module versions in .tf files (only applies to official registry modules)"
   _dsb_i "    tf-bump-cicd          -> Bump versions in GitHub workflows"
 }
 
@@ -1196,7 +1200,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init, tf-plan, tf-apply."
+    _dsb_i "  Related commands: tf-init, tf-plan, tf-apply, tf-bump-modules."
     ;;
   tf-upgrade-env)
     _dsb_i "tf-upgrade-env [env]:"
@@ -1228,7 +1232,20 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    - \e[90m'v1.12'\e[0m becomes \e[32m'v1.13'\e[0m"
     _dsb_i "    - \e[90m'v0'\e[0m becomes \e[32m'v1'\e[0m"
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade."
+    _dsb_i "  Related commands: tf-upgrade, tf-bump-modules."
+    ;;
+  tf-bump-modules)
+    _dsb_i "tf-bump-modules:"
+    _dsb_i "  Bump module versions referenced in the project."
+    _dsb_i "  Currently only applies to modules sourced from the official Hashicorp registry."
+    _dsb_i ""
+    _dsb_i "  Retreives the latest versions from the Terraform registry and updates modules in all .tf files in the project."
+    _dsb_i ""
+    _dsb_i "  Note:"
+    _dsb_i "    When deciding where to update, this command only checks for difference betweeen the declared version and the latest version."
+    _dsb_i "    No consideration is taken for version constraints or partial version values."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-upgrade, tf-bump-cicd."
     ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
@@ -2061,6 +2078,7 @@ _dsb_tf_get_rel_dir() {
 #   exit code directly
 #   populates several global variables:
 #     - _dsbTfRootDir
+#       - _dsbTfFilesList
 #     - _dsbTfModulesDir
 #       - _dsbTfModulesDirList
 #     - _dsbTfMainDir
@@ -2072,6 +2090,21 @@ _dsb_tf_get_rel_dir() {
 #     - _dsbTfTflintWrapperPath
 _dsb_tf_enumerate_directories() {
   _dsbTfRootDir="$(realpath .)"
+
+  _dsbTfFilesList=()
+  if [ -d "${_dsbTfRootDir}" ]; then
+    # populate _dsbTfFilesList with .tf files found recursively under _dsbTfRootDir
+    # find args explained:
+    #    '-type d': Specifies that the search should look for directories.
+    #    '-name ".*"': Matches directories with names starting with a dot (hidden directories).
+    #    '-prune': Prevents find from descending into the matched directories.
+    #   '-o': Logical OR operator, used to combine multiple conditions.
+    #    '-type f': Specifies that the search should look for files.
+    #    '-name "*.tf"'': Matches files with a .tf extension (Terraform files).
+    #    '-print': Prints the matched files to the standard output.
+    mapfile -t _dsbTfFilesList < <(find "${_dsbTfRootDir}" -type d -name ".*" -prune -o -type f -name "*.tf" -print)
+  fi
+
   _dsbTfModulesDir="${_dsbTfRootDir}/modules"
   _dsbTfMainDir="${_dsbTfRootDir}/main"
   _dsbTfEnvsDir="${_dsbTfRootDir}/envs"
@@ -3331,7 +3364,7 @@ _dsb_tf_init_modules() {
     _dsb_i "Initializing module in: $(_dsb_tf_get_rel_dir "${moduleDir}")"
     if ! _dsb_tf_init_dir "${moduleDir}"; then
       _dsb_e "Failed to init module in: ${moduleDir}"
-      _dsb_e "  init operation not complete, consider enabling debug mode"
+      _dsb_e "  init operation not complete, consider enabling debug logging"
       _dsbTfReturnCode=1
       return 0
     fi
@@ -3387,7 +3420,7 @@ _dsb_tf_init_main() {
   _dsb_i "Initializing dir : $(_dsb_tf_get_rel_dir "${_dsbTfMainDir}")"
   if ! _dsb_tf_init_dir "${_dsbTfMainDir}"; then
     _dsb_e "Failed to init directory: ${moduleDir_dsbTfMainDir}"
-    _dsb_e "  init operation not complete, consider enabling debug mode"
+    _dsb_e "  init operation not complete, consider enabling debug logging"
     _dsbTfReturnCode=1
     return 0
   fi
@@ -3727,7 +3760,7 @@ _dsb_tf_run_tflint() {
 
   # make sure tflint is installed
   if ! _dsbTfLogErrors=0 _dsb_tf_install_tflint_wrapper; then
-    _dsb_e "Failed to install tflint wrapper, consider enabling debug mode"
+    _dsb_e "Failed to install tflint wrapper, consider enabling debug logging"
     _dsbTfReturnCode=1
     return 0
   fi
@@ -4282,6 +4315,385 @@ _dsb_tf_bump_github() {
   return 0
 }
 
+# what:
+#   this function goes through all tf files in the project and looks for module declarations with the official registry as source
+#   sources considered official are those that start with a letter or number and have the format "namespace/name/provider"
+#   data recorded for each module:
+#     - file where declared
+#     - module block name, the name of the module block in the file, ex. module.my_module
+#     - source, the source of the module, ex. Azure/naming/azurerm
+#     - version, the version of the module, ex. 1.2.3 or '~> 1.2'
+#   note:
+#     it's assumed that _dsb_tf_enumerate_directories has been called, _dsbTfFilesList is required to be populated
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   in case of failure, returns exit code directly
+#   returns the following global arrays:
+#     - _dsbTfRegistryModulesAllSources
+#     - _dsbTfRegistryModulesAllVersions
+#     - _dsbTfRegistryModulesAllFiles
+#     - _dsbTfRegistryModulesAllBlockNames
+#     - _dsbTfRegistryModulesUniqueSources
+#     - _dsbTfRegistryModulesUniqueBlockNames
+_dsb_tf_enumerate_registry_modules_meta() {
+
+  # meta about modules:
+  #   file where declared
+  #   module block name, the name of the module block in the file, ex. module.my_module
+  #   source, the source of the module, ex. Azure/naming/azurerm
+  #   version, the version of the module, ex. 1.2.3 or '~> 1.2'
+  declare -gA _dsbTfRegistryModulesAllSources=()       # associative array, key: file:moduleBlockName, value: value of the source field
+  declare -gA _dsbTfRegistryModulesAllVersions=()      # associative array, key: file:moduleBlockName, value: value of the version field
+  declare -ga _dsbTfRegistryModulesAllFiles=()         # list of full path to the files where registry modules are declared
+  declare -ga _dsbTfRegistryModulesAllBlockNames=()    # the module names including the 'module.' prefix of declared registry modules
+  declare -ga _dsbTfRegistryModulesUniqueSources=()    # unique list of module sources, ie. unique list of _dsbTfRegistryModulesAllSources
+  declare -ga _dsbTfRegistryModulesUniqueBlockNames=() # unique list of module block names, ie. unique list of _dsbTfRegistryModulesAllBlockNames
+
+  # check if _dsbTfFilesList is declared, empty array is ok
+  if [ -z "${_dsbTfFilesList:-}" ]; then
+    _dsb_internal_error "Internal error: expected _dsbTfFilesList to be declared"
+    return 1
+  fi
+
+  _dsb_d "enumerating registry modules in ${#_dsbTfFilesList[@]} tf files"
+
+  # _dsbTfFilesList is populated by _dsb_tf_enumerate_directories
+  local tfFile
+  for tfFile in "${_dsbTfFilesList[@]}"; do
+
+    _dsb_d "checking file: $(_dsb_tf_get_rel_dir "${tfFile}")"
+
+    local -a hclBlocks=()
+    mapfile -t hclBlocks < <(hcledit block list --file "${tfFile}")
+
+    _dsb_d "  found ${#hclBlocks[@]} num of HCL blocks"
+
+    # if no hcl blocks found, skip to next file
+    if [[ ${#hclBlocks[@]} -eq 0 ]]; then
+      continue
+    fi
+
+    # filter hclBlocks array for only strings starting with "module."
+    #   and store the part after . as key in an associative array
+    local -A moduleBlockNames=() # key: moduleName, value: hclBlockName
+    local hclBlockName moduleName
+    for hclBlockName in "${hclBlocks[@]}"; do
+      if [[ ${hclBlockName} =~ ^module\. ]]; then
+
+        _dsb_d "  ${hclBlockName} is a module block"
+
+        moduleName=$(echo "${hclBlockName}" | awk -F. '{print $2}')
+        moduleBlockNames["${moduleName}"]="${hclBlockName}"
+      fi
+    done
+
+    _dsb_d "  found ${#moduleBlockNames[@]} num of module blocks"
+
+    # if no module blocks found, skip to next file
+    if [[ ${#moduleBlockNames[@]} -eq 0 ]]; then
+      continue
+    fi
+
+    # loop through all module blocks and get source and version for registry modules
+    local hclBlockName moduleName moduleSource moduleVersion
+    for moduleName in "${!moduleBlockNames[@]}"; do
+      hclBlockName=${moduleBlockNames["${moduleName}"]}
+
+      moduleSource=$(hcledit attribute get "${hclBlockName}.source" --file "${tfFile}")
+      moduleSource=${moduleSource//\"/} # remove double quotes from strings
+
+      _dsb_d "  moduleName: ${moduleName}"
+      _dsb_d "    hclBlockName: ${hclBlockName}"
+      _dsb_d "    moduleSource: ${moduleSource}"
+
+      if [[ -z ${moduleSource} ]]; then
+        # if moduleSource is empty, skip to next module
+        _dsb_w "  'source' argument is empty for ${moduleName} in ${tfFile}"
+        continue
+      fi
+
+      # if module source value starts with a dot or double dot, it is a local module
+      if [[ ${moduleSource} =~ ^\.{1,2} ]]; then
+        _dsb_d "  ignoring local module:"
+        _dsb_d "    file: $(_dsb_tf_get_rel_dir "${tfFile}")"
+        _dsb_d "    module: ${moduleName}"
+        _dsb_d "    source: ${moduleSource}"
+        continue # to next module
+      else
+        moduleVersion=$(hcledit attribute get "${hclBlockName}.version" --file "${tfFile}")
+        moduleVersion=${moduleVersion//\"/} # remove double quotes from strings
+
+        if [[ ${moduleSource} =~ ^[[:alnum:]] && ${moduleSource} =~ ^[^./]+/[^./]+/[^./]+$ ]]; then
+          # if module source value starts with a letter
+          #   or number and has the format "namespace/name/provider"
+          #   and not dot in the value
+          _dsbTfRegistryModulesAllFiles+=("${tfFile}")
+          _dsbTfRegistryModulesAllBlockNames+=("${hclBlockName}")
+
+          _dsb_d "  found registry module:"
+          _dsb_d "    file: $(_dsb_tf_get_rel_dir "${tfFile}" || :)"
+          _dsb_d "    module: ${hclBlockName}"
+          _dsb_d "    source: ${moduleSource}"
+          _dsb_d "    version: ${moduleVersion}"
+
+          if [ -z "${moduleVersion}" ]; then
+            _dsb_internal_error "Internal error: module version is empty" \
+              "  file: $(_dsb_tf_get_rel_dir "${tfFile}" || :)" \
+              "  module: ${hclBlockName}" \
+              "  source: ${moduleSource}"
+            return 1
+          fi
+
+          # record the module source and version in global associative arrays
+          _dsbTfRegistryModulesAllSources["${tfFile}:${hclBlockName}"]="${moduleSource}"
+          _dsbTfRegistryModulesAllVersions["${tfFile}:${hclBlockName}"]="${moduleVersion}"
+        else
+          # ignore other module sources
+
+          # should be warn, could potentially be private registry module
+          if [ -n "${moduleVersion}" ]; then
+            _dsb_w "  ignoring non-registry module in file: $(_dsb_tf_get_rel_dir "${tfFile}")"
+            _dsb_w "    module: ${hclBlockName}"
+            _dsb_w "    version: ${moduleVersion}"
+          fi
+          continue # to next module
+        fi
+      fi
+    done # end of moduleBlockNames loop
+  done   # end of _dsbTfFilesList loop
+
+  # get unique lists of sources and block names
+  if [ "${#_dsbTfRegistryModulesAllSources[@]}" -gt 0 ] && [ "${#_dsbTfRegistryModulesAllBlockNames[@]}" -gt 0 ]; then
+    mapfile -t _dsbTfRegistryModulesUniqueSources < <(printf "%s\n" "${_dsbTfRegistryModulesAllSources[@]}" | sort -u)
+    _dsb_d "unique sources count: ${#_dsbTfRegistryModulesUniqueSources[@]}"
+    mapfile -t _dsbTfRegistryModulesUniqueBlockNames < <(printf "%s\n" "${_dsbTfRegistryModulesAllBlockNames[@]}" | sort -u)
+    _dsb_d "unique block names count: ${#_dsbTfRegistryModulesUniqueBlockNames[@]}"
+  fi
+
+  return 0
+}
+
+# what:
+#   this function gets the latest version of a module from the Terraform registry
+# input:
+#   $1: module source in the format "namespace/name/provider"
+# on info:
+#   nothing
+# returns:
+#   returns the latest version in the global variable _dsbTfLatestRegistryModuleVersion
+#   returns 0 on success, 1 on failure
+_dsb_tf_get_latest_registry_module_version() {
+  local moduleSource="${1}"
+  local moduleNamespace moduleProvider moduleName latestVersionResponse latestModuleVersion
+
+  declare -g _dsbTfLatestRegistryModuleVersion="" # global variable to return the latest version
+
+  _dsb_d "moduleSource: ${moduleSource}"
+
+  moduleNamespace=$(echo "${moduleSource}" | awk -F/ '{print $1}')
+  moduleName=$(echo "${moduleSource}" | awk -F/ '{print $2}')
+  moduleProvider=$(echo "${moduleSource}" | awk -F/ '{print $3}')
+
+  _dsb_d "moduleNamespace: ${moduleNamespace}"
+  _dsb_d "moduleName: ${moduleName}"
+  _dsb_d "moduleProvider: ${moduleProvider}"
+
+  local tfBaseURL="https://registry.terraform.io"
+  local tfSource="$moduleNamespace/$moduleName/$moduleProvider"
+
+  # Latest Version for a Specific Module Provider
+  #   <base_url>/:namespace/:name/:provider
+  #   curl https://registry.terraform.io/v1/modules/hashicorp/consul/aws
+  # ref. https://developer.hashicorp.com/terraform/registry/api-docs#latest-version-for-a-specific-module-provider
+  if ! latestVersionResponse=$(curl -s -f "${tfBaseURL}/v1/modules/${tfSource}"); then
+    _dsb_d "curl call failed!"
+    return 1
+  fi
+
+  _dsb_d "latestVersionResponse: $(echo "${latestVersionResponse}" | jq -r 'del(.root) | del(.. | .readme?)' 2>/dev/null || :)"
+
+  latestModuleVersion=$(echo "$latestVersionResponse" | jq -r '.version')
+
+  if [ -z "${latestModuleVersion}" ]; then
+    return 1
+  fi
+
+  _dsbTfLatestRegistryModuleVersion="${latestModuleVersion}"
+  return 0
+}
+
+# what:
+#   this function bumps the versions of registry modules in all tf files in the project
+#   the function looks up the latest version of each module in the Terraform registry and updates the version in the tf files
+#   note:
+#     blindly updates the version to the latest version (if there's a difference), version constraints nad partial version values are not considered
+# input:
+#   none
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_bump_registry_module_versions() {
+  _dsbTfReturnCode=0 # default return code
+
+  # check if the current root directory is a valid Terraform project
+  # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so we don't need to call it again in this function
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  # we need several tools to be available: curl, jq, hcledit
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_tools; then
+    _dsb_e "Tools check failed, please run 'tf-check-tools'"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsb_i "Bump versions of registry modules in all tf files in the project:"
+
+  # locate registry modules in the project
+  _dsb_i "  Enumerating registry modules ..."
+  if ! _dsb_tf_enumerate_registry_modules_meta; then
+    _dsb_e "Failed to enumerate registry modules meta data, consider enabling debug logging"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  local modulesUniqueSourcesCount=${#_dsbTfRegistryModulesUniqueSources[@]} # populate by _dsb_tf_enumerate_registry_modules_meta
+  if [ "${modulesUniqueSourcesCount}" -eq 0 ]; then
+    _dsb_i "No registry modules found in the project, nothing to update ☀️"
+    return 0
+  fi
+
+  # lookup latest versions for all unique module sources
+  _dsb_i "  Looking up latest versions for registry modules ..."
+  local -A registryModulesLatestVersions=()
+  local moduleSource
+  for moduleSource in "${_dsbTfRegistryModulesUniqueSources[@]}"; do
+
+    _dsb_i "   - ${moduleSource}"
+
+    if ! _dsb_tf_get_latest_registry_module_version "${moduleSource}"; then
+      _dsb_e "Failed to get latest version for module: ${moduleSource}"
+      _dsbTfReturnCode=1
+      registryModulesLatestVersions["${moduleSource}"]="" # empty string to indicate failure
+    else
+      # _dsb_tf_get_latest_registry_module_version returns the latest version in _dsbTfLatestRegistryModuleVersion
+      local moduleLatestVersion
+      moduleLatestVersion="${_dsbTfLatestRegistryModuleVersion:-}"
+
+      if [ -z "${moduleLatestVersion}" ]; then
+        _dsb_internal_error "Internal error: expected to find a version string, but did not" \
+          "  expected in: _dsbTfLatestRegistryModuleVersion" \
+          "  moduleSource: ${moduleSource}"
+        _dsbTfReturnCode=1
+        registryModulesLatestVersions["${moduleSource}"]="" # empty string to indicate failure
+      else
+        _dsb_d "found latest version for module: ${moduleSource} -> ${moduleLatestVersion}"
+        registryModulesLatestVersions["${moduleSource}"]="${moduleLatestVersion}"
+      fi
+    fi
+  done # end of _dsbTfRegistryModulesUniqueSources loop
+
+  _dsb_i "  Updating registry modules declarations as needed ..."
+
+  # check if required global variables are declared
+  if ! declare -p _dsbTfRegistryModulesAllFiles &>/dev/null; then
+    _dsb_internal_error "Internal error: expected _dsbTfRegistryModulesAllFiles to be declared"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+  if ! declare -p _dsbTfRegistryModulesUniqueBlockNames &>/dev/null; then
+    _dsb_internal_error "Internal error: expected _dsbTfRegistryModulesUniqueBlockNames to be declared"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+  if ! declare -p _dsbTfRegistryModulesAllSources &>/dev/null; then
+    _dsb_internal_error "Internal error: expected _dsbTfRegistryModulesAllSources to be declared"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+  if ! declare -p registryModulesLatestVersions &>/dev/null; then
+    _dsb_internal_error "Internal error: expected registryModulesLatestVersions to be declared"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  # loop all files with registry module declarations and upgrade version as needed
+  local tfFile
+  for tfFile in "${_dsbTfRegistryModulesAllFiles[@]}"; do # populate by _dsb_tf_enumerate_registry_modules_meta
+
+    _dsb_d "File: ${tfFile}"
+
+    # loop all known block names for registry modules, ex. module.my_module
+    #   note: not all these blocks exists in all files
+    local hclBlockName
+    for hclBlockName in "${_dsbTfRegistryModulesUniqueBlockNames[@]}"; do # populate by _dsb_tf_enumerate_registry_modules_meta
+
+      _dsb_d "Block: ${hclBlockName}"
+
+      # test if index "${tfFile}:${hclBlockName}" exists in _dsbTfRegistryModulesAllSources
+      if [[ ! ${_dsbTfRegistryModulesAllSources["${tfFile}:${hclBlockName}"]} ]]; then
+        _dsb_d "skipping, index ${tfFile}:${hclBlockName} not found in _dsbTfRegistryModulesAllSources"
+        continue
+      fi
+
+      # test if index "${tfFile}:${hclBlockName}" exists in _dsbTfRegistryModulesAllVersions
+      if [[ ! ${_dsbTfRegistryModulesAllVersions["${tfFile}:${hclBlockName}"]} ]]; then
+        _dsb_internal_error "Internal error: expected to find a version string, but did not" \
+          "  did not expect to find index in _dsbTfRegistryModulesAllSources but not in _dsbTfRegistryModulesAllVersions"
+        _dsbTfReturnCode=1
+        continue
+      fi
+
+      local moduleSource=${_dsbTfRegistryModulesAllSources["${tfFile}:${hclBlockName}"]}
+      local moduleVersion=${_dsbTfRegistryModulesAllVersions["${tfFile}:${hclBlockName}"]}
+      local latestVersion=${registryModulesLatestVersions["${moduleSource}"]}
+
+      # resolve line number of the module declaration in the file to create a link to the file (clickable in VS Code terminal)
+      local moduleName moduleDeclaration moduleDeclarationLineNumber vsCodeFileLink
+      moduleName=$(echo "${hclBlockName}" | awk -F. '{print $2}')                                              # block name is on the form 'module.my_module', we need just the name part
+      moduleDeclaration="module \"${moduleName}\""                                                             # we search for 'module "my_module"'
+      moduleDeclarationLineNumber=$(grep -n "${moduleDeclaration}" "${tfFile}" | cut -d: -f1 2>/dev/null || :) # extract line number
+      if [ -n "${moduleDeclarationLineNumber}" ]; then
+        vsCodeFileLink="($(_dsb_tf_get_rel_dir "${tfFile}")#${moduleDeclarationLineNumber})"
+      fi
+
+      # if resolving latest versions failed previously, skip upgrading version
+      if [ -z "${latestVersion}" ]; then
+        _dsb_w "   - ${moduleSource} : latest version is unknown, skipping ${vsCodeFileLink:-}"
+        continue
+      fi
+
+      # assume declared version is older and ignores version constraints or partial versions
+      # TODO: this could be improved to not blindly overwrite version
+      if [[ ${moduleVersion} != "${latestVersion}" ]]; then
+
+        _dsb_i "   - ${moduleSource} : \e[90m${moduleVersion}\e[0m => \e[32m${latestVersion}\e[0m  ${vsCodeFileLink:-}"
+
+        # use hcledit to update the version field
+        if ! hcledit attribute set "${hclBlockName}.version" "\"${latestVersion}\"" --update --file "${tfFile}"; then
+          _dsb_e "Failed to update version, ${vsCodeFileLink:-}"
+          _dsbTfReturnCode=1
+        fi
+
+      else
+        _dsb_d "Not changing ${moduleSource} : ${latestVersion} in ${tfFile}"
+      fi
+    done # end of _dsbTfRegistryModulesUniqueBlockNames loop
+  done   # end of _dsbTfRegistryModulesAllFiles loop
+
+  _dsb_i "Done."
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
 ###################################################################################################
 #
 # Exposed functions
@@ -4586,6 +4998,14 @@ tf-upgrade() {
 tf-bump-cicd() {
   _dsb_tf_configure_shell
   _dsb_tf_bump_github
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-bump-modules() {
+  _dsb_tf_configure_shell
+  _dsb_tf_bump_registry_module_versions
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
