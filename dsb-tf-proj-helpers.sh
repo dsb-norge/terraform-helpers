@@ -1583,7 +1583,6 @@ _dsb_tf_check_yq() {
   return 0
 }
 
-# TODO: enable when needed
 # what:
 #   check if Go is available
 # input:
@@ -1592,18 +1591,17 @@ _dsb_tf_check_yq() {
 #   nothing
 # returns:
 #   exit code directly
-# _dsb_tf_check_golang() {
-#   if ! go version &>/dev/null; then
-#     _dsb_e "Go not found."
-#     _dsb_e "  checked with command: go version"
-#     _dsb_e "  make sure go is available in your PATH"
-#     _dsb_e "  for installation instructions see: https://go.dev/doc/install"
-#     return 1
-#   fi
-#   return 0
-# }
+_dsb_tf_check_golang() {
+  if ! go version &>/dev/null; then
+    _dsb_e "Go not found."
+    _dsb_e "  checked with command: go version"
+    _dsb_e "  make sure go is available in your PATH"
+    _dsb_e "  for installation instructions see: https://go.dev/doc/install"
+    return 1
+  fi
+  return 0
+}
 
-# TODO: enable when needed
 # what:
 #   check if hcledit is available
 # input:
@@ -1612,17 +1610,17 @@ _dsb_tf_check_yq() {
 #   nothing
 # returns:
 #   exit code directly
-# _dsb_tf_check_hcledit() {
-#   if ! hcledit version &>/dev/null; then
-#     _dsb_e "hcledit not found."
-#     _dsb_e "  checked with command: hcledit version"
-#     _dsb_e "  make sure hcledit is available in your PATH"
-#     _dsb_e "  for installation instructions see: https://github.com/minamijoyo/hcledit?tab=readme-ov-file#install"
-#     _dsb_e "  or install it with: 'go install github.com/minamijoyo/hcledit@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
-#     return 1
-#   fi
-#   return 0
-# }
+_dsb_tf_check_hcledit() {
+  if ! hcledit version &>/dev/null; then
+    _dsb_e "hcledit not found."
+    _dsb_e "  checked with command: hcledit version"
+    _dsb_e "  make sure hcledit is available in your PATH"
+    _dsb_e "  for installation instructions see: https://github.com/minamijoyo/hcledit?tab=readme-ov-file#install"
+    _dsb_e "  or install it with: 'go install github.com/minamijoyo/hcledit@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
+    return 1
+  fi
+  return 0
+}
 
 # TODO: need this?
 # what:
@@ -1696,13 +1694,13 @@ _dsb_tf_check_tools() {
   _dsb_tf_check_yq
   local yqStatus=$?
 
-  # _dsb_i "Checking Go ..."
-  # _dsb_tf_check_golang
-  # local golangStatus=$?
+  _dsb_i "Checking Go ..."
+  _dsb_tf_check_golang
+  local golangStatus=$?
 
-  # _dsb_i "Checking hcledit ..."
-  # _dsb_tf_check_hcledit
-  # local hcleditStatus=$?
+  _dsb_i "Checking hcledit ..."
+  _dsb_tf_check_hcledit
+  local hcleditStatus=$?
 
   # _dsb_i "Checking terraform-docs ..."
   # _dsb_tf_check_terraform_docs
@@ -1713,7 +1711,7 @@ _dsb_tf_check_tools() {
   local realpathStatus=$?
 
   # local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformDocsStatus + realpathStatus))
-  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + realpathStatus))
+  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + realpathStatus))
 
   _dsb_i ""
   _dsb_i "Tools check summary:"
@@ -1742,16 +1740,16 @@ _dsb_tf_check_tools() {
   else
     _dsb_i "  \e[31m☒\e[0m  yq check             : fails, see above for more information."
   fi
-  # if [ ${golangStatus} -eq 0 ]; then
-  #   _dsb_i "  \e[32m☑\e[0m  Go check             : passed."
-  # else
-  #   _dsb_i "  \e[31m☒\e[0m  Go check             : fails, see above for more information."
-  # fi
-  # if [ ${hcleditStatus} -eq 0 ]; then
-  #   _dsb_i "  \e[32m☑\e[0m  hcledit check        : passed."
-  # else
-  #   _dsb_i "  \e[31m☒\e[0m  hcledit check        : fails, see above for more information."
-  # fi
+  if [ ${golangStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  Go check             : passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  Go check             : fails, see above for more information."
+  fi
+  if [ ${hcleditStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  hcledit check        : passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  hcledit check        : fails, see above for more information."
+  fi
   # if [ ${terraformDocsStatus} -eq 0 ]; then
   #   _dsb_i "  \e[32m☑\e[0m  terraform-docs check : passed."
   # else
