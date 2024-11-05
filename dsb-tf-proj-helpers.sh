@@ -1564,7 +1564,6 @@ _dsb_tf_check_jq() {
   return 0
 }
 
-# TODO: need this?
 # what:
 #   check if yq is available
 # input:
@@ -1573,16 +1572,16 @@ _dsb_tf_check_jq() {
 #   nothing
 # returns:
 #   exit code directly
-# _dsb_tf_check_yq() {
-#   if ! yq --version &>/dev/null; then
-#     _dsb_e "yq not found."
-#     _dsb_e "  checked with command: yq --version"
-#     _dsb_e "  make sure yq is available in your PATH"
-#     _dsb_e "  for installation instructions see: https://mikefarah.gitbook.io/yq#install"
-#     return 1
-#   fi
-#   return 0
-# }
+_dsb_tf_check_yq() {
+  if ! yq --version &>/dev/null; then
+    _dsb_e "yq not found."
+    _dsb_e "  checked with command: yq --version"
+    _dsb_e "  make sure yq is available in your PATH"
+    _dsb_e "  for installation instructions see: https://mikefarah.gitbook.io/yq#install"
+    return 1
+  fi
+  return 0
+}
 
 # TODO: enable when needed
 # what:
@@ -1693,9 +1692,9 @@ _dsb_tf_check_tools() {
   _dsb_tf_check_jq
   local jqStatus=$?
 
-  # _dsb_i "Checking yq ..."
-  # _dsb_tf_check_yq
-  # local yqStatus=$?
+  _dsb_i "Checking yq ..."
+  _dsb_tf_check_yq
+  local yqStatus=$?
 
   # _dsb_i "Checking Go ..."
   # _dsb_tf_check_golang
@@ -1714,7 +1713,7 @@ _dsb_tf_check_tools() {
   local realpathStatus=$?
 
   # local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformDocsStatus + realpathStatus))
-  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + realpathStatus))
+  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + realpathStatus))
 
   _dsb_i ""
   _dsb_i "Tools check summary:"
@@ -1738,11 +1737,11 @@ _dsb_tf_check_tools() {
   else
     _dsb_i "  \e[31m☒\e[0m  jq check             : fails, see above for more information."
   fi
-  # if [ ${yqStatus} -eq 0 ]; then
-  #   _dsb_i "  \e[32m☑\e[0m  yq check             : passed."
-  # else
-  #   _dsb_i "  \e[31m☒\e[0m  yq check             : fails, see above for more information."
-  # fi
+  if [ ${yqStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  yq check             : passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  yq check             : fails, see above for more information."
+  fi
   # if [ ${golangStatus} -eq 0 ]; then
   #   _dsb_i "  \e[32m☑\e[0m  Go check             : passed."
   # else
@@ -4187,6 +4186,13 @@ _dsb_tf_bump_tool_in_github_workflow_file() {
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_bump_github() {
+
+  # we need yq to read and modify yml files
+  if ! _dsb_tf_check_yq; then
+    _dsbTfLogErrors=1 _dsb_e "yq check failed, please run 'tf-check-prereqs'"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
 
   # check that gh cli is installed and user is logged in
   if ! _dsb_tf_check_gh_auth; then
