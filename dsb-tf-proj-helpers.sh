@@ -1665,6 +1665,25 @@ _dsb_tf_check_realpath() {
 }
 
 # what:
+#   check if curl is available
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+_dsb_tf_check_curl() {
+  if ! curl --version &>/dev/null; then
+    _dsb_e "curl not found."
+    _dsb_e "  checked with command: curl --version"
+    _dsb_e "  make sure curl is available in your PATH"
+    _dsb_e "  for installation instructions see: https://curl.se/download.html"
+    return 1
+  fi
+  return 0
+}
+
+# what:
 #   check if all required tools are available
 # input:
 #   none
@@ -1710,8 +1729,12 @@ _dsb_tf_check_tools() {
   _dsb_tf_check_realpath
   local realpathStatus=$?
 
-  # local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformDocsStatus + realpathStatus))
-  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + realpathStatus))
+  _dsb_i "Checking curl ..."
+  _dsb_tf_check_curl
+  local curlStatus=$?
+
+  # local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformDocsStatus + realpathStatus + curlStatus))
+  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + realpathStatus + curlStatus))
 
   _dsb_i ""
   _dsb_i "Tools check summary:"
@@ -1759,6 +1782,11 @@ _dsb_tf_check_tools() {
     _dsb_i "  \e[32m☑\e[0m  realpath check       : passed."
   else
     _dsb_i "  \e[31m☒\e[0m  realpath check       : fails, see above for more information."
+  fi
+  if [ ${curlStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  curl check           : passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  curl check           : fails, see above for more information."
   fi
 
   return $returnCode
