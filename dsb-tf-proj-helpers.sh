@@ -533,7 +533,8 @@ _dsb_tf_debug_generate_call_graphs() {
     newFuncName="exposed_${newFuncName}" # tf__check__tools -> exposed_tf__check__tools
 
     # do the replacement
-    local tmpFile=$(mktemp)
+    local tmpFile
+    tmpFile=$(mktemp)
     sed "s/${funcName}/${newFuncName}/g" ${outFile} >"${tmpFile}"
     mv "${tmpFile}" ${outFile}
 
@@ -2959,7 +2960,6 @@ _dsb_tf_az_logout() {
   fi
 
   local clearOutput
-  local clearStatus=0
   if ! clearOutput=$(az account clear 2>&1); then
     _dsb_e "Failed to clear subscriptions from local cache."
     _dsb_e "  please run 'az account clear --debug' manually"
@@ -3419,7 +3419,7 @@ _dsb_tf_init_main() {
   _dsb_i_append "" # newline without any prefix
   _dsb_i "Initializing dir : $(_dsb_tf_get_rel_dir "${_dsbTfMainDir}")"
   if ! _dsb_tf_init_dir "${_dsbTfMainDir}"; then
-    _dsb_e "Failed to init directory: ${moduleDir_dsbTfMainDir}"
+    _dsb_e "Failed to init directory: ${_dsbTfMainDir}"
     _dsb_e "  init operation not complete, consider enabling debug logging"
     _dsbTfReturnCode=1
     return 0
