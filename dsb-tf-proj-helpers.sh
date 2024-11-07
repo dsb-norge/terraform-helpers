@@ -72,7 +72,6 @@
 #         - show possible upgrades
 #       note: there is also a list command: fupdate release list --source-type tfregistryModule --max-length 3 "Azure/naming/azurerm"
 #    proposed commands:
-#     tf-bump-tflint-plugins  -> tflint-plugins in chosen env
 #     tf-bump-providers       -> find latest version of providers and modify versions.tf (tf-upgrade after?)
 #     tf-bump                 -> providers og tflint-plugins in chosen env
 #     tf-bump-all             -> providers og tflint-plugins in alle env + terraform and tflint in GitHub workflows
@@ -755,6 +754,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-upgrade-env"
     "tf-bump-cicd"
     "tf-bump-modules"
+    "tf-bump-tflint-plugins"
   )
   echo "${commands[@]}"
 }
@@ -918,10 +918,11 @@ _dsb_tf_help_group_terraform() {
 
 _dsb_tf_help_group_upgrading() {
   _dsb_i "  Upgrade Commands:"
-  _dsb_i "    tf-upgrade [env]      -> Upgrade Terraform dependencies for entire project with selected or given environment"
-  _dsb_i "    tf-upgrade-env [env]  -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
-  _dsb_i "    tf-bump-modules       -> Bump module versions in .tf files (only applies to official registry modules)"
-  _dsb_i "    tf-bump-cicd          -> Bump versions in GitHub workflows"
+  _dsb_i "    tf-upgrade [env]        -> Upgrade Terraform dependencies for entire project with selected or given environment"
+  _dsb_i "    tf-upgrade-env [env]    -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
+  _dsb_i "    tf-bump-modules         -> Bump module versions in .tf files (only applies to official registry modules)"
+  _dsb_i "    tf-bump-cicd            -> Bump versions in GitHub workflows"
+  _dsb_i "    tf-bump-tflint-plugins  -> Bump tflint plugin versions in .tflint.hcl files"
 }
 
 _dsb_tf_help_commands() {
@@ -1234,7 +1235,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    - \e[90m'v1.12'\e[0m becomes \e[32m'v1.13'\e[0m"
     _dsb_i "    - \e[90m'v0'\e[0m becomes \e[32m'v1'\e[0m"
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-bump-modules."
+    _dsb_i "  Related commands: tf-upgrade, tf-bump-modules, tf-bump-tflint-plugins."
     ;;
   tf-bump-modules)
     _dsb_i "tf-bump-modules:"
@@ -1247,7 +1248,19 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    When deciding where to update, this command only checks for difference betweeen the declared version and the latest version."
     _dsb_i "    No consideration is taken for version constraints or partial version values."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-bump-cicd."
+    _dsb_i "  Related commands: tf-upgrade, tf-bump-cicd, tf-bump-tflint-plugins"
+    ;;
+  tf-bump-tflint-plugins)
+    _dsb_i "tf-bump-tflint-plugins:"
+    _dsb_i "  Bump tflint plugin versions in all .tflint.hcl files."
+    _dsb_i ""
+    _dsb_i "  Retreives the latest plugin versions from GitHub and updates plugins in all .tflint.hcl files in the project."
+    _dsb_i ""
+    _dsb_i "  Note:"
+    _dsb_i "    When deciding where to update, this command only checks for difference betweeen the declared version and the latest version."
+    _dsb_i "    No consideration is taken for version constraints or partial version values."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-upgrade, tf-bump-cicd, tf-bump-modules"
     ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
@@ -4578,7 +4591,7 @@ _dsb_tf_get_latest_registry_module_version() {
 #   this function bumps the versions of registry modules in all tf files in the project
 #   the function looks up the latest version of each module in the Terraform registry and updates the version in the tf files
 #   note:
-#     blindly updates the version to the latest version (if there's a difference), version constraints nad partial version values are not considered
+#     blindly updates the version to the latest version (if there's a difference), version constraints and partial version values are not considered
 # input:
 #   none
 # on info:
@@ -4706,6 +4719,221 @@ _dsb_tf_bump_registry_module_versions() {
       _dsb_d "Not changing ${moduleSource} : ${latestVersion} in ${tfFile}"
     fi
   done # end of loop through all registry modules
+
+  _dsb_i "Done."
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+# what:
+#   this function gets the latest version of a given tflint plugin from GitHub
+# input:
+#   $1: plugin source in the format "github.com/terraform-linters/tflint-ruleset-azurerm"
+# on info:
+#   nothing
+# returns:
+#   returns the latest version in the global variable _dsbTfLatestTflintPluginVersion
+#   returns 0 on success, 1 on failure
+_dsb_tf_get_latest_tflint_plugin_version() {
+  local pluginSource="${1}" # github repo url, ex. "github.com/terraform-linters/tflint-ruleset-azurerm"
+
+  declare -g _dsbTfLatestTflintPluginVersion="" # global variable to return the latest version
+
+  _dsb_d "pluginSource: ${pluginSource}"
+
+  # construct pluginRepo from pluginSource
+  local pluginRepo
+  pluginRepo=$(echo "${pluginSource}" | awk -F/ '{print $2 "/" $3}')
+  local tflintPluginApiEndpoint="repos/${pluginRepo}/releases/latest"
+
+  _dsb_d "pluginRepo: ${pluginRepo}"
+  _dsb_d "tflintPluginApiEndpoint: ${tflintPluginApiEndpoint}"
+
+  local latestVersionTag
+  if ! latestVersionTag=$(gh api "${tflintPluginApiEndpoint}" --jq '.tag_name'); then
+    _dsb_d "GitHub API call failed!"
+    return 1
+  fi
+
+  _dsb_d "latestVersionTag: ${latestVersionTag}"
+
+  # latestVersionTag is expected to be a string on the form 'v1.5.7'
+  # remove the 'v' from the beginning to get the version string
+  local latestPluginVersion="${latestVersionTag#v}"
+
+  _dsb_d "latestPluginVersion: ${latestPluginVersion}"
+
+  if [ -z "${latestPluginVersion}" ]; then
+    return 1
+  fi
+
+  _dsbTfLatestTflintPluginVersion="${latestPluginVersion}"
+  return 0
+}
+
+# what:
+#   this function bumps the versions of tflint plugins in all tflint configuration files in the project
+#   the function looks up the latest version of each plugin in GitHub and updates the version in the tflint files
+#   note:
+#     blindly updates the version to the latest version (if there's a difference), version constraints and partial version values are not considered
+# input:
+#   none
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_bump_tflint_plugin_versions() {
+  declare -g _dsbTfReturnCode=0 # default return code
+
+  # check if the current root directory is a valid Terraform project
+  # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so we don't need to call it again in this function
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  # we need several tools to be available: curl, jq, hcledit
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_curl ||
+    ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_jq ||
+    ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_hcledit; then
+    _dsb_e "Tools check failed, please run 'tf-check-tools'"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  # check that gh cli is installed and user is logged in
+  if ! _dsb_tf_check_gh_auth; then
+    _dsb_e "GitHub cli check failed, please run 'tf-check-gh-auth'"
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
+  _dsb_i "Bump versions of plugins in all tflint configuration files in the project:"
+
+  # locate tflint plugins in the project
+  _dsb_i "  Enumerating tflint plugins ..."
+  if ! _dsb_tf_enumerate_hcl_blocks_meta "plugin" "_dsbTfLintConfigFilesList"; then # $1: hclBlockTypeToLookFor, $2: globalFileListVariableName
+    _dsb_e "Failed to enumerate tflint plugins meta data, consider enabling debug logging"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsb_d "allSources count: ${#_dsbTfHclMetaAllSources[@]}"
+  _dsb_d "allVersions count: ${#_dsbTfHclMetaAllVersions[@]}"
+  _dsb_d "allSources: ${_dsbTfHclMetaAllSources[*]}"
+
+  local pluginsSourcesCount=${#_dsbTfHclMetaAllSources[@]} # populate by _dsb_tf_enumerate_hcl_blocks_meta
+
+  _dsb_d "pluginsSourcesCount: ${pluginsSourcesCount}"
+
+  if [ "${pluginsSourcesCount}" -eq 0 ]; then
+    _dsb_i "No tflint plugins found in the project, nothing to update ☀️"
+    return 0
+  fi
+
+  local -a uniqueSources=()
+  mapfile -t uniqueSources < <(printf "%s\n" "${_dsbTfHclMetaAllSources[@]}" | sort -u)
+
+  _dsb_d "unique sources count: ${#uniqueSources[@]}"
+  _dsb_d "unique sources: ${uniqueSources[*]}"
+
+  _dsb_i "  Looking up latest versions for tflint plugins ..."
+  local -A tflintPluginsLatestVersions=()
+  local pluginSource
+  for pluginSource in "${uniqueSources[@]}"; do
+
+    if [[ -z ${pluginSource} ]]; then
+      _dsb_d "  found empty source, skipping"
+      continue
+    fi
+
+    _dsb_i "   - ${pluginSource}"
+
+    if ! _dsb_tf_get_latest_tflint_plugin_version "${pluginSource}"; then
+      _dsb_e "Failed to get latest version for module: ${pluginSource}"
+      _dsbTfReturnCode=1
+      tflintPluginsLatestVersions["${pluginSource}"]="" # empty string to indicate failure
+    else
+      # _dsb_tf_get_latest_tflint_plugin_version returns the latest version in _dsbTfLatestTflintPluginVersion
+      local pluginLatestVersion
+      pluginLatestVersion="${_dsbTfLatestTflintPluginVersion:-}"
+
+      if [ -z "${pluginLatestVersion}" ]; then
+        _dsb_internal_error "Internal error: expected to find a version string, but did not" \
+          "  expected in: _dsbTfLatestTflintPluginVersion" \
+          "  pluginSource: ${pluginSource}"
+        _dsbTfReturnCode=1
+        tflintPluginsLatestVersions["${pluginSource}"]="" # empty string to indicate failure
+      else
+        _dsb_d "found latest version for plugin: ${pluginSource} -> ${pluginLatestVersion}"
+        tflintPluginsLatestVersions["${pluginSource}"]="${pluginLatestVersion}"
+      fi
+    fi
+  done # end of uniqueSources loop
+
+  _dsb_i "  Updating tflint plugin declarations as needed ..."
+
+  # loop all tflint plugin declarations and upgrade version as needed
+  local key
+  for key in "${!_dsbTfHclMetaAllSources[@]}"; do # populate by _dsb_tf_enumerate_hcl_blocks_meta
+
+    local pluginSource="${_dsbTfHclMetaAllSources[${key}]}"
+
+    if [[ -z ${pluginSource} ]]; then
+      _dsb_d "  found empty source, skipping"
+      continue
+    fi
+
+    local pluginVersion="${_dsbTfHclMetaAllVersions[${key}]}"
+    local latestVersion=${tflintPluginsLatestVersions["${pluginSource}"]}
+
+    # key is a string in the format "file|pluginBlockName"
+    local hclFile="${key%%|*}"
+    local hclBlockAddress="${key##*|}"
+
+    _dsb_d "upgrading in file: $(_dsb_tf_get_rel_dir "${hclFile}")"
+    _dsb_d "  hclBlockAddress: ${hclBlockAddress}"
+    _dsb_d "  pluginSource: ${pluginSource}"
+    _dsb_d "  pluginVersion: ${pluginVersion}"
+    _dsb_d "  latestVersion: ${latestVersion}"
+
+    # resolve line number of the plugin declaration in the file to create a link to the file (clickable in VS Code terminal)
+    local pluginName pluginDeclaration pluginDeclarationLineNumber vsCodeFileLink
+    pluginName=$(echo "${hclBlockAddress}" | awk -F. '{print $2}')                                            # block name is on the form 'plugin.my_plugin', we need just the name part
+    pluginDeclaration="plugin \"${pluginName}\""                                                              # we search for 'plugin "my_plugin"'
+    pluginDeclarationLineNumber=$(grep -n "${pluginDeclaration}" "${hclFile}" | cut -d: -f1 2>/dev/null || :) # extract line number
+    if [ -n "${pluginDeclarationLineNumber}" ]; then
+      vsCodeFileLink="($(_dsb_tf_get_rel_dir "${hclFile}")#${pluginDeclarationLineNumber})"
+    fi
+
+    # if resolving latest versions failed previously, skip upgrading version
+    if [ -z "${latestVersion}" ]; then
+      _dsb_w "   - ${pluginSource} : latest version is unknown, skipping ${vsCodeFileLink:-}"
+      continue
+    fi
+
+    # assume declared version is older and ignores version constraints or partial versions
+    # TODO: this could be improved to not blindly overwrite version
+    if [[ ${pluginVersion} != "${latestVersion}" ]]; then
+
+      _dsb_i "   - ${pluginSource}"
+      _dsb_i "     \e[90m${pluginVersion}\e[0m => \e[32m${latestVersion}\e[0m"
+      if [ -n "${vsCodeFileLink}" ]; then
+        _dsb_i "     ${vsCodeFileLink:-}"
+      fi
+
+      # use hcledit to update the version field
+      if ! hcledit attribute set "${hclBlockAddress}.version" "\"${latestVersion}\"" --update --file "${hclFile}"; then
+        _dsb_e "Failed to update version, ${vsCodeFileLink:-}"
+        _dsbTfReturnCode=1
+      fi
+    else
+      _dsb_d "Not changing ${pluginSource} : ${latestVersion} in ${hclFile}"
+    fi
+
+  done # end of loop through all tflint plugins
 
   _dsb_i "Done."
 
@@ -5025,6 +5253,14 @@ tf-bump-cicd() {
 tf-bump-modules() {
   _dsb_tf_configure_shell
   _dsb_tf_bump_registry_module_versions
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-bump-tflint-plugins() {
+  _dsb_tf_configure_shell
+  _dsb_tf_bump_tflint_plugin_versions
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
