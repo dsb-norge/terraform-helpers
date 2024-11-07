@@ -4316,6 +4316,114 @@ _dsb_tf_bump_github() {
 }
 
 # what:
+#   returns all hcl blocks of a given type found in a given list of files
+#   data recorded for each hcl block
+#     - file where declared
+#     - block address ex. module.my_module
+#     - value of the source field in the block
+#     - value of the version field in the block
+# input:
+#   $1: hcl block type to look for (ex. module. or plugin.)
+#   $2: name of global array variable where the list of files to search in is stored
+# on info:
+#   nothing
+# returns:
+#   in case of failure, returns exit code directly
+#   returns the following global arrays:
+#     - _dsbTfHclMetaAllSources
+#         key: file|hclBlockAddress
+#         value: value of the source field
+#     - _dsbTfHclMetaAllVersions
+#         key: file|hclBlockAddress
+#         value: value of the version field
+_dsb_tf_enumerate_hcl_blocks_meta() {
+  local hclBlockTypeToLookFor="${1}"
+  local globalFileListVariableName="${2}"
+
+  _dsb_d "called with hclBlockTypeToLookFor: ${hclBlockTypeToLookFor}"
+  _dsb_d "  globalFileListVariableName: ${globalFileListVariableName}"
+
+  # outputs in global associative arrays from this function
+  declare -gA _dsbTfHclMetaAllSources=()  # associative array, key: file|hclBlockAddress, value: value of the source field
+  declare -gA _dsbTfHclMetaAllVersions=() # associative array, key: file|hclBlockAddress, value: value of the version field
+
+  # check if file list is declared, empty array is ok
+  local -n hclFilesRef="${globalFileListVariableName}"
+  if [ -z "${!hclFilesRef:-}" ]; then
+    _dsb_internal_error "Internal error: expected hclFilesRef => ${globalFileListVariableName} to be declared"
+    return 1
+  fi
+
+  # copy the global array to a local array
+  local key
+  local -a hclFiles=()
+  for key in "${!hclFilesRef[@]}"; do
+    hclFiles+=("${hclFilesRef[${key}]}")
+  done
+
+  _dsb_d "enumerating '${hclBlockTypeToLookFor}' configuration in ${#hclFiles[@]} files"
+
+  local hclFile
+  for hclFile in "${hclFiles[@]}"; do
+
+    _dsb_d "checking file: $(_dsb_tf_get_rel_dir "${hclFile}" || :)"
+
+    local -a hclBlocks=()
+    mapfile -t hclBlocks < <(hcledit block list --file "${hclFile}")
+
+    _dsb_d "  found ${#hclBlocks[@]} num of HCL blocks"
+
+    # if no hcl blocks found, skip to next file
+    if [[ ${#hclBlocks[@]} -eq 0 ]]; then
+      continue
+    fi
+
+    # filter hclBlocks array for only strings starting with '<hclBlockTypeToLookFor>.' (ex. module. or plugin.)
+    #   and store the part after . as key in an associative array
+    local hclBlockAddress hclBlockInstanceName hclBlockSourceAttr hclBlockVersionAttr
+    for hclBlockAddress in "${hclBlocks[@]}"; do
+
+      # not interested in blocks that are not of the type we are looking for
+      if [[ ! ${hclBlockAddress} =~ ^${hclBlockTypeToLookFor}\. ]]; then
+        continue
+      fi
+
+      _dsb_d "  ${hclBlockAddress} is a '${hclBlockTypeToLookFor}' type block"
+
+      hclBlockInstanceName=$(echo "${hclBlockAddress}" | awk -F. '{print $2}') # the part after the first dot
+
+      if ! hclBlockSourceAttr=$(hcledit attribute get "${hclBlockAddress}.source" --file "${hclFile}"); then
+        _dsb_d "  source field not found in block: ${hclBlockAddress}"
+        hclBlockSourceAttr=""
+      else
+        hclBlockSourceAttr=${hclBlockSourceAttr//\"/} # remove double quotes from strings
+      fi
+
+      if ! hclBlockVersionAttr=$(hcledit attribute get "${hclBlockAddress}.version" --file "${hclFile}"); then
+        _dsb_d "  version field not found in block: ${hclBlockAddress}"
+        hclBlockVersionAttr=""
+      else
+        hclBlockVersionAttr=${hclBlockVersionAttr//\"/} # remove double quotes from strings
+      fi
+
+      _dsb_d "  hclBlockInstanceName: ${hclBlockInstanceName}"
+      _dsb_d "    hclBlockAddress: ${hclBlockAddress}"
+      _dsb_d "    hclBlockSourceAttr: ${hclBlockSourceAttr}"
+      _dsb_d "    hclBlockVersionAttr: ${hclBlockVersionAttr}"
+
+      # record the source and version values in global associative arrays (outputs of this function)
+      _dsbTfHclMetaAllSources["${hclFile}|${hclBlockAddress}"]="${hclBlockSourceAttr}"
+      _dsbTfHclMetaAllVersions["${hclFile}|${hclBlockAddress}"]="${hclBlockVersionAttr}"
+
+    done # end of hclBlocks loop
+  done   # end of files list loop
+
+  _dsb_d "found ${#_dsbTfHclMetaAllSources[@]} num of '${hclBlockTypeToLookFor}' blocks"
+
+  return 0
+}
+
+# what:
 #   this function goes through all tf files in the project and looks for module declarations with the official registry as source
 #   sources considered official are those that start with a letter or number and have the format "namespace/name/provider"
 #   data recorded for each module:
@@ -4334,144 +4442,79 @@ _dsb_tf_bump_github() {
 #   returns the following global arrays:
 #     - _dsbTfRegistryModulesAllSources
 #     - _dsbTfRegistryModulesAllVersions
-#     - _dsbTfRegistryModulesAllFiles
-#     - _dsbTfRegistryModulesAllBlockNames
-#     - _dsbTfRegistryModulesUniqueSources
-#     - _dsbTfRegistryModulesUniqueBlockNames
 _dsb_tf_enumerate_registry_modules_meta() {
 
-  # meta about modules:
-  #   file where declared
-  #   module block name, the name of the module block in the file, ex. module.my_module
-  #   source, the source of the module, ex. Azure/naming/azurerm
-  #   version, the version of the module, ex. 1.2.3 or '~> 1.2'
-  declare -gA _dsbTfRegistryModulesAllSources=()       # associative array, key: file:moduleBlockName, value: value of the source field
-  declare -gA _dsbTfRegistryModulesAllVersions=()      # associative array, key: file:moduleBlockName, value: value of the version field
-  declare -ga _dsbTfRegistryModulesAllFiles=()         # list of full path to the files where registry modules are declared
-  declare -ga _dsbTfRegistryModulesAllBlockNames=()    # the module names including the 'module.' prefix of declared registry modules
-  declare -ga _dsbTfRegistryModulesUniqueSources=()    # unique list of module sources, ie. unique list of _dsbTfRegistryModulesAllSources
-  declare -ga _dsbTfRegistryModulesUniqueBlockNames=() # unique list of module block names, ie. unique list of _dsbTfRegistryModulesAllBlockNames
+  # outputs in global variables from this function
+  declare -gA _dsbTfRegistryModulesAllSources=()  # associative array, key: file|moduleBlockName, value: value of the source field
+  declare -gA _dsbTfRegistryModulesAllVersions=() # associative array, key: file|moduleBlockName, value: value of the version field
 
-  # check if _dsbTfFilesList is declared, empty array is ok
-  if [ -z "${_dsbTfFilesList:-}" ]; then
-    _dsb_internal_error "Internal error: expected _dsbTfFilesList to be declared"
+  # find all module blocks in tf files and get the source and version attributes
+  if ! _dsb_tf_enumerate_hcl_blocks_meta "module" "_dsbTfFilesList"; then # $1: hclBlockTypeToLookFor, $2: globalFileListVariableName
     return 1
   fi
 
-  _dsb_d "enumerating registry modules in ${#_dsbTfFilesList[@]} tf files"
+  _dsb_d "allSources count: ${#_dsbTfHclMetaAllSources[@]}"
+  _dsb_d "allVersions count: ${#_dsbTfHclMetaAllVersions[@]}"
 
-  # _dsbTfFilesList is populated by _dsb_tf_enumerate_directories
-  local tfFile
-  for tfFile in "${_dsbTfFilesList[@]}"; do
+  # loop through all blocks, get source and version values, then filter out the registry modules
+  local key
+  for key in "${!_dsbTfHclMetaAllSources[@]}"; do
 
-    _dsb_d "checking file: $(_dsb_tf_get_rel_dir "${tfFile}")"
+    local moduleSource="${_dsbTfHclMetaAllSources[${key}]}"
+    local moduleVersion="${_dsbTfHclMetaAllVersions[${key}]}"
 
-    local -a hclBlocks=()
-    mapfile -t hclBlocks < <(hcledit block list --file "${tfFile}")
+    # key is a string in the format "file|moduleBlockName"
+    local hclFile="${key%%|*}"
+    local hclBlockAddress="${key##*|}"
 
-    _dsb_d "  found ${#hclBlocks[@]} num of HCL blocks"
+    _dsb_d "checking file: $(_dsb_tf_get_rel_dir "${hclFile}" || :)"
+    _dsb_d "  hclBlockAddress: ${hclBlockAddress}"
+    _dsb_d "  moduleSource: ${moduleSource}"
+    _dsb_d "  moduleVersion: ${moduleVersion}"
 
-    # if no hcl blocks found, skip to next file
-    if [[ ${#hclBlocks[@]} -eq 0 ]]; then
+    if [[ -z ${moduleSource} ]]; then
+      # if hclBlockSourceAttr is empty, skip to next block instance
+      _dsb_w "  'source' argument is empty for ${hclBlockAddress} in $(_dsb_tf_get_rel_dir "${hclFile}")"
       continue
     fi
 
-    # filter hclBlocks array for only strings starting with "module."
-    #   and store the part after . as key in an associative array
-    local -A moduleBlockNames=() # key: moduleName, value: hclBlockName
-    local hclBlockName moduleName
-    for hclBlockName in "${hclBlocks[@]}"; do
-      if [[ ${hclBlockName} =~ ^module\. ]]; then
+    # now comes the actual filtering of the module sources
+    # if module source value starts with a dot or double dot, it is a local module
+    if [[ ${moduleSource} =~ ^\.{1,2} ]]; then
+      _dsb_d "  ignoring local module."
+      continue # to next module
+    else
+      if [[ ${moduleSource} =~ ^[[:alnum:]] && ${moduleSource} =~ ^[^./]+/[^./]+/[^./]+$ ]]; then
+        # if module source value starts with a letter
+        #   or number and has the format "namespace/name/provider"
+        #   and not dot in the value
+        _dsb_d "  identified as registry module."
 
-        _dsb_d "  ${hclBlockName} is a module block"
-
-        moduleName=$(echo "${hclBlockName}" | awk -F. '{print $2}')
-        moduleBlockNames["${moduleName}"]="${hclBlockName}"
-      fi
-    done
-
-    _dsb_d "  found ${#moduleBlockNames[@]} num of module blocks"
-
-    # if no module blocks found, skip to next file
-    if [[ ${#moduleBlockNames[@]} -eq 0 ]]; then
-      continue
-    fi
-
-    # loop through all module blocks and get source and version for registry modules
-    local hclBlockName moduleName moduleSource moduleVersion
-    for moduleName in "${!moduleBlockNames[@]}"; do
-      hclBlockName=${moduleBlockNames["${moduleName}"]}
-
-      moduleSource=$(hcledit attribute get "${hclBlockName}.source" --file "${tfFile}")
-      moduleSource=${moduleSource//\"/} # remove double quotes from strings
-
-      _dsb_d "  moduleName: ${moduleName}"
-      _dsb_d "    hclBlockName: ${hclBlockName}"
-      _dsb_d "    moduleSource: ${moduleSource}"
-
-      if [[ -z ${moduleSource} ]]; then
-        # if moduleSource is empty, skip to next module
-        _dsb_w "  'source' argument is empty for ${moduleName} in ${tfFile}"
-        continue
-      fi
-
-      # if module source value starts with a dot or double dot, it is a local module
-      if [[ ${moduleSource} =~ ^\.{1,2} ]]; then
-        _dsb_d "  ignoring local module:"
-        _dsb_d "    file: $(_dsb_tf_get_rel_dir "${tfFile}")"
-        _dsb_d "    module: ${moduleName}"
-        _dsb_d "    source: ${moduleSource}"
-        continue # to next module
-      else
-        moduleVersion=$(hcledit attribute get "${hclBlockName}.version" --file "${tfFile}")
-        moduleVersion=${moduleVersion//\"/} # remove double quotes from strings
-
-        if [[ ${moduleSource} =~ ^[[:alnum:]] && ${moduleSource} =~ ^[^./]+/[^./]+/[^./]+$ ]]; then
-          # if module source value starts with a letter
-          #   or number and has the format "namespace/name/provider"
-          #   and not dot in the value
-          _dsbTfRegistryModulesAllFiles+=("${tfFile}")
-          _dsbTfRegistryModulesAllBlockNames+=("${hclBlockName}")
-
-          _dsb_d "  found registry module:"
-          _dsb_d "    file: $(_dsb_tf_get_rel_dir "${tfFile}" || :)"
-          _dsb_d "    module: ${hclBlockName}"
-          _dsb_d "    source: ${moduleSource}"
-          _dsb_d "    version: ${moduleVersion}"
-
-          if [ -z "${moduleVersion}" ]; then
-            _dsb_internal_error "Internal error: module version is empty" \
-              "  file: $(_dsb_tf_get_rel_dir "${tfFile}" || :)" \
-              "  module: ${hclBlockName}" \
-              "  source: ${moduleSource}"
-            return 1
-          fi
-
-          # record the module source and version in global associative arrays
-          _dsbTfRegistryModulesAllSources["${tfFile}:${hclBlockName}"]="${moduleSource}"
-          _dsbTfRegistryModulesAllVersions["${tfFile}:${hclBlockName}"]="${moduleVersion}"
-        else
-          # ignore other module sources
-
-          # should be warn, could potentially be private registry module
-          if [ -n "${moduleVersion}" ]; then
-            _dsb_w "  ignoring non-registry module in file: $(_dsb_tf_get_rel_dir "${tfFile}")"
-            _dsb_w "    module: ${hclBlockName}"
-            _dsb_w "    version: ${moduleVersion}"
-          fi
-          continue # to next module
+        if [ -z "${moduleVersion}" ]; then
+          _dsb_internal_error "Internal error: module version is empty" \
+            "  file: $(_dsb_tf_get_rel_dir "${hclFile}" || :)" \
+            "  module: ${hclBlockAddress}" \
+            "  source: ${moduleSource}"
+          return 1
         fi
-      fi
-    done # end of moduleBlockNames loop
-  done   # end of _dsbTfFilesList loop
 
-  # get unique lists of sources and block names
-  if [ "${#_dsbTfRegistryModulesAllSources[@]}" -gt 0 ] && [ "${#_dsbTfRegistryModulesAllBlockNames[@]}" -gt 0 ]; then
-    mapfile -t _dsbTfRegistryModulesUniqueSources < <(printf "%s\n" "${_dsbTfRegistryModulesAllSources[@]}" | sort -u)
-    _dsb_d "unique sources count: ${#_dsbTfRegistryModulesUniqueSources[@]}"
-    mapfile -t _dsbTfRegistryModulesUniqueBlockNames < <(printf "%s\n" "${_dsbTfRegistryModulesAllBlockNames[@]}" | sort -u)
-    _dsb_d "unique block names count: ${#_dsbTfRegistryModulesUniqueBlockNames[@]}"
-  fi
+        # record the module source and version in global associative arrays
+        _dsbTfRegistryModulesAllSources["${hclFile}|${hclBlockAddress}"]="${moduleSource}"
+        _dsbTfRegistryModulesAllVersions["${hclFile}|${hclBlockAddress}"]="${moduleVersion}"
+      else
+        # ignore other module sources
+
+        # should be warn, could potentially be private registry module
+        if [ -n "${moduleVersion}" ]; then
+          _dsb_w "  Ignoring module as it doesn't seem to be sourced from the official HashiCorp registry."
+          _dsb_w "    file: $(_dsb_tf_get_rel_dir "${hclFile}")"
+          _dsb_w "    module: ${hclBlockAddress}"
+          _dsb_w "    version: ${moduleVersion}"
+        fi
+        continue # to next module
+      fi
+    fi
+  done # end of loop through all blocks
 
   return 0
 }
@@ -4537,7 +4580,7 @@ _dsb_tf_get_latest_registry_module_version() {
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_bump_registry_module_versions() {
-  _dsbTfReturnCode=0 # default return code
+  declare -g _dsbTfReturnCode=0 # default return code
 
   # check if the current root directory is a valid Terraform project
   # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so we don't need to call it again in this function
@@ -4564,17 +4607,24 @@ _dsb_tf_bump_registry_module_versions() {
     return 0 # caller reads _dsbTfReturnCode
   fi
 
-  local modulesUniqueSourcesCount=${#_dsbTfRegistryModulesUniqueSources[@]} # populate by _dsb_tf_enumerate_registry_modules_meta
-  if [ "${modulesUniqueSourcesCount}" -eq 0 ]; then
+  _dsb_d "allSources count: ${#_dsbTfRegistryModulesAllSources[@]}"
+  _dsb_d "allVersions count: ${#_dsbTfRegistryModulesAllVersions[@]}"
+
+  local modulesSourcesCount=${#_dsbTfRegistryModulesAllSources[@]} # populate by _dsb_tf_enumerate_registry_modules_meta
+  if [ "${modulesSourcesCount}" -eq 0 ]; then
     _dsb_i "No registry modules found in the project, nothing to update ☀️"
     return 0
   fi
 
-  # lookup latest versions for all unique module sources
+  local -a uniqueSources=()
+  mapfile -t uniqueSources < <(printf "%s\n" "${_dsbTfRegistryModulesAllSources[@]}" | sort -u)
+
+  _dsb_d "unique sources count: ${#uniqueSources[@]}"
+
   _dsb_i "  Looking up latest versions for registry modules ..."
   local -A registryModulesLatestVersions=()
   local moduleSource
-  for moduleSource in "${_dsbTfRegistryModulesUniqueSources[@]}"; do
+  for moduleSource in "${uniqueSources[@]}"; do
 
     _dsb_i "   - ${moduleSource}"
 
@@ -4598,95 +4648,58 @@ _dsb_tf_bump_registry_module_versions() {
         registryModulesLatestVersions["${moduleSource}"]="${moduleLatestVersion}"
       fi
     fi
-  done # end of _dsbTfRegistryModulesUniqueSources loop
+  done # end of uniqueSources loop
 
   _dsb_i "  Updating registry modules declarations as needed ..."
 
-  # check if required global variables are declared
-  if ! declare -p _dsbTfRegistryModulesAllFiles &>/dev/null; then
-    _dsb_internal_error "Internal error: expected _dsbTfRegistryModulesAllFiles to be declared"
-    _dsbTfReturnCode=1
-    return 0
-  fi
-  if ! declare -p _dsbTfRegistryModulesUniqueBlockNames &>/dev/null; then
-    _dsb_internal_error "Internal error: expected _dsbTfRegistryModulesUniqueBlockNames to be declared"
-    _dsbTfReturnCode=1
-    return 0
-  fi
-  if ! declare -p _dsbTfRegistryModulesAllSources &>/dev/null; then
-    _dsb_internal_error "Internal error: expected _dsbTfRegistryModulesAllSources to be declared"
-    _dsbTfReturnCode=1
-    return 0
-  fi
-  if ! declare -p registryModulesLatestVersions &>/dev/null; then
-    _dsb_internal_error "Internal error: expected registryModulesLatestVersions to be declared"
-    _dsbTfReturnCode=1
-    return 0
-  fi
+  # loop all registry module declarations and upgrade version as needed
+  local key
+  for key in "${!_dsbTfRegistryModulesAllSources[@]}"; do # populate by _dsb_tf_enumerate_registry_modules_meta
 
-  # loop all files with registry module declarations and upgrade version as needed
-  local tfFile
-  for tfFile in "${_dsbTfRegistryModulesAllFiles[@]}"; do # populate by _dsb_tf_enumerate_registry_modules_meta
+    local moduleSource="${_dsbTfRegistryModulesAllSources[${key}]}"
+    local moduleVersion="${_dsbTfRegistryModulesAllVersions[${key}]}"
+    local latestVersion=${registryModulesLatestVersions["${moduleSource}"]}
 
-    _dsb_d "File: ${tfFile}"
+    # key is a string in the format "file|moduleBlockName"
+    local tfFile="${key%%|*}"
+    local hclBlockAddress="${key##*|}"
 
-    # loop all known block names for registry modules, ex. module.my_module
-    #   note: not all these blocks exists in all files
-    local hclBlockName
-    for hclBlockName in "${_dsbTfRegistryModulesUniqueBlockNames[@]}"; do # populate by _dsb_tf_enumerate_registry_modules_meta
+    _dsb_d "upgrading in file: $(_dsb_tf_get_rel_dir "${tfFile}")"
+    _dsb_d "  hclBlockAddress: ${hclBlockAddress}"
+    _dsb_d "  moduleSource: ${moduleSource}"
+    _dsb_d "  moduleVersion: ${moduleVersion}"
+    _dsb_d "  latestVersion: ${latestVersion}"
 
-      _dsb_d "Block: ${hclBlockName}"
+    # resolve line number of the module declaration in the file to create a link to the file (clickable in VS Code terminal)
+    local moduleName moduleDeclaration moduleDeclarationLineNumber vsCodeFileLink
+    moduleName=$(echo "${hclBlockAddress}" | awk -F. '{print $2}')                                           # block name is on the form 'module.my_module', we need just the name part
+    moduleDeclaration="module \"${moduleName}\""                                                             # we search for 'module "my_module"'
+    moduleDeclarationLineNumber=$(grep -n "${moduleDeclaration}" "${tfFile}" | cut -d: -f1 2>/dev/null || :) # extract line number
+    if [ -n "${moduleDeclarationLineNumber}" ]; then
+      vsCodeFileLink="($(_dsb_tf_get_rel_dir "${tfFile}")#${moduleDeclarationLineNumber})"
+    fi
 
-      # test if index "${tfFile}:${hclBlockName}" exists in _dsbTfRegistryModulesAllSources
-      if [[ ! ${_dsbTfRegistryModulesAllSources["${tfFile}:${hclBlockName}"]} ]]; then
-        _dsb_d "skipping, index ${tfFile}:${hclBlockName} not found in _dsbTfRegistryModulesAllSources"
-        continue
-      fi
+    # if resolving latest versions failed previously, skip upgrading version
+    if [ -z "${latestVersion}" ]; then
+      _dsb_w "   - ${moduleSource} : latest version is unknown, skipping ${vsCodeFileLink:-}"
+      continue
+    fi
 
-      # test if index "${tfFile}:${hclBlockName}" exists in _dsbTfRegistryModulesAllVersions
-      if [[ ! ${_dsbTfRegistryModulesAllVersions["${tfFile}:${hclBlockName}"]} ]]; then
-        _dsb_internal_error "Internal error: expected to find a version string, but did not" \
-          "  did not expect to find index in _dsbTfRegistryModulesAllSources but not in _dsbTfRegistryModulesAllVersions"
+    # assume declared version is older and ignores version constraints or partial versions
+    # TODO: this could be improved to not blindly overwrite version
+    if [[ ${moduleVersion} != "${latestVersion}" ]]; then
+
+      _dsb_i "   - ${moduleSource} : \e[90m${moduleVersion}\e[0m => \e[32m${latestVersion}\e[0m  ${vsCodeFileLink:-}"
+
+      # use hcledit to update the version field
+      if ! hcledit attribute set "${hclBlockAddress}.version" "\"${latestVersion}\"" --update --file "${tfFile}"; then
+        _dsb_e "Failed to update version, ${vsCodeFileLink:-}"
         _dsbTfReturnCode=1
-        continue
       fi
-
-      local moduleSource=${_dsbTfRegistryModulesAllSources["${tfFile}:${hclBlockName}"]}
-      local moduleVersion=${_dsbTfRegistryModulesAllVersions["${tfFile}:${hclBlockName}"]}
-      local latestVersion=${registryModulesLatestVersions["${moduleSource}"]}
-
-      # resolve line number of the module declaration in the file to create a link to the file (clickable in VS Code terminal)
-      local moduleName moduleDeclaration moduleDeclarationLineNumber vsCodeFileLink
-      moduleName=$(echo "${hclBlockName}" | awk -F. '{print $2}')                                              # block name is on the form 'module.my_module', we need just the name part
-      moduleDeclaration="module \"${moduleName}\""                                                             # we search for 'module "my_module"'
-      moduleDeclarationLineNumber=$(grep -n "${moduleDeclaration}" "${tfFile}" | cut -d: -f1 2>/dev/null || :) # extract line number
-      if [ -n "${moduleDeclarationLineNumber}" ]; then
-        vsCodeFileLink="($(_dsb_tf_get_rel_dir "${tfFile}")#${moduleDeclarationLineNumber})"
-      fi
-
-      # if resolving latest versions failed previously, skip upgrading version
-      if [ -z "${latestVersion}" ]; then
-        _dsb_w "   - ${moduleSource} : latest version is unknown, skipping ${vsCodeFileLink:-}"
-        continue
-      fi
-
-      # assume declared version is older and ignores version constraints or partial versions
-      # TODO: this could be improved to not blindly overwrite version
-      if [[ ${moduleVersion} != "${latestVersion}" ]]; then
-
-        _dsb_i "   - ${moduleSource} : \e[90m${moduleVersion}\e[0m => \e[32m${latestVersion}\e[0m  ${vsCodeFileLink:-}"
-
-        # use hcledit to update the version field
-        if ! hcledit attribute set "${hclBlockName}.version" "\"${latestVersion}\"" --update --file "${tfFile}"; then
-          _dsb_e "Failed to update version, ${vsCodeFileLink:-}"
-          _dsbTfReturnCode=1
-        fi
-
-      else
-        _dsb_d "Not changing ${moduleSource} : ${latestVersion} in ${tfFile}"
-      fi
-    done # end of _dsbTfRegistryModulesUniqueBlockNames loop
-  done   # end of _dsbTfRegistryModulesAllFiles loop
+    else
+      _dsb_d "Not changing ${moduleSource} : ${latestVersion} in ${tfFile}"
+    fi
+  done # end of loop through all registry modules
 
   _dsb_i "Done."
 
