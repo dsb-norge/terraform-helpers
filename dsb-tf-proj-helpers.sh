@@ -678,6 +678,7 @@ _dsb_tf_configure_shell() {
   declare -g _dsbTfLogErrors=1
 
   declare -ga _dsbTfFilesList=()
+  declare -ga _dsbTfLintConfigFilesList=()
   declare -gA _dsbTfEnvsDirList=()
   declare -ga _dsbTfAvailableEnvs=()
   declare -gA _dsbTfModulesDirList=()
@@ -2080,6 +2081,7 @@ _dsb_tf_get_rel_dir() {
 #   populates several global variables:
 #     - _dsbTfRootDir
 #       - _dsbTfFilesList
+#       - _dsbTfLintConfigFilesList
 #     - _dsbTfModulesDir
 #       - _dsbTfModulesDirList
 #     - _dsbTfMainDir
@@ -2093,6 +2095,7 @@ _dsb_tf_enumerate_directories() {
   _dsbTfRootDir="$(realpath .)"
 
   _dsbTfFilesList=()
+  _dsbTfLintConfigFilesList=()
   if [ -d "${_dsbTfRootDir}" ]; then
     # populate _dsbTfFilesList with .tf files found recursively under _dsbTfRootDir
     # find args explained:
@@ -2104,6 +2107,9 @@ _dsb_tf_enumerate_directories() {
     #    '-name "*.tf"'': Matches files with a .tf extension (Terraform files).
     #    '-print': Prints the matched files to the standard output.
     mapfile -t _dsbTfFilesList < <(find "${_dsbTfRootDir}" -type d -name ".*" -prune -o -type f -name "*.tf" -print)
+
+    # find all .tflint.hcl files in the project recusrievly, excluding dot directories
+    mapfile -t _dsbTfLintConfigFilesList < <(find "${_dsbTfRootDir}" -type d -name ".*" -prune -o -type f -name ".tflint.hcl" -print)
   fi
 
   _dsbTfModulesDir="${_dsbTfRootDir}/modules"
