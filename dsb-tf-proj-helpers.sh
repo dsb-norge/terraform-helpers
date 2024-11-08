@@ -1676,6 +1676,26 @@ _dsb_tf_check_hcledit() {
 # }
 
 # what:
+#   check if terraform-config-inspect is available
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+_dsb_tf_check_terraform_config_inspect() {
+  if ! terraform-config-inspect &>/dev/null; then
+    _dsb_e "terraform-config-inspect not found."
+    _dsb_e "  checked with command: terraform-config-inspect"
+    _dsb_e "  make sure terraform-config-inspect is available in your PATH"
+    _dsb_e "  for installation instructions see: https://github.com/hashicorp/terraform-config-inspect"
+    _dsb_e "  or install it with: 'go install github.com/hashicorp/terraform-config-inspect@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
+    return 1
+  fi
+  return 0
+}
+
+# what:
 #   check if realpath is available
 # input:
 #   none
@@ -1757,6 +1777,10 @@ _dsb_tf_check_tools() {
   # _dsb_tf_check_terraform_docs
   # local terraformDocsStatus=$?
 
+  _dsb_i "Checking terraform-config-inspect ..."
+  _dsb_tf_check_terraform_config_inspect
+  local terraformConfigInspectStatus=$?
+
   _dsb_i "Checking realpath ..."
   _dsb_tf_check_realpath
   local realpathStatus=$?
@@ -1765,60 +1789,65 @@ _dsb_tf_check_tools() {
   _dsb_tf_check_curl
   local curlStatus=$?
 
-  # local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformDocsStatus + realpathStatus + curlStatus))
-  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + realpathStatus + curlStatus))
+  # local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformDocsStatus + terraformConfigInspectStatus + realpathStatus + curlStatus))
+  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformConfigInspectStatus + realpathStatus + curlStatus))
 
   _dsb_i ""
   _dsb_i "Tools check summary:"
   if [ ${azCliStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Azure CLI check      : passed."
+    _dsb_i "  \e[32m☑\e[0m  Azure CLI check                : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Azure CLI check      : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  Azure CLI check                : fails, see above for more information."
   fi
   if [ ${ghCliStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  GitHub CLI check     : passed."
+    _dsb_i "  \e[32m☑\e[0m  GitHub CLI check               : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  GitHub CLI check     : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  GitHub CLI check               : fails, see above for more information."
   fi
   if [ ${terraformStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Terraform check      : passed."
+    _dsb_i "  \e[32m☑\e[0m  Terraform check                : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Terraform check      : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  Terraform check                : fails, see above for more information."
   fi
   if [ ${jqStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  jq check             : passed."
+    _dsb_i "  \e[32m☑\e[0m  jq check                       : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  jq check             : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  jq check                       : fails, see above for more information."
   fi
   if [ ${yqStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  yq check             : passed."
+    _dsb_i "  \e[32m☑\e[0m  yq check                       : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  yq check             : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  yq check                       : fails, see above for more information."
   fi
   if [ ${golangStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Go check             : passed."
+    _dsb_i "  \e[32m☑\e[0m  Go check                       : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Go check             : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  Go check                       : fails, see above for more information."
   fi
   if [ ${hcleditStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  hcledit check        : passed."
+    _dsb_i "  \e[32m☑\e[0m  hcledit check                  : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  hcledit check        : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  hcledit check                  : fails, see above for more information."
   fi
   # if [ ${terraformDocsStatus} -eq 0 ]; then
-  #   _dsb_i "  \e[32m☑\e[0m  terraform-docs check : passed."
+  #   _dsb_i "  \e[32m☑\e[0m  terraform-docs check           : passed."
   # else
-  #   _dsb_i "  \e[31m☒\e[0m  terraform-docs check : fails, see above for more information."
+  #   _dsb_i "  \e[31m☒\e[0m  terraform-docs check           : fails, see above for more information."
   # fi
-  if [ ${realpathStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  realpath check       : passed."
+  if [ ${terraformConfigInspectStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  terraform-config-inspect check : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  realpath check       : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  terraform-config-inspect check : fails, see above for more information."
+  fi
+  if [ ${realpathStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  realpath check                 : passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  realpath check                 : fails, see above for more information."
   fi
   if [ ${curlStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  curl check           : passed."
+    _dsb_i "  \e[32m☑\e[0m  curl check                     : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  curl check           : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  curl check                     : fails, see above for more information."
   fi
 
   return $returnCode
