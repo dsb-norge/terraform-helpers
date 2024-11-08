@@ -58,23 +58,9 @@
 #     tf-test         -> terraform test, could support both tf projects and module projects
 #     tf-* functions support for _terraform-state env
 #
-#   upgrading
-#    look into:
-#     tfupdate :
-#       install  : go install github.com/minamijoyo/tfupdate@latest
-#       providers:
-#         - read 'version' from lock file
-#         - use tfupdate: tfupdate release latest --source-type tfregistryProvider 'hashicorp/azurerm'
-#         - show possible upgrades
-#       modules  :
-#         - read 'source' from tf files
-#         - use tfupdate: tfupdate release latest --source-type tfregistryModule "Azure/naming/azurerm"
-#         - show possible upgrades
-#       note: there is also a list command: fupdate release list --source-type tfregistryModule --max-length 3 "Azure/naming/azurerm"
-#    proposed commands:
-#     tf-bump-providers       -> find latest version of providers and modify versions.tf (tf-upgrade after?)
-#     tf-bump                 -> providers og tflint-plugins in chosen env
-#     tf-bump-all             -> providers og tflint-plugins in alle env + terraform and tflint in GitHub workflows
+#   proposed commands:
+#     tf-bump                 -> tflint-plugins in chosen env + list provider versions in chosen env
+#     tf-bump-all             -> tflint-plugins in all envs + terraform and tflint in GitHub workflows + list provider versions in chosen env
 #
 
 ###################################################################################################
@@ -755,6 +741,8 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-bump-cicd"
     "tf-bump-modules"
     "tf-bump-tflint-plugins"
+    "tf-show-provider-upgrades"
+    "tf-show-all-provider-upgrades"
   )
   echo "${commands[@]}"
 }
@@ -918,11 +906,13 @@ _dsb_tf_help_group_terraform() {
 
 _dsb_tf_help_group_upgrading() {
   _dsb_i "  Upgrade Commands:"
-  _dsb_i "    tf-upgrade [env]        -> Upgrade Terraform dependencies for entire project with selected or given environment"
-  _dsb_i "    tf-upgrade-env [env]    -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
-  _dsb_i "    tf-bump-modules         -> Bump module versions in .tf files (only applies to official registry modules)"
-  _dsb_i "    tf-bump-cicd            -> Bump versions in GitHub workflows"
-  _dsb_i "    tf-bump-tflint-plugins  -> Bump tflint plugin versions in .tflint.hcl files"
+  _dsb_i "    tf-upgrade [env]                -> Upgrade Terraform dependencies for entire project with selected or given environment"
+  _dsb_i "    tf-upgrade-env [env]            -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
+  _dsb_i "    tf-bump-modules                 -> Bump module versions in .tf files (only applies to official registry modules)"
+  _dsb_i "    tf-bump-cicd                    -> Bump versions in GitHub workflows"
+  _dsb_i "    tf-bump-tflint-plugins          -> Bump tflint plugin versions in .tflint.hcl files"
+  _dsb_i "    tf-show-provider-upgrades [env] -> Show available provider upgrades for selected or given environment"
+  _dsb_i "    tf-show-all-provider-upgrades   -> Show all available provider upgrades for all environments"
 }
 
 _dsb_tf_help_commands() {
@@ -1262,6 +1252,27 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-upgrade, tf-bump-cicd, tf-bump-modules"
     ;;
+  tf-show-provider-upgrades)
+    _dsb_i "tf-show-provider-upgrades [env]:"
+    _dsb_i "  Show available provider upgrades for the specified environment."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Lists all providers and retreives the latest available versions."
+    _dsb_i "  Also shows the version constraint(s) currently configured, as well as the locked version (from the lock file)."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-show-all-provider-upgrades."
+    ;;
+  tf-show-all-provider-upgrades)
+    _dsb_i "tf-show-all-provider-upgrades:"
+    _dsb_i "  Show all available provider upgrades for all environments."
+    _dsb_i ""
+    _dsb_i "  Lists all providers and retreives the latest available versions."
+    _dsb_i "  Also shows the version constraint(s) currently configured, as well as the locked version (from the lock file)."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-show-provider-upgrades."
+    ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
     ;;
@@ -1305,6 +1316,7 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_avalable_envs tf-apply
   complete -F _dsb_tf_completions_for_avalable_envs tf-destroy
   complete -F _dsb_tf_completions_for_avalable_envs tf-lint
+  complete -F _dsb_tf_completions_for_avalable_envs tf-show-provider-upgrades
 }
 
 # for tf-help
@@ -4970,6 +4982,287 @@ _dsb_tf_bump_tflint_plugin_versions() {
   return 0
 }
 
+# what:
+#   this function gets the latest version of a given Terraform provider from the Terraform registry
+#   a simple caching mechanism is used to allow speed up of mulitple subsequent calls
+#   the cache is stored in the global associative array _dsbTfProviderVersionsCache
+#   recommended usage of cache:
+#     - ignoreCache=1 for stand alone calls
+#     - ignoreCache=1 for the first call in a loop, then ignoreCache=0 for subsequent calls
+#     - for comple call stacks, make sure to call with ignoreCache=1 at the top level
+# input:
+#   $1: provider source in the format "namespace/type" ex. "hashicorp/azurerm"
+#   $2: optional, set to 1 to ignore cache
+# on info:
+#   nothing
+# returns:
+#   returns the latest version in the global variable _dsbTfLatestProviderVersion
+_dsb_tf_get_latest_terraform_provider_version() {
+  local providerSource="${1}" # on the form "namespace/type" ex. "hashicorp/azurerm"
+  local ignoreCache="${2:-0}" # default is to cache to speed up subsequent calls
+
+  declare -g _dsbTfLatestProviderVersion="" # global variable to return the latest version
+
+  if [ -z "${providerSource}" ]; then
+    _dsb_d "Provider source is empty"
+    return 1
+  fi
+
+  local cacheKey="provider-${providerSource}" # used to store and lookup cached values
+
+  if [ "${ignoreCache}" -ne 0 ] || ! declare -p _dsbTfProviderVersionsCache &>/dev/null; then
+    _dsb_d "Initializing provider versions cache array"
+    declare -gA _dsbTfProviderVersionsCache # global associative array to store cache values
+  else
+    # check if cacheKey exists in _dsbTfProviderVersionsCache
+    _dsb_d "Checking cache for provider: ${providerSource}"
+    if [[ -n "${_dsbTfProviderVersionsCache[${cacheKey}]+_}" ]]; then
+      _dsb_d "Cache hit."
+      local cachedValue="${_dsbTfProviderVersionsCache[${cacheKey:-}]}"
+      _dsb_d "  cachedValue: ${cachedValue}"
+      _dsbTfLatestProviderVersion="${cachedValue}"
+      return 0
+    fi
+  fi
+
+  local latestVersion
+  if ! latestVersion=$(curl --location --silent --fail "https://registry.terraform.io/v1/providers/${providerSource}" | jq -r '.version'); then
+    _dsb_d "curl call failed!"
+    return 1
+  fi
+
+  _dsb_d "latestVersion: ${latestVersion}"
+
+  # cache the latest version
+  _dsbTfProviderVersionsCache["${cacheKey}"]="${latestVersion}"
+
+  # return the latest version
+  _dsbTfLatestProviderVersion="${latestVersion}"
+
+  return 0 # caller reads _dsbTfLatestProviderVersion
+}
+
+# what:
+#   this function gets the locked version of a given Terraform provider from
+#   the .terraform.lock.hcl file in a given environment directory
+# input:
+#   $1: directory path of the environment directory
+#   $2: provider source in the format "namespace/type" ex. "hashicorp/azurerm"
+# on info:
+#   nothing
+# returns:
+#   in case of failure, returns exit code directly
+#   returns the locked version in the global variable _dsbTfLockfileProviderVersion
+_dsb_tf_get_lockfile_provider_version() {
+  local envDir="${1}"         # directory of the environment
+  local providerSource="${2}" # on the form "namespace/type" ex. "hashicorp/azurerm"
+
+  declare -g _dsbTfLockfileProviderVersion="" # global variable to return the locked version
+
+  _dsb_d "called with"
+  _dsb_d "  envDir: ${envDir}"
+  _dsb_d "  providerSource: ${providerSource}"
+
+  if [ -z "${envDir}" ] || [ -z "${providerSource}" ]; then
+    _dsb_d "Environment directory or provider source is empty"
+    return 1
+  fi
+
+  local lockfilePath="${envDir}/.terraform.lock.hcl"
+
+  if [ ! -f "${lockfilePath}" ]; then
+    _dsb_d "Lockfile not found: ${lockfilePath}"
+    return 1
+  fi
+
+  local -a providerBlocks=()
+  mapfile -t providerBlocks < <(hcledit block list --file "${lockfilePath}")
+  _dsb_d "providerBlocks: ${providerBlocks[*]}"
+
+  local providerBlock
+  local blockMatchingSource=""
+  for providerBlock in "${providerBlocks[@]}"; do
+    # check if providerSource exist within the providerBlock string
+    if [[ "${providerBlock}" == *"${providerSource}"* ]]; then
+      blockMatchingSource="${providerBlock}"
+      _dsb_d "found match: ${blockMatchingSource}"
+      break
+    fi
+  done
+
+  if [ -z "${blockMatchingSource}" ]; then
+    _dsb_d "Provider block not found in lockfile: ${providerSource}"
+    return 0 # not considered an error, provider might not be installed yet
+  fi
+
+  local providerVersion
+  providerVersion=$(hcledit attribute get "${blockMatchingSource}.version" --file "${lockfilePath}")
+  providerVersion="${providerVersion//\"/}" # strip quotes from the version string
+
+  if [ -z "${providerVersion}" ]; then
+    _dsb_d "Provider version not found in lockfile: ${providerSource}"
+    return 1 # considered an error, if provider is found in lock file it should have a version
+  fi
+
+  _dsb_d "providerVersion: ${providerVersion}"
+
+  # return the locked version
+  _dsbTfLockfileProviderVersion="${providerVersion}"
+
+  return 0 # caller reads _dsbTfLockfileProviderVersion
+}
+
+# what:
+#   this function lists the latest available terraform provider versions for providers
+#   either the provider configured in a single environment or all environments in the project
+#   additionally, the function lists the locked versions of the providers in the .terraform.lock.hcl file
+#   and the version constraints in the Terraform configuration files for the environment(s)
+# input:
+#   $1: optional, environment name to check, if not provided all environments are checked
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_list_available_terraform_provider_upgrades() {
+  local envToCheck="${1:-}"
+
+  declare -g _dsbTfReturnCode=0 # default return code
+
+  # check if the current root directory is a valid Terraform project
+  # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so we don't need to call it again in this function
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  # we need several tools to be available: curl, jq, terraform-config-inspect
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_curl ||
+    ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_jq ||
+    ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_terraform_config_inspect ||
+    ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_hcledit; then
+    _dsb_e "Tools check failed, please run 'tf-check-tools'"
+    _dsbTfReturnCode=1
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  _dsb_i "Available Terraform provider upgrades:"
+
+  local -a availableEnvs=()
+  if [ -n "${envToCheck}" ]; then
+    availableEnvs=("${envToCheck}")
+  else
+    mapfile -t availableEnvs < <(_dsb_tf_get_env_names)
+  fi
+  local envCount=${#availableEnvs[@]}
+
+  _dsb_d "available envs count in availableEnvs: ${envCount}"
+  _dsb_d "available envs: ${availableEnvs[*]}"
+
+  local envsDir="${_dsbTfEnvsDir}"
+
+  if [ "${envCount}" -eq 0 ]; then
+    _dsb_w "  No environments found in: ${envsDir}"
+    _dsb_i "    this probably means the directory is empty."
+    _dsb_i "    either create an environment or run the command from a different root directory."
+    _dsbTfReturnCode=1
+  else
+    # make sure to empty the provider versions lookup cache,
+    # achieved by ignoring the cache in the first iteration,
+    # then flag is then flipped for subsequent iterations
+    local ignoreProviderVersionCache=1
+    local envName
+    for envName in "${availableEnvs[@]}"; do
+      local envDir="${_dsbTfEnvsDirList[${envName}]}"
+      _dsb_i "  Environment: ${envName}"
+      _dsb_d "    envDir: ${envDir}"
+
+      local tfConfigJson
+      tfConfigJson=$(terraform-config-inspect --json "${envDir}")
+      _dsb_d "    tfConfigJson: $(echo "${tfConfigJson}" | jq -r || :)"
+      if [ -z "${tfConfigJson}" ]; then
+        _dsb_e "    Failed to get Terraform configuration for environment: ${envName}"
+        _dsbTfReturnCode=1
+        continue
+      fi
+
+      local providers provider
+      providers=$(echo "${tfConfigJson}" | jq -r '.required_providers | keys[]')
+      for provider in ${providers}; do
+        local source version_constraints
+        source=$(echo "${tfConfigJson}" | jq -r ".required_providers[\"${provider}\"].source // empty")
+        version_constraints=$(echo "${tfConfigJson}" | jq -r ".required_providers[\"${provider}\"].version_constraints[] // empty")
+
+        _dsb_d "    provider: ${provider}"
+        _dsb_d "      source: ${source}"
+
+        # if empty we assume hashicorp provider
+        if [ -z "${source}" ]; then
+          source="hashicorp/${provider}"
+          _dsb_d "      source is empty, assuming hashicorp provider, changed to: ${source}"
+        fi
+
+        if ! _dsb_tf_get_latest_terraform_provider_version "${source}" "${ignoreProviderVersionCache}"; then
+          _dsb_e "    Failed to get latest version for provider: ${source}"
+          _dsbTfReturnCode=1
+        fi
+
+        if ! _dsb_tf_get_lockfile_provider_version "${envDir}" "${source}"; then
+          _dsb_e "    Failed to get locked version for provider: ${provider}"
+          _dsbTfReturnCode=1
+        fi
+
+        _dsb_i "    ${source} => \e[32m${_dsbTfLatestProviderVersion:-}\e[0m"
+        _dsb_i "      Project constraint(s): ${version_constraints}"
+        if [ ! -z "${_dsbTfLatestProviderVersion:-}" ] &&
+          [ "${_dsbTfLatestProviderVersion}" == "${_dsbTfLockfileProviderVersion:-}" ]; then
+          _dsb_i "      Locked version: ${_dsbTfLockfileProviderVersion:-}"
+        else
+          _dsb_i "      Locked version: \e[33m${_dsbTfLockfileProviderVersion:-}\e[0m"
+        fi
+
+        # flip the ignoreProviderVersionCache flag to cache the latest version for subsequent iterations
+        ignoreProviderVersionCache=0
+
+      done # end of loop through all providers
+    done   # end of loop through all environments
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0 # caller reads _dsbTfReturnCode
+}
+
+# what:
+#   this function is a wrapper of _dsb_tf_list_available_terraform_provider_upgrades
+#   it allows to specify an environment to check for provider upgrades
+#   and if the not specified, it attempts to use the selected environment
+# input:
+#   $1: optional, environment name to check, if not provided the selected environment is used
+# on info:
+#   nothing, status messages indirectly from _dsb_tf_list_available_terraform_provider_upgrades
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_list_available_terraform_provider_upgrades_for_env() {
+  local envToCheck="${1:-}"
+  declare -g _dsbTfReturnCode=0 # default return code
+
+  if [ -z "${envToCheck}" ]; then
+    envToCheck=${_dsbTfSelectedEnv:-}
+  fi
+
+  if [ -z "${envToCheck}" ]; then
+    _dsb_e "No environment specified and no environment selected."
+    _dsb_e "  either specify environment: 'tf-show-provider-upgrades <env>'"
+    _dsb_e "  or run 'tf-set-env <env>' first"
+    _dsbTfReturnCode=1
+  else
+    _dsb_tf_list_available_terraform_provider_upgrades "${envToCheck}"
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0 # caller reads _dsbTfReturnCode
+}
+
 ###################################################################################################
 #
 # Exposed functions
@@ -5290,6 +5583,23 @@ tf-bump-modules() {
 tf-bump-tflint-plugins() {
   _dsb_tf_configure_shell
   _dsb_tf_bump_tflint_plugin_versions
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-show-provider-upgrades() {
+  local envToCheck="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_list_available_terraform_provider_upgrades_for_env "${envToCheck}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-show-all-provider-upgrades() {
+  _dsb_tf_configure_shell
+  _dsb_tf_list_available_terraform_provider_upgrades
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
