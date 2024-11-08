@@ -52,15 +52,10 @@
 #
 #
 # TODO: future functionality
-#
 #   other
 #     support for module projects, need to update directory enumeration functions, and block env input for many functions?
 #     tf-test         -> terraform test, could support both tf projects and module projects
 #     tf-* functions support for _terraform-state env
-#
-#   proposed commands:
-#     tf-bump                 -> tflint-plugins in chosen env + list provider versions in chosen env
-#     tf-bump-all             -> tflint-plugins in all envs + terraform and tflint in GitHub workflows + list provider versions in chosen env
 #
 
 ###################################################################################################
@@ -743,6 +738,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-bump-tflint-plugins"
     "tf-show-provider-upgrades"
     "tf-show-all-provider-upgrades"
+    "tf-bump"
   )
   echo "${commands[@]}"
 }
@@ -906,7 +902,8 @@ _dsb_tf_help_group_terraform() {
 
 _dsb_tf_help_group_upgrading() {
   _dsb_i "  Upgrade Commands:"
-  _dsb_i "    tf-upgrade [env]                -> Upgrade Terraform dependencies for entire project with selected or given environment"
+  _dsb_i "    tf-bump [env]                   -> All-in-one bump function (modules, cicd, tflint plugins, provider upgrades) in selected or given environment"
+  _dsb_i "    tf-upgrade [env]                -> Upgrade Terraform dependencies with selected or given environment (also upgrades main and local sub-modules)"
   _dsb_i "    tf-upgrade-env [env]            -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
   _dsb_i "    tf-bump-modules                 -> Bump module versions in .tf files (only applies to official registry modules)"
   _dsb_i "    tf-bump-cicd                    -> Bump versions in GitHub workflows"
@@ -1182,6 +1179,14 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Related commands: tf-init, tf-validate, tf-plan, tf-apply."
     ;;
     # upgrading
+  tf-bump)
+    _dsb_i "tf-bump [env]:"
+    _dsb_i "  All-in-one bump function."
+    _dsb_i "  Bump module versions, cicd versions, tflint plugins, and provider upgrades."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-upgrade, tf-bump-modules, tf-bump-cicd, tf-bump-tflint-plugins, tf-show-provider-upgrades."
+    ;;
   tf-upgrade)
     _dsb_i "tf-upgrade [env]:"
     _dsb_i "  Upgrade Terraform dependencies and initialize the entire project."
@@ -1193,7 +1198,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init, tf-plan, tf-apply, tf-bump-modules."
+    _dsb_i "  Related commands: tf-init, tf-plan, tf-apply, tf-bump-modules, tf-bump."
     ;;
   tf-upgrade-env)
     _dsb_i "tf-upgrade-env [env]:"
@@ -1208,7 +1213,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade."
+    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade, tf-bump."
     ;;
   tf-bump-cicd)
     _dsb_i "tf-bump-cicd:"
@@ -1225,7 +1230,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    - \e[90m'v1.12'\e[0m becomes \e[32m'v1.13'\e[0m"
     _dsb_i "    - \e[90m'v0'\e[0m becomes \e[32m'v1'\e[0m"
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-bump-modules, tf-bump-tflint-plugins."
+    _dsb_i "  Related commands: tf-upgrade, tf-bump-modules, tf-bump-tflint-plugins, tf-bump."
     ;;
   tf-bump-modules)
     _dsb_i "tf-bump-modules:"
@@ -1238,7 +1243,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    When deciding where to update, this command only checks for difference betweeen the declared version and the latest version."
     _dsb_i "    No consideration is taken for version constraints or partial version values."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-bump-cicd, tf-bump-tflint-plugins"
+    _dsb_i "  Related commands: tf-upgrade, tf-bump-cicd, tf-bump-tflint-plugins, tf-bump."
     ;;
   tf-bump-tflint-plugins)
     _dsb_i "tf-bump-tflint-plugins:"
@@ -1250,7 +1255,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    When deciding where to update, this command only checks for difference betweeen the declared version and the latest version."
     _dsb_i "    No consideration is taken for version constraints or partial version values."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-bump-cicd, tf-bump-modules"
+    _dsb_i "  Related commands: tf-upgrade, tf-bump-cicd, tf-bump-modules, tf-bump."
     ;;
   tf-show-provider-upgrades)
     _dsb_i "tf-show-provider-upgrades [env]:"
@@ -1262,7 +1267,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-show-all-provider-upgrades."
+    _dsb_i "  Related commands: tf-show-all-provider-upgrades, tf-bump."
     ;;
   tf-show-all-provider-upgrades)
     _dsb_i "tf-show-all-provider-upgrades:"
@@ -1271,7 +1276,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Lists all providers and retreives the latest available versions."
     _dsb_i "  Also shows the version constraint(s) currently configured, as well as the locked version (from the lock file)."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-show-provider-upgrades."
+    _dsb_i "  Related commands: tf-show-provider-upgrades, tf-bump."
     ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
@@ -1317,6 +1322,7 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_avalable_envs tf-destroy
   complete -F _dsb_tf_completions_for_avalable_envs tf-lint
   complete -F _dsb_tf_completions_for_avalable_envs tf-show-provider-upgrades
+  complete -F _dsb_tf_completions_for_avalable_envs tf-bump
 }
 
 # for tf-help
@@ -5246,6 +5252,8 @@ _dsb_tf_list_available_terraform_provider_upgrades_for_env() {
   local envToCheck="${1:-}"
   declare -g _dsbTfReturnCode=0 # default return code
 
+  _dsb_d "called with envToCheck: ${envToCheck}"
+
   if [ -z "${envToCheck}" ]; then
     envToCheck=${_dsbTfSelectedEnv:-}
   fi
@@ -5261,6 +5269,110 @@ _dsb_tf_list_available_terraform_provider_upgrades_for_env() {
 
   _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
+}
+
+# what:
+#   this function is an all-in-one function to bump the versions of all the things
+# input:
+#   none
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_bump_the_project() {
+  local givenEnv="${1:-${_dsbTfSelectedEnv:-}}" # used when calling terraform init -upgrade
+  declare -g _dsbTfReturnCode=0                 # default return code
+
+  _dsb_d "called with givenEnv: ${givenEnv}"
+
+  _dsb_i "Bump the project:"
+
+  # bump the versions of all modules in the project
+  local moduleStatus
+  if ! _dsb_tf_bump_registry_module_versions; then
+    _dsb_e "Failed to bump module versions"
+    moduleStatus=1
+  else
+    moduleStatus=${_dsbTfReturnCode}
+  fi
+
+  # bump the versions of all tflint plugins in the project
+  local tflintPluginStatus
+  if ! _dsb_tf_bump_tflint_plugin_versions; then
+    _dsb_e "Failed to bump tflint plugin versions"
+    tflintPluginStatus=1
+  else
+    tflintPluginStatus=${_dsbTfReturnCode}
+  fi
+
+  # bump tflint and terraform versions in the CI/CD pipeline files
+  local cicdStatus
+  if ! _dsb_tf_bump_github; then
+    _dsb_e "Failed to bump CI/CD versions"
+    cicdStatus=1
+  else
+    cicdStatus=${_dsbTfReturnCode}
+  fi
+
+  # terraform init -upgrade the project
+  local terraformStatus
+  if ! _dsb_tf_init 1 "${givenEnv}"; then # $1 = 1 means do -upgrade
+    _dsb_e "Failed to upgrade Terraform dependencies"
+    terraformStatus=1
+  else
+    terraformStatus=${_dsbTfReturnCode}
+  fi
+
+  # show latest available provider versions and locked versions in the project
+  local providerStatus
+  if ! _dsb_tf_list_available_terraform_provider_upgrades_for_env "${givenEnv}"; then
+    _dsb_e "Failed to list available provider upgrades"
+    providerStatus=1
+  else
+    providerStatus=${_dsbTfReturnCode}
+  fi
+
+  # summarize the status of all bump operations
+  local returnCode=$((moduleStatus + tflintPluginStatus + cicdStatus + terraformStatus + providerStatus))
+  _dsbTfReturnCode="${returnCode}"
+
+  _dsb_i ""
+  _dsb_i "Bump summary:"
+  if [ ${moduleStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  Module versions                : succeeded"
+  else
+    _dsb_i "  \e[31m☒\e[0m  Module versions                : failures reported"
+  fi
+  if [ ${tflintPluginStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  Tflint plugin versions         : succeeded"
+  else
+    _dsb_i "  \e[31m☒\e[0m  Tflint plugin versions         : failures reported"
+  fi
+  if [ ${cicdStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  CI/CD versions                 : succeeded"
+  else
+    _dsb_i "  \e[31m☒\e[0m  CI/CD versions                 : failures reported"
+  fi
+  if [ ${terraformStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  Terraform dependencies         : succeeded"
+  else
+    _dsb_i "  \e[31m☒\e[0m  Terraform dependencies         : failures reported"
+  fi
+  if [ ${providerStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  Provider versions              : succeeded, see further up for potential upgrades"
+  else
+    _dsb_i "  \e[31m☒\e[0m  Provider versions              : failures reported"
+  fi
+
+  _dsb_i ""
+  _dsb_i "Done."
+
+  if [ ${_dsbTfReturnCode} -eq 0 ]; then
+    _dsb_i "  Now run: 'tf-validate && tf-plan'"
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
 }
 
 ###################################################################################################
@@ -5600,6 +5712,15 @@ tf-show-provider-upgrades() {
 tf-show-all-provider-upgrades() {
   _dsb_tf_configure_shell
   _dsb_tf_list_available_terraform_provider_upgrades
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-bump() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_bump_the_project "${envName}"
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
