@@ -722,6 +722,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     # terraform
     "tf-init"
     "tf-init-env"
+    "tf-init-all"
     "tf-init-main"
     "tf-init-modules"
     "tf-fmt"
@@ -733,6 +734,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     # upgrading
     "tf-upgrade"
     "tf-upgrade-env"
+    "tf-upgrade-all"
     "tf-bump-cicd"
     "tf-bump-modules"
     "tf-bump-tflint-plugins"
@@ -888,10 +890,11 @@ _dsb_tf_help_group_azure() {
 
 _dsb_tf_help_group_terraform() {
   _dsb_i "  Terraform Commands:"
-  _dsb_i "    tf-init [env]         -> Initialize entire Terraform project with selected or given environment"
+  _dsb_i "    tf-init [env]         -> Initialize selected or given environment (incl. main and local sub-modules)"
   _dsb_i "    tf-init-env [env]     -> Initialize selected or given environment (environment directory only)"
+  _dsb_i "    tf-init-all           -> Initialize entire Terraform project, all environments"
   _dsb_i "    tf-init-main          -> Initialize Terraform project's main module"
-  _dsb_i "    tf-init-modules       -> Initialize Terraform project's local sub modules"
+  _dsb_i "    tf-init-modules       -> Initialize Terraform project's local sub-modules"
   _dsb_i "    tf-fmt                -> Run syntax check recursively from current directory"
   _dsb_i "    tf-fmt-fix            -> Run syntax check and fix recursively from current directory"
   _dsb_i "    tf-validate [env]     -> Make Terraform validate the project with selected or given environment"
@@ -903,8 +906,9 @@ _dsb_tf_help_group_terraform() {
 _dsb_tf_help_group_upgrading() {
   _dsb_i "  Upgrade Commands:"
   _dsb_i "    tf-bump [env]                   -> All-in-one bump function (modules, cicd, tflint plugins, provider upgrades) in selected or given environment"
-  _dsb_i "    tf-upgrade [env]                -> Upgrade Terraform dependencies with selected or given environment (also upgrades main and local sub-modules)"
-  _dsb_i "    tf-upgrade-env [env]            -> Upgrade Terraform dependencies of selected or given environment (environment directory only)"
+  _dsb_i "    tf-upgrade [env]                -> Upgrade Terraform deps. for selected or given environment (also upgrades main and local sub-modules)"
+  _dsb_i "    tf-upgrade-env [env]            -> Upgrade Terraform deps. for selected or given environment (environment directory only)"
+  _dsb_i "    tf-upgrade-all                  -> Upgrade Terraform deps. in entire project, all environments"
   _dsb_i "    tf-bump-modules                 -> Bump module versions in .tf files (only applies to official registry modules)"
   _dsb_i "    tf-bump-cicd                    -> Bump versions in GitHub workflows"
   _dsb_i "    tf-bump-tflint-plugins          -> Bump tflint plugin versions in .tflint.hcl files"
@@ -1071,14 +1075,17 @@ _dsb_tf_help_specific_command() {
   # terraform
   tf-init)
     _dsb_i "tf-init [env]:"
-    _dsb_i "  Initialize the entire Terraform project with the specified environment."
+    _dsb_i "  Initialize the specified Terraform environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
-    _dsb_i "  This initializes the project completely, environment directory sub modules and main."
+    _dsb_i "  This also initializes the main module and any local sub-modules."
+    _dsb_i ""
+    _dsb_i "  Note:"
+    _dsb_i "    For a complete initialization of the entire project, use 'tf-init-all'."
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-plan, tf-apply."
+    _dsb_i "  Related commands: tf-init-all, tf-upgrade, tf-plan, tf-apply."
     ;;
   tf-init-env)
     _dsb_i "tf-init-env [env]:"
@@ -1086,12 +1093,21 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
     _dsb_i "  Note:"
-    _dsb_i "    This initializes just the environment directory, not sub modules and main."
-    _dsb_i "    Use 'tf-init' for a complete initialization of the project."
+    _dsb_i "    This initializes just the environment directory, not sub-modules and not the main module."
+    _dsb_i "    Use 'tf-init' for a complete initialization of the environment."
+    _dsb_i "    Or, use 'tf-init-all' for a complete initialization of the entire project."
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-init."
+    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade-env, tf-init, tf-init-all."
+    ;;
+  tf-init-all)
+    _dsb_i "tf-init-all"
+    _dsb_i "  Initialize the entire Terraform project."
+    _dsb_i ""
+    _dsb_i "  This initializes the project completely, all environment directories, main module, and local sub-modules."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-upgrade, tf-plan, tf-apply."
     ;;
   tf-init-main)
     _dsb_i "tf-init-main:"
@@ -1103,15 +1119,15 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    For example by running 'tf-init-env'."
     _dsb_i ""
     _dsb_i "  Also note:"
-    _dsb_i "    This initializes just the main directory, not sub modules."
+    _dsb_i "    This initializes just the main directory, not sub-modules."
     _dsb_i "    Use 'tf-init' for a complete initialization of the project."
     _dsb_i ""
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init-env, tf-init."
+    _dsb_i "  Related commands: tf-init-env, tf-init, tf-init-all."
     ;;
   tf-init-modules)
     _dsb_i "tf-init-modules:"
-    _dsb_i "  Initialize Terraform project's local sub modules."
+    _dsb_i "  Initialize Terraform project's local sub-modules."
     _dsb_i ""
     _dsb_i "  Note:"
     _dsb_i "    Since the environment directory is used as plugin cache during the operation,"
@@ -1122,7 +1138,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    This initializes just the su module directories, not the main directory."
     _dsb_i "    Use 'tf-init' for a complete initialization of the project."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init-env, tf-init"
+    _dsb_i "  Related commands: tf-init-env, tf-init, tf-init-all."
     ;;
   tf-fmt)
     _dsb_i "tf-fmt:"
@@ -1189,16 +1205,18 @@ _dsb_tf_help_specific_command() {
     ;;
   tf-upgrade)
     _dsb_i "tf-upgrade [env]:"
-    _dsb_i "  Upgrade Terraform dependencies and initialize the entire project."
+    _dsb_i "  Upgrade Terraform dependencies for the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
-    _dsb_i "  This upgrades and initializes the project completely, environment directory sub modules and main."
+    _dsb_i "  This also upgrades and initializes the main module and any local sub-modules."
     _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
     _dsb_i ""
+    _dsb_i "  Note:"
+    _dsb_i "    For a complete upgrade of the entire project, use 'tf-upgrade-all'."
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init, tf-plan, tf-apply, tf-bump-modules, tf-bump."
+    _dsb_i "  Related commands: tf-init, tf-upgrade-all, tf-plan, tf-apply, tf-bump-modules, tf-bump."
     ;;
   tf-upgrade-env)
     _dsb_i "tf-upgrade-env [env]:"
@@ -1208,12 +1226,22 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
     _dsb_i ""
     _dsb_i "  Note:"
-    _dsb_i "    This upgrades and initializes just the environment directory, not sub modules and main."
-    _dsb_i "    Use 'tf-upgrade' for a complete depenedency upgrade and initialization of the entire project."
+    _dsb_i "    This upgrades and initializes just the environment directory, not sub-modules and main."
+    _dsb_i "    Use 'tf-upgrade' for a complete depenedency upgrade and initialization of the environment."
+    _dsb_i "    Or, use 'tf-upgrade-all' for a complete upgrade and initialization of the entire project."
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade, tf-bump."
+    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade, tf-upgrade-all, tf-bump."
+    ;;
+  tf-upgrade-all)
+    _dsb_i "tf-upgrade-all:"
+    _dsb_i "  Upgrade Terraform dependencies and initialize the entire project."
+    _dsb_i ""
+    _dsb_i "  This upgrades and initializes the project completely, environment directory, sub-modules and main."
+    _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init, tf-plan, tf-apply, tf-bump-modules, tf-bump."
     ;;
   tf-bump-cicd)
     _dsb_i "tf-bump-cicd:"
@@ -1230,7 +1258,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    - \e[90m'v1.12'\e[0m becomes \e[32m'v1.13'\e[0m"
     _dsb_i "    - \e[90m'v0'\e[0m becomes \e[32m'v1'\e[0m"
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-bump-modules, tf-bump-tflint-plugins, tf-bump."
+    _dsb_i "  Related commands: tf-upgrade-all, tf-bump-modules, tf-bump-tflint-plugins, tf-bump."
     ;;
   tf-bump-modules)
     _dsb_i "tf-bump-modules:"
@@ -1243,7 +1271,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    When deciding where to update, this command only checks for difference betweeen the declared version and the latest version."
     _dsb_i "    No consideration is taken for version constraints or partial version values."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-bump-cicd, tf-bump-tflint-plugins, tf-bump."
+    _dsb_i "  Related commands: tf-upgrade-all, tf-bump-cicd, tf-bump-tflint-plugins, tf-bump."
     ;;
   tf-bump-tflint-plugins)
     _dsb_i "tf-bump-tflint-plugins:"
@@ -1255,7 +1283,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    When deciding where to update, this command only checks for difference betweeen the declared version and the latest version."
     _dsb_i "    No consideration is taken for version constraints or partial version values."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-bump-cicd, tf-bump-modules, tf-bump."
+    _dsb_i "  Related commands: tf-upgrade-all, tf-bump-cicd, tf-bump-modules, tf-bump."
     ;;
   tf-show-provider-upgrades)
     _dsb_i "tf-show-provider-upgrades [env]:"
@@ -1322,6 +1350,7 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_avalable_envs tf-destroy
   complete -F _dsb_tf_completions_for_avalable_envs tf-lint
   complete -F _dsb_tf_completions_for_avalable_envs tf-show-provider-upgrades
+  complete -F _dsb_tf_completions_for_avalable_envs tf-bump-env
   complete -F _dsb_tf_completions_for_avalable_envs tf-bump
 }
 
@@ -1905,6 +1934,8 @@ _dsb_tf_check_gh_auth() {
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_check_current_dir() {
+  _dsb_d "checking current directory: ${PWD:-}"
+
   _dsb_tf_enumerate_directories
 
   _dsb_i "Checking main dir  ..."
@@ -2592,15 +2623,15 @@ _dsb_tf_look_for_environment_file() {
   fi
 
   # require that a file exists in the environment directory to be considered a valid environment
-  if [ ! -f "${selectedEnvDir}/${lookForFilename}" ]; then
+  if [ ! -f "${selectedEnvDir}${lookForFilename}" ]; then
     _dsb_e "File not found in selected environment. A '${suppliedFileType}' file is required for an environment to be considered valid."
     _dsb_e "  selected environment: ${selectedEnv}"
-    _dsb_e "  expected ${suppliedFileType} file: ${selectedEnvDir}/${lookForFilename}"
+    _dsb_e "  expected ${suppliedFileType} file: ${selectedEnvDir}${lookForFilename}"
     return 1
   fi
 
-  declare -g "${suppliedGlobalToSavePathTo}=${selectedEnvDir}/${lookForFilename}"
-  _dsb_d "global variable ${suppliedGlobalToSavePathTo} has been set to ${selectedEnvDir}/${lookForFilename}"
+  declare -g "${suppliedGlobalToSavePathTo}=${selectedEnvDir}${lookForFilename}"
+  _dsb_d "global variable ${suppliedGlobalToSavePathTo} has been set to ${selectedEnvDir}${lookForFilename}"
   return 0
 }
 
@@ -2658,9 +2689,11 @@ _dsb_tf_look_for_subscription_hint_file() {
   if [ -f "${_dsbTfSelectedEnvSubscriptionHintFile}" ]; then
     _dsbTfSelectedEnvSubscriptionHintContent=$(cat "${_dsbTfSelectedEnvSubscriptionHintFile}")
   else
+    _dsb_d "returning 1, subscription hint file not found"
     return 1
   fi
 
+  _dsb_d "returning 0, subscription hint file found"
   return 0
 }
 
@@ -3210,8 +3243,8 @@ _dsb_tf_az_set_sub() {
 
 # what:
 #   preflight checks for terraform operations functions
-#   checks if an environment is selected
 #   checks if terraform is installed
+#   selects the given environment
 #   checks if the selected environment is valid
 #   sets the subscription to the selected environment
 # input:
@@ -3222,6 +3255,8 @@ _dsb_tf_az_set_sub() {
 #   exit code in _dsbTfReturnCode
 _dsb_tf_terraform_preflight() {
   local selectedEnv="${1}"
+
+  _dsb_d "called with: selectedEnv=${selectedEnv}"
 
   if [ -z "${selectedEnv}" ]; then
     _dsb_e "No environment selected, please run 'tf-select-env' or 'tf-set-env <env>'"
@@ -3313,6 +3348,12 @@ _dsb_tf_init_env() {
   local doUpgrade="${1}"
   local selectedEnv="${2:-${_dsbTfSelectedEnv:-}}"
 
+  declare -g _dsbTfReturnCode=0 # default return code
+
+  _dsb_d "called with:"
+  _dsb_d "  doUpgrade: ${doUpgrade}"
+  _dsb_d "  selectedEnv: ${selectedEnv}"
+
   if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
     _dsbTfReturnCode=1
     _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
@@ -3373,7 +3414,7 @@ _dsb_tf_init_dir() {
 }
 
 # what:
-#   initializes all local sub modules in the current directory / terraform project
+#   initializes all local sub-modules in the current directory / terraform project
 # input:
 #   $1: skip preflight checks (optional)
 # on info:
@@ -3445,6 +3486,7 @@ _dsb_tf_init_modules() {
 #   initializes the main directory of the terraform project
 # input:
 #   $1: skip preflight checks (optional)
+#   $2: environment directory (optional, defaults to selected environment directory)
 # on info:
 #   status messages are printed
 # returns:
@@ -3502,34 +3544,162 @@ _dsb_tf_init_main() {
 #   initializes the environment, modules and main directory
 # input:
 #   $1: do upgrade
-#   $2: environment directory (optional, defaults to selected environment directory)
+#   $2: clear selected environment after (optional, defaults to 1)
+#   $3: name of environment to init, if not provided all environments are checked
 # on info:
 #   status messages are printed
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_init() {
   local doUpgrade="${1}"
-  local selectedEnv="${2:-${_dsbTfSelectedEnv:-}}"
+  local clearSelectedEnvAfter="${2:-1}"
+  local envToInit="${3:-}"
 
-  _dsb_tf_init_env "${doUpgrade}" "${selectedEnv}"
-  local initEnvStatus=${_dsbTfReturnCode}
-  if [ "${initEnvStatus}" -ne 0 ]; then
+  _dsb_d "called with:"
+  _dsb_d "  doUpgrade: ${doUpgrade}"
+  _dsb_d "  clearSelectedEnvAfter: ${clearSelectedEnvAfter}"
+  _dsb_d "  envToInit: ${envToInit}"
+
+  declare -g _dsbTfReturnCode=0 # default return code
+
+  local operationFriendlyName="Initialization"
+  if [ "${doUpgrade}" -eq 1 ]; then
+    operationFriendlyName="Upgrade"
+  fi
+
+  # check if the current root directory is a valid Terraform project
+  # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so we don't need to call it again in this function
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
     return 0 # caller reads _dsbTfReturnCode
   fi
 
-  _dsb_tf_init_modules 1 # $1 = 1 means skip preflight checks
-  local initModulesStatus=${_dsbTfReturnCode}
-  if [ "${initModulesStatus}" -ne 0 ]; then
-    return 0 # caller reads _dsbTfReturnCode
+  local -a availableEnvs=()
+  if [ -n "${envToInit}" ]; then
+    availableEnvs=("${envToInit}")
+  else
+    mapfile -t availableEnvs < <(_dsb_tf_get_env_names)
+  fi
+  local envCount=${#availableEnvs[@]}
+
+  _dsb_d "available envs count in availableEnvs: ${envCount}"
+  _dsb_d "available envs: ${availableEnvs[*]}"
+
+  local envsDir="${_dsbTfEnvsDir}"
+
+  if [ "${envCount}" -eq 0 ]; then
+    _dsb_e "No environments found in: ${envsDir}"
+    _dsb_e "  please run 'tf-list-envs' to list available environments"
+    _dsb_e "  or try running 'tf-check-dir' to verify the directory structure"
+    _dsbTfReturnCode=1
+    return 0
   fi
 
-  _dsb_tf_init_main 1 # $1 = 1 means skip preflight checks
-  local initMainStatus=${_dsbTfReturnCode}
+  local preflightStatus=0
+  local initEnvStatus=0
+  local initModulesStatus=0
+  local initMainStatus=0
+  local envName envDir
+  for envName in "${availableEnvs[@]}"; do
+    _dsb_i ""
+    _dsb_i "${operationFriendlyName} environment: ${envName}"
+    _dsb_i ""
 
-  _dsbTfReturnCode=$((initEnvStatus + initModulesStatus + initMainStatus))
+    # preflight, check if terraform is installed, set the environment and check if it is valid
+    if ! _dsb_tf_terraform_preflight "${envName}"; then
+      _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      _dsb_e "  preflight checks failed for ${envName}"
+      ((preflightStatus += 1))
+    elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+      _dsb_d "_dsb_tf_terraform_preflight failed with exit code 0, but _dsbTfReturnCode is non-zero"
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      _dsb_e "  preflight checks failed for ${envName}"
+      ((preflightStatus += 1))
+    else
+      local envDir="${_dsbTfSelectedEnvDir}" # available thanks to _dsb_tf_terraform_preflight
+      _dsb_d "    envDir: ${envDir}"
+      _dsb_i "  dir: $(_dsb_tf_get_rel_dir "${envDir}")"
+
+      if ! _dsb_tf_init_env_actual "${doUpgrade}"; then
+        _dsb_e "  init in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
+        ((initEnvStatus += 1))
+      else
+        _dsb_tf_init_modules 1 "${envName}" # $1 = 1 means skip preflight checks, $2 = envName
+        if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+          _dsb_d "init modules failed for ${envName}"
+          ((initModulesStatus += 1))
+        fi
+
+        _dsb_tf_init_main 1 "${envName}" # $1 = 1 means skip preflight checks, $2 = envName
+        if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+          _dsb_d "init main failed for ${envName}"
+          ((initMainStatus += 1))
+        fi
+      fi
+    fi
+  done # end of availableEnvs loop
+
+  _dsbTfReturnCode=$((preflightStatus + initEnvStatus + initModulesStatus + initMainStatus))
+
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_e ""
+    _dsb_e "Failures occurred during ${operationFriendlyName}."
+    _dsb_e "  ${_dsbTfReturnCode} operation(s) failed:"
+    _dsb_e "   - ${preflightStatus} failed preflight checks"
+    _dsb_e "   - ${initEnvStatus} failed teraform -init of environments"
+    _dsb_e "   - ${initModulesStatus} failed init of modules"
+    _dsb_e "   - ${initMainStatus} failed init of main"
+    _dsb_e ""
+    _dsb_e "  please review the output from each operation further up"
+  else
+    _dsb_i "${operationFriendlyName} complete."
+  fi
+
+  if [ "${clearSelectedEnvAfter}" -eq 1 ]; then
+    # "unselect" the environment to avoid the user starting to run commands in the wrong environment
+    _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_clear_env || :
+  fi
 
   _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
-  return 0
+  return 0 # caller reads _dsbTfReturnCode
+}
+
+# what:
+#   this function is a wrapper of _dsb_tf_init
+#   it allows to specify an environment to initialize
+#   and if the not specified, it attempts to use the selected environment
+# input:
+#   $1: do upgrade
+#   $2: optional, environment name to init, if not provided the selected environment is used
+# on info:
+#   nothing, status messages indirectly from _dsb_tf_init
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_init_full_single_env() {
+  local doUpgrade="${1}"
+  local envToInit="${2:-}"
+
+  _dsb_d "called with doUpgrade: ${doUpgrade}, envToInit: ${envToInit}"
+
+  declare -g _dsbTfReturnCode=0 # default return code
+
+  if [ -z "${envToInit}" ]; then
+    envToInit=${_dsbTfSelectedEnv:-}
+  fi
+
+  if [ -z "${envToInit}" ]; then
+    _dsb_e "No environment specified and no environment selected."
+    _dsb_e "  either specify environment: 'tf-init <env>'"
+    _dsb_e "  or run 'tf-set-env <env>' first"
+    _dsbTfReturnCode=1
+  else
+    _dsb_tf_init "${doUpgrade}" 0 "${envToInit}" # $1 = 'init -upgrade', $2 = clearSelectedEnvAfter, $3 = envToInit
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0 # caller reads _dsbTfReturnCode
 }
 
 # what:
@@ -5220,7 +5390,7 @@ _dsb_tf_list_available_terraform_provider_upgrades() {
 
         _dsb_i "    ${source} => \e[32m${_dsbTfLatestProviderVersion:-}\e[0m"
         _dsb_i "      Project constraint(s): ${version_constraints}"
-        if [ ! -z "${_dsbTfLatestProviderVersion:-}" ] &&
+        if [ -n "${_dsbTfLatestProviderVersion:-}" ] &&
           [ "${_dsbTfLatestProviderVersion}" == "${_dsbTfLockfileProviderVersion:-}" ]; then
           _dsb_i "      Locked version: ${_dsbTfLockfileProviderVersion:-}"
         else
@@ -5231,7 +5401,11 @@ _dsb_tf_list_available_terraform_provider_upgrades() {
         ignoreProviderVersionCache=0
 
       done # end of loop through all providers
-    done   # end of loop through all environments
+
+      _dsb_i ""
+      _dsb_i "    to investigate further use: terraform -chdir='$(_dsb_tf_get_rel_dir "${envDir}")' providers"
+
+    done # end of loop through all environments
   fi
 
   _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
@@ -5272,107 +5446,326 @@ _dsb_tf_list_available_terraform_provider_upgrades_for_env() {
 }
 
 # what:
-#   this function is an all-in-one function to bump the versions of all the things
+#   this function upgrades the Terraform dependencies for a given environment
+#   it then lists the latest available provider versions and locked versions for the environment
 # input:
-#   none
+#   $1: environment name to bump
+# on info:
+#   status messages are printed
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_bump_an_env() {
+  local givenEnv="${1}" # used when calling terraform init -upgrade
+
+  declare -g _dsbTfReturnCode=0 # default return code
+
+  _dsb_d "called with givenEnv: ${givenEnv}"
+
+  # check if the current root directory is a valid Terraform project
+  # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so we don't need to call it again in this function
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  local initStatus=0
+  local listStatus=0
+
+  # leverage _dsb_tf_set_env, this validates the environment and sets the subscription
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${givenEnv}"; then
+    _dsb_d "Failed to set environment '${givenEnv}' with non-zero exit code."
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    _dsb_e "  please run 'tf-check-env ${givenEnv}' for more information."
+    _dsbTfReturnCode=1
+  elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_d "Failed to set environment '${givenEnv}' with exit code 0, but _dsbTfReturnCode is non-zero"
+    _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+    _dsb_e "  please run 'tf-check-env ${givenEnv}' for more information."
+    _dsbTfReturnCode=1
+  else
+    local envDir="${_dsbTfSelectedEnvDir}" # available thanks to _dsb_tf_set_env
+    _dsb_d "  dir: $(_dsb_tf_get_rel_dir "${envDir}")"
+
+    # terraform init -upgrade the project
+    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_init 1 0 "${givenEnv}"; then # $1 = 1 means do -upgrade, $2 = 0 means do not unset the selected environment
+      _dsb_d "Failed to upgrade the environment '${givenEnv}' with non-zero exit code."
+      initStatus=1
+    elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+      _dsb_d "Failed to upgrade the environment '${givenEnv}' with exit code 0, but _dsbTfReturnCode is non-zero"
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      initStatus=1
+    fi
+
+    # show latest available provider versions and locked versions in the project
+    if ! _dsb_tf_list_available_terraform_provider_upgrades_for_env; then # uses the selected environment
+      _dsb_d "Failed to list available provider upgrades for environment '${givenEnv}' with non-zero exit code."
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      listStatus=1
+    elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+      _dsb_d "Failed to list available provider upgrades for environment '${givenEnv}' with exit code 0, but _dsbTfReturnCode is non-zero"
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      listStatus=1
+    fi
+  fi
+
+  _dsbTfReturnCode+=$((initStatus + listStatus)) || :
+
+  if [ ${_dsbTfReturnCode} -ne 0 ]; then
+    _dsb_e "Failures reported during bumping, please review the output further up"
+  else
+    _dsb_i ""
+    _dsb_i "Done."
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0
+}
+
+# what:
+#   this function is an all-in-one function to bump the versions of all the things
+#   it bumps the versions of all modules in the project, tflint plugins and CI/CD files
+#   it also upgrades the terraform version and lists potential providers upgrades
+#   either for a single environment, if specified
+#   or for all environments in the project, when not specified
+# input:
+#   $1: optional, environment name to bump, if not provided all environments are bumped
+#   $2: optional, set to 0 to skip bumping modules, tflint plugins and CI/CD files
 # on info:
 #   status messages are printed
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_bump_the_project() {
-  local givenEnv="${1:-${_dsbTfSelectedEnv:-}}" # used when calling terraform init -upgrade
-  declare -g _dsbTfReturnCode=0                 # default return code
+  local givenEnv="${1:-}"                  # used when calling terraform init -upgrade
+  local bumpModulesTfLintAndCicd="${2:-1}" #set to 0 to skip bumping modules, tflint plugins and CI/CD files
+
+  declare -g _dsbTfReturnCode=0 # default return code
 
   _dsb_d "called with givenEnv: ${givenEnv}"
 
+  # check if the current root directory is a valid Terraform project
+  # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so we don't need to call it again in this function
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 0 # caller reads _dsbTfReturnCode
+  fi
+
+  local -a availableEnvs=()
+  if [ -n "${givenEnv}" ]; then
+    availableEnvs=("${givenEnv}")
+  else
+    mapfile -t availableEnvs < <(_dsb_tf_get_env_names)
+  fi
+  local envCount=${#availableEnvs[@]}
+
+  _dsb_d "available envs count in availableEnvs: ${envCount}"
+  _dsb_d "available envs: ${availableEnvs[*]}"
+
+  local envsDir="${_dsbTfEnvsDir}"
+
+  if [ "${envCount}" -eq 0 ]; then
+    _dsb_e "No environments found in: ${envsDir}"
+    _dsb_e "  please run 'tf-list-envs' to list available environments"
+    _dsb_e "  or try running 'tf-check-dir' to verify the directory structure"
+    _dsbTfReturnCode=1
+    return 0
+  elif [ "${envCount}" -eq 1 ] && [ -n "${givenEnv}" ]; then # a single environment was explicitly specified
+
+    # we set the supplied env early to catch any issues before we start bumping
+    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${givenEnv}"; then
+      _dsb_d "Failed to set environment '${givenEnv}' with non-zero exit code."
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      _dsb_e "  please run 'tf-check-env ${givenEnv}' for more information."
+      _dsbTfReturnCode=1
+      return 0
+    elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+      _dsb_d "Failed to set environment '${givenEnv}' with exit code 0, but _dsbTfReturnCode is non-zero"
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      _dsb_e "  please run 'tf-check-env ${givenEnv}' for more information."
+      _dsbTfReturnCode=1
+      return 0
+    fi
+  fi
+
   _dsb_i "Bump the project:"
+  _dsb_i ""
 
-  # bump the versions of all modules in the project
-  local moduleStatus
-  if ! _dsb_tf_bump_registry_module_versions; then
-    _dsb_e "Failed to bump module versions"
-    moduleStatus=1
-  else
-    moduleStatus=${_dsbTfReturnCode}
+  local moduleStatus=0
+  local tflintPluginStatus=0
+  local cicdStatus=0
+  if [ "${bumpModulesTfLintAndCicd}" -ne 0 ]; then
+
+    # bump the versions of all modules in the project
+    if ! _dsb_tf_bump_registry_module_versions; then
+      _dsb_e "Failed to bump module versions"
+      moduleStatus=1
+    else
+      moduleStatus=${_dsbTfReturnCode}
+    fi
+    _dsb_i ""
+
+    # bump the versions of all tflint plugins in the project
+    if ! _dsb_tf_bump_tflint_plugin_versions; then
+      _dsb_e "Failed to bump tflint plugin versions"
+      tflintPluginStatus=1
+    else
+      tflintPluginStatus=${_dsbTfReturnCode}
+    fi
+    _dsb_i ""
+
+    # bump tflint and terraform versions in the CI/CD pipeline files
+    if ! _dsb_tf_bump_github; then
+      _dsb_e "Failed to bump CI/CD versions"
+      cicdStatus=1
+    else
+      cicdStatus=${_dsbTfReturnCode}
+    fi
+    _dsb_i ""
+
   fi
 
-  # bump the versions of all tflint plugins in the project
-  local tflintPluginStatus
-  if ! _dsb_tf_bump_tflint_plugin_versions; then
-    _dsb_e "Failed to bump tflint plugin versions"
-    tflintPluginStatus=1
-  else
-    tflintPluginStatus=${_dsbTfReturnCode}
-  fi
+  local preflightStatus=0
+  local terraformStatus=0
+  local providerStatus=0
+  local envName envDir
+  for envName in "${availableEnvs[@]}"; do
+    _dsb_i "Bump environment: ${envName}"
+    _dsb_i ""
 
-  # bump tflint and terraform versions in the CI/CD pipeline files
-  local cicdStatus
-  if ! _dsb_tf_bump_github; then
-    _dsb_e "Failed to bump CI/CD versions"
-    cicdStatus=1
-  else
-    cicdStatus=${_dsbTfReturnCode}
-  fi
+    # leverage _dsb_tf_set_env, this validates the environment and sets the subscription
+    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${envName}"; then
+      _dsb_d "Failed to set environment '${envName}' with non-zero exit code."
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      _dsb_e "  unable to set environment '${envName}', upgrade skipped."
+      _dsb_e "  please run 'tf-check-env ${envName}' for more information."
+      ((preflightStatus += 1))
+    elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+      _dsb_d "Failed to set environment '${envName}' with exit code 0, but _dsbTfReturnCode is non-zero"
+      _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+      _dsb_e "  unable to set environment '${envName}', upgrade skipped."
+      _dsb_e "  please run 'tf-check-env ${envName}' for more information."
+      ((preflightStatus += 1))
+    else
+      local envDir="${_dsbTfSelectedEnvDir}" # available thanks to _dsb_tf_set_env
+      _dsb_i "  dir: $(_dsb_tf_get_rel_dir "${envDir}")"
 
-  # terraform init -upgrade the project
-  local terraformStatus
-  if ! _dsb_tf_init 1 "${givenEnv}"; then # $1 = 1 means do -upgrade
-    _dsb_e "Failed to upgrade Terraform dependencies"
-    terraformStatus=1
-  else
-    terraformStatus=${_dsbTfReturnCode}
-  fi
+      # terraform init -upgrade the project
+      if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_init 1 1 "${envName}"; then # $1 = 1 means do -upgrade, $2 = 1 means unset the selected environment after the operation
+        _dsb_d "Failed to upgrade the environment '${envName}' with non-zero exit code."
+        _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+        _dsb_e "  Failed to upgrade the environment '${envName}', please run 'tf-upgrade-env ${envName}' for more information."
+        ((terraformStatus += 1))
+      elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+        _dsb_d "Failed to upgrade the environment '${envName}' with exit code 0, but _dsbTfReturnCode is non-zero"
+        _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+        _dsb_e "  Failed to upgrade the environment '${envName}', please run 'tf-upgrade-env ${envName}' for more information."
+        ((terraformStatus += 1))
+      fi
 
-  # show latest available provider versions and locked versions in the project
-  local providerStatus
-  if ! _dsb_tf_list_available_terraform_provider_upgrades_for_env "${givenEnv}"; then
-    _dsb_e "Failed to list available provider upgrades"
-    providerStatus=1
-  else
-    providerStatus=${_dsbTfReturnCode}
-  fi
+      # show latest available provider versions and locked versions in the project
+      if ! _dsb_tf_list_available_terraform_provider_upgrades_for_env "${envName}"; then
+        _dsb_d "Failed to list available provider upgrades for environment '${envName}' with non-zero exit code."
+        _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+        ((providerStatus += 1))
+      elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
+        _dsb_d "Failed to list available provider upgrades for environment '${envName}' with exit code 0, but _dsbTfReturnCode is non-zero"
+        _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
+        ((providerStatus += 1))
+      fi
+    fi
+
+    _dsb_d "preflightStatus for env '${envName}': ${preflightStatus}"
+    _dsb_d "terraformStatus for env '${envName}': ${terraformStatus}"
+    _dsb_d "providerStatus for env '${envName}': ${providerStatus}"
+
+    _dsb_i ""
+  done
 
   # summarize the status of all bump operations
-  local returnCode=$((moduleStatus + tflintPluginStatus + cicdStatus + terraformStatus + providerStatus))
-  _dsbTfReturnCode="${returnCode}"
+  _dsbTfReturnCode=$((preflightStatus + moduleStatus + tflintPluginStatus + cicdStatus + terraformStatus + providerStatus))
 
-  _dsb_i ""
-  _dsb_i "Bump summary:"
-  if [ ${moduleStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Module versions                : succeeded"
-  else
-    _dsb_i "  \e[31m☒\e[0m  Module versions                : failures reported"
-  fi
-  if [ ${tflintPluginStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Tflint plugin versions         : succeeded"
-  else
-    _dsb_i "  \e[31m☒\e[0m  Tflint plugin versions         : failures reported"
-  fi
-  if [ ${cicdStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  CI/CD versions                 : succeeded"
-  else
-    _dsb_i "  \e[31m☒\e[0m  CI/CD versions                 : failures reported"
-  fi
-  if [ ${terraformStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Terraform dependencies         : succeeded"
-  else
-    _dsb_i "  \e[31m☒\e[0m  Terraform dependencies         : failures reported"
-  fi
-  if [ ${providerStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Provider versions              : succeeded, see further up for potential upgrades"
-  else
-    _dsb_i "  \e[31m☒\e[0m  Provider versions              : failures reported"
+  if [ "${envCount}" -gt 1 ]; then
+    _dsb_i "Bump summary:"
+    if [ "${_dsbTfReturnCode}" -ne 0 ]; then
+      _dsb_e "  Number of failures during bumping: ${_dsbTfReturnCode}"
+    fi
+    if [ "${bumpModulesTfLintAndCicd}" -ne 0 ]; then
+      if [ ${moduleStatus} -eq 0 ]; then
+        _dsb_i "  \e[32m☑\e[0m  Module versions                : succeeded"
+      else
+        _dsb_e "  \e[31m☒\e[0m  Module versions                : failure reported"
+      fi
+      if [ ${tflintPluginStatus} -eq 0 ]; then
+        _dsb_i "  \e[32m☑\e[0m  Tflint plugin versions         : succeeded"
+      else
+        _dsb_e "  \e[31m☒\e[0m  Tflint plugin versions         : failure reported"
+      fi
+      if [ ${cicdStatus} -eq 0 ]; then
+        _dsb_i "  \e[32m☑\e[0m  CI/CD versions                 : succeeded"
+      else
+        _dsb_e "  \e[31m☒\e[0m  CI/CD versions                 : failure reported"
+      fi
+    fi
+    if [ ${terraformStatus} -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  Terraform dependencies         : succeeded"
+    else
+      _dsb_e "  \e[31m☒\e[0m  Terraform dependencies         : ${terraformStatus} failure(s) reported"
+    fi
+    if [ ${providerStatus} -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  Provider versions              : succeeded, see further up for potential upgrades"
+    else
+      _dsb_e "  \e[31m☒\e[0m  Provider versions              : ${providerStatus} failure(s) reported"
+    fi
   fi
 
-  _dsb_i ""
-  _dsb_i "Done."
-
-  if [ ${_dsbTfReturnCode} -eq 0 ]; then
+  if [ ${_dsbTfReturnCode} -ne 0 ]; then
+    _dsb_e ""
+    _dsb_e "Failures reported during bumping, please review the output further up"
+  else
+    _dsb_i ""
+    _dsb_i "Done."
     _dsb_i "  Now run: 'tf-validate && tf-plan'"
   fi
 
   _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0
+}
+
+# what:
+#   this function is a wrapper of _dsb_tf_bump_the_project
+#   it allows to specify an environment to bump the versions for
+#   and if the not specified, it attempts to use the selected environment
+# input:
+#   $1: optional, environment name to bump, if not provided the selected environment is used
+#   $2: optional, set to 0 to skip bumping modules, tflint plugins and CI/CD files
+# on info:
+#   nothing, status messages indirectly from _dsb_tf_bump_the_project
+# returns:
+#   exit code in _dsbTfReturnCode
+_dsb_tf_bump_the_project_single_env() {
+  local givenEnv="${1:-}"
+  local bumpModulesTfLintAndCicd="${2:-1}" #set to 0 to skip bumping modules, tflint plugins and CI/CD files
+
+  declare -g _dsbTfReturnCode=0 # default return code
+
+  _dsb_d "called with envToCheck: ${givenEnv}"
+
+  if [ -z "${givenEnv}" ]; then
+    givenEnv=${_dsbTfSelectedEnv:-}
+  fi
+
+  if [ -z "${givenEnv}" ]; then
+    _dsb_e "No environment specified and no environment selected."
+    _dsb_e "  either specify environment: 'tf-bump <env>'"
+    _dsb_e "  or run 'tf-set-env <env>' first"
+    _dsbTfReturnCode=1
+  else
+    _dsb_tf_bump_the_project "${givenEnv}" "${bumpModulesTfLintAndCicd}" # $1: envToBump, $2: set to 0 to skip bumping modules, tflint plugins and CI/CD files
+  fi
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
+  return 0 # caller reads _dsbTfReturnCode
 }
 
 ###################################################################################################
@@ -5558,7 +5951,15 @@ tf-init-main() {
 tf-init() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_init 0 "${envName}" # $1 = 0 means do not -upgrade
+  _dsb_tf_init_full_single_env 0 "${envName}" # $1 = 0 means do not -upgrade
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-init-all() {
+  _dsb_tf_configure_shell
+  _dsb_tf_init 0 # $1 = 0 means do not -upgrade
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
@@ -5670,6 +6071,15 @@ tf-upgrade-env() {
 tf-upgrade() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
+  _dsb_tf_init_full_single_env 1 "${envName}" # $1 = 1 means do -upgrade
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-upgrade-all() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
   _dsb_tf_init 1 "${envName}" # $1 = 1 means do -upgrade
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
@@ -5717,10 +6127,27 @@ tf-show-all-provider-upgrades() {
   return "${returnCode}"
 }
 
+tf-bump-env() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_bump_an_env "${envName}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
 tf-bump() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_bump_the_project "${envName}"
+  _dsb_tf_bump_the_project_single_env "${envName}"
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-bump-all() {
+  _dsb_tf_configure_shell
+  _dsb_tf_bump_the_project
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
