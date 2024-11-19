@@ -2888,6 +2888,7 @@ _dsb_tf_set_env() {
     if [ "${azSubStatus}" -ne 0 ]; then
       _dsb_e "Failed to configure Azure subscription using subscription hint '${_dsbTfSelectedEnvSubscriptionHintContent}', please run 'az-set-sub'"
     else
+      _dsb_i "  current upn       : ${_dsbTfAzureUpn:-}"
       _dsb_i "  subscription ID   : ${_dsbTfSubscriptionId:-}"
       _dsb_i "  subscription Name : ${_dsbTfSubscriptionName:-}"
     fi
