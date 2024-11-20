@@ -778,6 +778,8 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-show-provider-upgrades"
     "tf-show-all-provider-upgrades"
     "tf-bump"
+    "tf-bump-env"
+    "tf-bump-all"
   )
   echo "${commands[@]}"
 }
@@ -942,9 +944,11 @@ _dsb_tf_help_group_terraform() {
 
 _dsb_tf_help_group_upgrading() {
   _dsb_i "  Upgrade Commands:"
-  _dsb_i "    tf-bump [env]                   -> All-in-one bump function (modules, cicd, tflint plugins, provider upgrades) in selected or given environment"
-  _dsb_i "    tf-upgrade [env]                -> Upgrade Terraform deps. for selected or given environment (also upgrades main and local sub-modules)"
+  _dsb_i "    tf-bump-env [env]               -> Upgrade Terraform deps. for selected or given environment and list provider versions, latest vs. lock file"
+  _dsb_i "    tf-bump [env]                   -> All-in-one bump function for selected or given environment"
+  _dsb_i "    tf-bump-all                     -> All-in-one bump function for entire project, all environments"
   _dsb_i "    tf-upgrade-env [env]            -> Upgrade Terraform deps. for selected or given environment (environment directory only)"
+  _dsb_i "    tf-upgrade [env]                -> Upgrade Terraform deps. for selected or given environment (also upgrades main and local sub-modules)"
   _dsb_i "    tf-upgrade-all                  -> Upgrade Terraform deps. in entire project, all environments"
   _dsb_i "    tf-bump-modules                 -> Bump module versions in .tf files (only applies to official registry modules)"
   _dsb_i "    tf-bump-cicd                    -> Bump versions in GitHub workflows"
@@ -1144,7 +1148,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  This initializes the project completely, all environment directories, main module, and local sub-modules."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-plan, tf-apply."
+    _dsb_i "  Related commands: tf-upgrade, tf-plan, tf-apply, tf-upgrade-all, tf-bump-all"
     ;;
   tf-init-main)
     _dsb_i "tf-init-main:"
@@ -1234,11 +1238,59 @@ _dsb_tf_help_specific_command() {
     # upgrading
   tf-bump)
     _dsb_i "tf-bump [env]:"
-    _dsb_i "  All-in-one bump function."
-    _dsb_i "  Bump module versions, cicd versions, tflint plugins, and provider upgrades."
+    _dsb_i "  All-in-one bump function for the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-bump-modules, tf-bump-cicd, tf-bump-tflint-plugins, tf-show-provider-upgrades."
+    _dsb_i "  Upgrades:"
+    _dsb_i "    - all modules sourced from the official Hashicorp registry, to latest, in entire project"
+    _dsb_i "    - tflint plugin versions in .tflint.hcl files, in entire project"
+    _dsb_i "    - versions in GitHub workflows"
+    _dsb_i ""
+    _dsb_i "  Also:"
+    _dsb_i "    - upgrades Terraform dependencies for the specified environment"
+    _dsb_i "      - within the current version constraints, ie. no version constraints are changed."
+    _dsb_i "    - aids with provider upgrading by also:"
+    _dsb_i "      - listing provider versions, latest available vs. lock file for the specified environment"
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-bump-all, tf-upgrade, tf-bump-modules, tf-bump-cicd, tf-bump-tflint-plugins, tf-show-provider-upgrades."
+    ;;
+  tf-bump-env)
+    _dsb_i "tf-bump-env [env]:"
+    _dsb_i "  Bump function for the specified environment."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Upgrades Terraform dependencies for the specified environment"
+    _dsb_i "    - within the current version constraints, ie. no version constraints are changed."
+    _dsb_i ""
+    _dsb_i "  Aids with provider upgrading by also listing provider versions."
+    _dsb_i "  Latest available vs. lock file for the specified environment."
+    _dsb_i ""
+    _dsb_i "  Note:"
+    _dsb_i "    This does not upgrade modules, tflint plugins, or GitHub workflows."
+    _dsb_i "    See 'tf-bump' or 'tf-bump-all' for more complete upgrade scenarios."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-bump, tf-bump-all, tf-bump-modules, tf-bump-cicd, tf-bump-tflint-plugins, tf-show-provider-upgrades."
+    ;;
+  tf-bump-all)
+    _dsb_i "tf-bump-all [env]:"
+    _dsb_i "  All-in-one bump function the entire project."
+    _dsb_i ""
+    _dsb_i "  Upgrades:"
+    _dsb_i "    - all modules sourced from the official Hashicorp registry, to latest, in entire project"
+    _dsb_i "    - tflint plugin versions in .tflint.hcl files, in entire project"
+    _dsb_i "    - versions in GitHub workflows"
+    _dsb_i ""
+    _dsb_i "  Also:"
+    _dsb_i "    - upgrades Terraform dependencies for all environments"
+    _dsb_i "      - within the current version constraints, ie. no version constraints are changed."
+    _dsb_i "    - aids with provider upgrading by also:"
+    _dsb_i "      - listing provider versions, latest available vs. lock file for all environments"
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-upgrade-all, tf-init-all, tf-bump, tf-upgrade, tf-bump-modules, tf-bump-cicd, tf-bump-tflint-plugins, tf-show-provider-upgrades."
     ;;
   tf-upgrade)
     _dsb_i "tf-upgrade [env]:"
@@ -1278,7 +1330,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  This upgrades and initializes the project completely, environment directory, sub-modules and main."
     _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init, tf-plan, tf-apply, tf-bump-modules, tf-bump."
+    _dsb_i "  Related commands: tf-bump-all, tf-init, tf-plan, tf-apply, tf-bump-modules."
     ;;
   tf-bump-cicd)
     _dsb_i "tf-bump-cicd:"
@@ -1295,7 +1347,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    - \e[90m'v1.12'\e[0m becomes \e[32m'v1.13'\e[0m"
     _dsb_i "    - \e[90m'v0'\e[0m becomes \e[32m'v1'\e[0m"
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade-all, tf-bump-modules, tf-bump-tflint-plugins, tf-bump."
+    _dsb_i "  Related commands: tf-upgrade-all, tf-bump-modules, tf-bump-tflint-plugins, tf-bump, tf-bump-all."
     ;;
   tf-bump-modules)
     _dsb_i "tf-bump-modules:"
@@ -1308,7 +1360,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    When deciding where to update, this command only checks for difference between the declared version and the latest version."
     _dsb_i "    No consideration is taken for version constraints or partial version values."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade-all, tf-bump-cicd, tf-bump-tflint-plugins, tf-bump."
+    _dsb_i "  Related commands: tf-upgrade-all, tf-bump-cicd, tf-bump-tflint-plugins, tf-bump, tf-bump-all."
     ;;
   tf-bump-tflint-plugins)
     _dsb_i "tf-bump-tflint-plugins:"
@@ -1320,7 +1372,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    When deciding where to update, this command only checks for difference between the declared version and the latest version."
     _dsb_i "    No consideration is taken for version constraints or partial version values."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade-all, tf-bump-cicd, tf-bump-modules, tf-bump."
+    _dsb_i "  Related commands: tf-upgrade-all, tf-bump-cicd, tf-bump-modules, tf-bump, tf-bump-all."
     ;;
   tf-show-provider-upgrades)
     _dsb_i "tf-show-provider-upgrades [env]:"
@@ -1341,7 +1393,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Lists all providers and retrieves the latest available versions."
     _dsb_i "  Also shows the version constraint(s) currently configured, as well as the locked version (from the lock file)."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-show-provider-upgrades, tf-bump."
+    _dsb_i "  Related commands: tf-show-provider-upgrades, tf-bump, tf-bump-all."
     ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
