@@ -77,6 +77,25 @@
 #     tf-bump                 -> providers og tflint-plugins in chosen env
 #     tf-bump-all             -> providers og tflint-plugins in alle env + terraform and tflint in GitHub workflows
 #
+###################################################################################################
+#
+# Init: Determine architecture and use respective utilities
+#
+###################################################################################################
+
+# Check if the script is running on MacOS
+if [[ $(uname -m) == "arm64" ]]; then
+    realpath_cmd="grealpath"
+elif [[ $(uname -m) == "aarch64" ]] && [[ $(uname -s) == "Linux" ]]; then
+    realpath_cmd="realpath"
+elif [[ $(uname -m) == "x86_64" ]] && [[ $(uname -s) == "Linux" ]]; then
+    realpath_cmd="realpath"
+else
+    _dsb_internal_error "Architecture: $(uname -m)" \
+        "Operating system: $(uname -s)" \
+        "Unsupported architecture/OS. Exiting."
+    return 1
+fi
 
 ###################################################################################################
 #
@@ -1669,7 +1688,8 @@ _dsb_tf_check_hcledit() {
 # returns:
 #   exit code directly
 _dsb_tf_check_realpath() {
-  if ! realpath --version &>/dev/null; then
+  #TODO: MacOS realpath does not support --version
+  if ! $realpath_cmd --version &>/dev/null; then
     _dsb_e "realpath not found."
     _dsb_e "  checked with command: realpath --version"
     _dsb_e "  make sure realpath is available in your PATH"
@@ -2060,7 +2080,7 @@ _dsb_tf_check_env() {
 #   echos the relative path
 _dsb_tf_get_rel_dir() {
   local dirName=${1}
-  realpath --relative-to="${_dsbTfRootDir:-.}" "${dirName}"
+   $realpath_cmd --relative-to="${_dsbTfRootDir:-.}" "${dirName}"
 }
 
 # what:
@@ -2089,7 +2109,7 @@ _dsb_tf_get_rel_dir() {
 #     - _dsbTfTflintWrapperDir
 #     - _dsbTfTflintWrapperPath
 _dsb_tf_enumerate_directories() {
-  _dsbTfRootDir="$(realpath .)"
+  _dsbTfRootDir="$( $realpath_cmd .)"
 
   _dsbTfFilesList=()
   if [ -d "${_dsbTfRootDir}" ]; then
