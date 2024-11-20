@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cSpell: ignore dsb, tflint, azurerm, az, tf, gh, cpanm, realpath, tfupdate, coreutils, grealpath
+# cSpell: ignore dsb, tflint, azurerm, az, tf, gh, cpanm, realpath, tfupdate, coreutils, grealpath, nonewline, prereq, prereqs, commaseparated, graphviz, libexpat, mktemp, wedi, relog, cicd, hcledit, CWORD, GOPATH, minamijoyo, reqs, chdir, alnum, ruleset
 #
 # Developer notes
 #
@@ -390,7 +390,7 @@ _dsb_tf_report_status() {
   _dsb_d "subHintFileStatus: ${subHintFileStatus}"
 
   _dsb_i "Overall:"
-  if [ ${prereqStatus} -eq 0 ]; then
+  if [ "${prereqStatus}" -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  Pre-requisites check: passed."
   else
     _dsb_i "  \e[31m☒\e[0m  Pre-requisites check: fails, please run 'tf-check-prereqs'"
@@ -558,7 +558,7 @@ _dsb_tf_debug_generate_call_graphs() {
     replacements[${funcName}]="${newFuncName}" # record the replacement
   done
 
-  # ignore unintresting functions
+  # ignore uninteresting functions
   # shellcheck disable=SC2016
   local ignoreStatic='($unset.*|_dsb_[wedi](\(\))?|$_dsb_tf_error_.*|_dsb_tf_configure_shell(\(\))?|_dsb_tf_restore_shell.*(\(\))?|$_dsb_tf_help.*|_dsb_tf_completions(\(\))?|$_dsb_tf_register_.*|$_dsb_tf_debug_.*'
 
@@ -636,7 +636,7 @@ _dsb_tf_error_handler() {
   _dsb_tf_error_stop_trapping
 
   if [ "${returnCode}" -ne 0 ]; then
-    _dsb_e "Error occured:"
+    _dsb_e "Error occurred:"
     _dsb_e "  file      : dsb-tf-proj-helpers.sh" # hardcoded because file will be sourced by curl
     _dsb_e "  line      : ${BASH_LINENO[0]} (dsb-tf-proj-helpers.sh:${BASH_LINENO[0]})"
     _dsb_e "  function  : ${FUNCNAME[1]}"
@@ -657,7 +657,7 @@ _dsb_tf_error_handler() {
 
 _dsb_tf_error_start_trapping() {
   # Enable strict mode with the following options:
-  # -E: Inherit ERR trap in subshells
+  # -E: Inherit ERR trap in sub-shells
   # -o pipefail: Return the exit status of the last command in the pipeline that failed
   set -Eo pipefail
 
@@ -783,7 +783,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
 }
 
 _dsb_tf_help_enumerate_supported_topics() {
-  local -a validgroups=(
+  local -a validGroups=(
     "all"
     "commands"
     "help"
@@ -797,7 +797,7 @@ _dsb_tf_help_enumerate_supported_topics() {
   )
   local -a validCommands
   mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
-  echo "${validgroups[@]}" "${validCommands[@]}"
+  echo "${validGroups[@]}" "${validCommands[@]}"
 }
 
 _dsb_tf_help() {
@@ -861,7 +861,7 @@ _dsb_tf_help_help() {
   _dsb_i ""
   _dsb_i "Common Commands:"
   _dsb_i "  tf-status         -> Show status of tools, authentication, and environment"
-  _dsb_i "  az-relog          -> Azure relogin"
+  _dsb_i "  az-relog          -> Azure re-login"
   _dsb_i "  tf-set-env [env]  -> Set environment"
   _dsb_i "  tf-init           -> Initialize Terraform project"
   _dsb_i "  tf-upgrade        -> Upgrade Terraform dependencies (within existing version constraints)"
@@ -920,7 +920,7 @@ _dsb_tf_help_group_azure() {
   _dsb_i "  Azure Commands:"
   _dsb_i "    az-logout             -> Azure logout"
   _dsb_i "    az-login              -> Azure login"
-  _dsb_i "    az-relog              -> Azure relogin"
+  _dsb_i "    az-relog              -> Azure re-login"
   _dsb_i "    az-whoami             -> Show Azure account information"
   _dsb_i "    az-set-sub            -> Set Azure subscription from current env hint file"
 }
@@ -936,7 +936,7 @@ _dsb_tf_help_group_terraform() {
   _dsb_i "    tf-fmt-fix            -> Run syntax check and fix recursively from current directory"
   _dsb_i "    tf-validate [env]     -> Make Terraform validate the project with selected or given environment"
   _dsb_i "    tf-plan [env]         -> Make Terraform create a plan for the selected or given environment"
-  _dsb_i "    tf-apply [env]        -> Make Terraform apply changes forthe selected or given environment"
+  _dsb_i "    tf-apply [env]        -> Make Terraform apply changes for the selected or given environment"
   _dsb_i "    tf-destroy [env]      -> Show command to manually destroy the selected or given environment"
 }
 
@@ -998,7 +998,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  List and select an environment."
     _dsb_i ""
     _dsb_i "  Additionally supply the environment as an argument to select it directly."
-    _dsb_i "  Tab completion is supportd for specifying environment."
+    _dsb_i "  Tab completion is supported for specifying environment."
     _dsb_i ""
     _dsb_i "  Related commands: tf-list-envs, tf-set-env, tf-clear-env."
     ;;
@@ -1093,7 +1093,7 @@ _dsb_tf_help_specific_command() {
     ;;
   az-relog)
     _dsb_i "az-relog:"
-    _dsb_i "  Relogin to Azure with the Azure CLI."
+    _dsb_i "  re-login to Azure with the Azure CLI."
     _dsb_i ""
     _dsb_i "  Related commands: az-whoami."
     ;;
@@ -1264,7 +1264,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Note:"
     _dsb_i "    This upgrades and initializes just the environment directory, not sub-modules and main."
-    _dsb_i "    Use 'tf-upgrade' for a complete depenedency upgrade and initialization of the environment."
+    _dsb_i "    Use 'tf-upgrade' for a complete dependency upgrade and initialization of the environment."
     _dsb_i "    Or, use 'tf-upgrade-all' for a complete upgrade and initialization of the entire project."
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
@@ -1285,7 +1285,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Bump versions in GitHub workflows."
     _dsb_i "  Currently supports bumping Terraform and tflint versions."
     _dsb_i ""
-    _dsb_i "  Retreives the latest versions from GitHub and updates all workflow files in .github/workflows."
+    _dsb_i "  Retrieves the latest versions from GitHub and updates all workflow files in .github/workflows."
     _dsb_i "  If a tool is configured with 'latest' it will not be updated."
     _dsb_i ""
     _dsb_i "  If a tool is configured with partial semver version or x as wildcard, the syntax is preserved and versions updated as needed."
@@ -1302,10 +1302,10 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Bump module versions referenced in the project."
     _dsb_i "  Currently only applies to modules sourced from the official Hashicorp registry."
     _dsb_i ""
-    _dsb_i "  Retreives the latest versions from the Terraform registry and updates modules in all .tf files in the project."
+    _dsb_i "  Retrieves the latest versions from the Terraform registry and updates modules in all .tf files in the project."
     _dsb_i ""
     _dsb_i "  Note:"
-    _dsb_i "    When deciding where to update, this command only checks for difference betweeen the declared version and the latest version."
+    _dsb_i "    When deciding where to update, this command only checks for difference between the declared version and the latest version."
     _dsb_i "    No consideration is taken for version constraints or partial version values."
     _dsb_i ""
     _dsb_i "  Related commands: tf-upgrade-all, tf-bump-cicd, tf-bump-tflint-plugins, tf-bump."
@@ -1314,10 +1314,10 @@ _dsb_tf_help_specific_command() {
     _dsb_i "tf-bump-tflint-plugins:"
     _dsb_i "  Bump tflint plugin versions in all .tflint.hcl files."
     _dsb_i ""
-    _dsb_i "  Retreives the latest plugin versions from GitHub and updates plugins in all .tflint.hcl files in the project."
+    _dsb_i "  Retrieves the latest plugin versions from GitHub and updates plugins in all .tflint.hcl files in the project."
     _dsb_i ""
     _dsb_i "  Note:"
-    _dsb_i "    When deciding where to update, this command only checks for difference betweeen the declared version and the latest version."
+    _dsb_i "    When deciding where to update, this command only checks for difference between the declared version and the latest version."
     _dsb_i "    No consideration is taken for version constraints or partial version values."
     _dsb_i ""
     _dsb_i "  Related commands: tf-upgrade-all, tf-bump-cicd, tf-bump-modules, tf-bump."
@@ -1327,7 +1327,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Show available provider upgrades for the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
-    _dsb_i "  Lists all providers and retreives the latest available versions."
+    _dsb_i "  Lists all providers and retrieves the latest available versions."
     _dsb_i "  Also shows the version constraint(s) currently configured, as well as the locked version (from the lock file)."
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
@@ -1338,7 +1338,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "tf-show-all-provider-upgrades:"
     _dsb_i "  Show all available provider upgrades for all environments."
     _dsb_i ""
-    _dsb_i "  Lists all providers and retreives the latest available versions."
+    _dsb_i "  Lists all providers and retrieves the latest available versions."
     _dsb_i "  Also shows the version constraint(s) currently configured, as well as the locked version (from the lock file)."
     _dsb_i ""
     _dsb_i "  Related commands: tf-show-provider-upgrades, tf-bump."
@@ -1357,7 +1357,7 @@ _dsb_tf_help_specific_command() {
 
 # for _dsbTfAvailableEnvs
 # --------------------------------------------------
-_dsb_tf_completions_for_avalable_envs() {
+_dsb_tf_completions_for_available_envs() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=()
 
@@ -1374,21 +1374,21 @@ _dsb_tf_completions_for_avalable_envs() {
 }
 
 _dsb_tf_register_completions_for_available_envs() {
-  complete -F _dsb_tf_completions_for_avalable_envs tf-set-env
-  complete -F _dsb_tf_completions_for_avalable_envs tf-check-env
-  complete -F _dsb_tf_completions_for_avalable_envs tf-select-env
-  complete -F _dsb_tf_completions_for_avalable_envs tf-init-env
-  complete -F _dsb_tf_completions_for_avalable_envs tf-init
-  complete -F _dsb_tf_completions_for_avalable_envs tf-upgrade-env
-  complete -F _dsb_tf_completions_for_avalable_envs tf-upgrade
-  complete -F _dsb_tf_completions_for_avalable_envs tf-validate
-  complete -F _dsb_tf_completions_for_avalable_envs tf-plan
-  complete -F _dsb_tf_completions_for_avalable_envs tf-apply
-  complete -F _dsb_tf_completions_for_avalable_envs tf-destroy
-  complete -F _dsb_tf_completions_for_avalable_envs tf-lint
-  complete -F _dsb_tf_completions_for_avalable_envs tf-show-provider-upgrades
-  complete -F _dsb_tf_completions_for_avalable_envs tf-bump-env
-  complete -F _dsb_tf_completions_for_avalable_envs tf-bump
+  complete -F _dsb_tf_completions_for_available_envs tf-set-env
+  complete -F _dsb_tf_completions_for_available_envs tf-check-env
+  complete -F _dsb_tf_completions_for_available_envs tf-select-env
+  complete -F _dsb_tf_completions_for_available_envs tf-init-env
+  complete -F _dsb_tf_completions_for_available_envs tf-init
+  complete -F _dsb_tf_completions_for_available_envs tf-upgrade-env
+  complete -F _dsb_tf_completions_for_available_envs tf-upgrade
+  complete -F _dsb_tf_completions_for_available_envs tf-validate
+  complete -F _dsb_tf_completions_for_available_envs tf-plan
+  complete -F _dsb_tf_completions_for_available_envs tf-apply
+  complete -F _dsb_tf_completions_for_available_envs tf-destroy
+  complete -F _dsb_tf_completions_for_available_envs tf-lint
+  complete -F _dsb_tf_completions_for_available_envs tf-show-provider-upgrades
+  complete -F _dsb_tf_completions_for_available_envs tf-bump-env
+  complete -F _dsb_tf_completions_for_available_envs tf-bump
 }
 
 # for tf-help
@@ -2077,7 +2077,7 @@ _dsb_tf_check_prereqs() {
       _dsb_i "  \e[31m☒\e[0m  GitHub authentication check  : failed."
     fi
   fi
-  if [ ${workingDirStatus} -eq 0 ]; then
+  if [ "${workingDirStatus}" -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  Working directory check      : passed."
   else
     _dsb_i "  \e[31m☒\e[0m  Working directory check      : failed, please run 'tf-check-dir'"
@@ -2099,7 +2099,7 @@ _dsb_tf_check_prereqs() {
 }
 
 # what:
-#   check if environment exists, either supplied or the currenlty selected environment
+#   check if environment exists, either supplied or the currently selected environment
 # input:
 #   environment name (optional)
 # on info:
@@ -2236,7 +2236,7 @@ _dsb_tf_enumerate_directories() {
     #    '-print': Prints the matched files to the standard output.
     mapfile -t _dsbTfFilesList < <(find "${_dsbTfRootDir}" -type d -name ".*" -prune -o -type f -name "*.tf" -print)
 
-    # find all .tflint.hcl files in the project recusrievly, excluding dot directories
+    # find all .tflint.hcl files in the project recursively, excluding dot directories
     mapfile -t _dsbTfLintConfigFilesList < <(find "${_dsbTfRootDir}" -type d -name ".*" -prune -o -type f -name ".tflint.hcl" -print)
   fi
 
@@ -2949,7 +2949,7 @@ _dsb_tf_set_env() {
 # input:
 #   none
 # on info:
-#   avaiable environment names (implicitly by _dsb_tf_list_envs)
+#   available environment names (implicitly by _dsb_tf_list_envs)
 #   selected environment name and possibly azure subscription details (implicitly by _dsb_tf_set_env)
 # returns:
 #   exit code in _dsbTfReturnCode
@@ -3183,7 +3183,7 @@ _dsb_tf_az_login() {
 #     - _dsbTfAzureUpn
 #     - _dsbTfSubscriptionId
 #     - _dsbTfSubscriptionName
-_dsb_tf_az_relogin() {
+_dsb_tf_az_re-login() {
   _dsb_tf_az_logout
   local logoutStatus="${_dsbTfReturnCode}"
   _dsb_tf_az_login
@@ -3200,7 +3200,7 @@ _dsb_tf_az_relogin() {
 #   - _dsbTfSubscriptionId
 #   - _dsbTfSubscriptionName
 # what:
-#   set the Azure subscription accoring to the selected environment's subscription hint
+#   set the Azure subscription according to the selected environment's subscription hint
 # input:
 #   none
 # on info:
@@ -3249,9 +3249,9 @@ _dsb_tf_az_set_sub() {
     return 0
   fi
 
-  _dsb_d "current subscription name does not match subscription hint, proceed with cheking login status"
+  _dsb_d "current subscription name does not match subscription hint, proceed with checking login status"
 
-  # chek if user is logged in
+  # check if user is logged in
   if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
     _dsb_e "Azure CLI account enumeration failed, please run 'az-whoami'"
     return 0
@@ -3548,7 +3548,7 @@ _dsb_tf_init_main() {
     fi
   fi
 
-  # to able to init naib, we need to have the lock file and the providers directory
+  # to be able to init, we need to have the lock file and the providers directory
   # environment lock file's existence was checked implicitly by _dsb_tf_terraform_preflight -> _dsb_tf_set_env further up
   local envProvidersDir="${_dsbTfSelectedEnvDir:-}/.terraform/providers" # this exists when init has been run in the selected environment
 
@@ -3686,7 +3686,7 @@ _dsb_tf_init() {
     _dsb_e "Failures occurred during ${operationFriendlyName}."
     _dsb_e "  ${_dsbTfReturnCode} operation(s) failed:"
     _dsb_e "   - ${preflightStatus} failed preflight checks"
-    _dsb_e "   - ${initEnvStatus} failed teraform -init of environments"
+    _dsb_e "   - ${initEnvStatus} failed terraform -init of environments"
     _dsb_e "   - ${initModulesStatus} failed init of modules"
     _dsb_e "   - ${initMainStatus} failed init of main"
     _dsb_e ""
@@ -4023,7 +4023,7 @@ _dsb_tf_run_tflint() {
     return 0
   fi
 
-  # leverage _dsb_tf_set_env, this enumerates diresctories and validates the environment
+  # leverage _dsb_tf_set_env, this enumerates directories and validates the environment
   _dsbTfLogInfo=1 _dsbTfLogErrors=0 _dsb_tf_set_env "${selectedEnv}"
   if [ "${_dsbTfReturnCode}" -ne 0 ]; then
     _dsb_e "Failed to set environment '${selectedEnv}'."
@@ -4095,7 +4095,7 @@ _dsb_tf_get_dot_dirs() {
   elif [ "${searchForType}" = ".tflint" ]; then
     searchForDirType=".tflint"
   elif [ "${searchForType}" = "all" ]; then
-    # incepetion
+    # inception
     local -a dotDirsTerraform=()
     mapfile -t dotDirsTerraform < <(_dsb_tf_get_dot_dirs ".terraform")
     local -a dotDirsTflint=()
@@ -5198,12 +5198,12 @@ _dsb_tf_bump_tflint_plugin_versions() {
 
 # what:
 #   this function gets the latest version of a given Terraform provider from the Terraform registry
-#   a simple caching mechanism is used to allow speed up of mulitple subsequent calls
+#   a simple caching mechanism is used to allow speed up of multiple subsequent calls
 #   the cache is stored in the global associative array _dsbTfProviderVersionsCache
 #   recommended usage of cache:
 #     - ignoreCache=1 for stand alone calls
 #     - ignoreCache=1 for the first call in a loop, then ignoreCache=0 for subsequent calls
-#     - for comple call stacks, make sure to call with ignoreCache=1 at the top level
+#     - for complete call stacks, make sure to call with ignoreCache=1 at the top level
 # input:
 #   $1: provider source in the format "namespace/type" ex. "hashicorp/azurerm"
 #   $2: optional, set to 1 to ignore cache
@@ -5945,7 +5945,7 @@ az-login() {
 
 az-relog() {
   _dsb_tf_configure_shell
-  _dsb_tf_az_relogin
+  _dsb_tf_az_re-login
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
