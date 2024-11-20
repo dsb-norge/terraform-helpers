@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
+# cSpell: ignore dsb, tflint, azurerm, az, tf, gh, cpanm, realpath, tfupdate, coreutils, grealpath
 #
 # Developer notes
+#
+#   about global variables:
+#     this script uses global variables to persist data between function calls and user invocations
+#     all global variables should prefixed with '_dsbTf'. this is both to avoid conflicts with other scripts
+#     and to make it possible during initialization to remove potential global variables left by previous
+#     versions of the script
 #
 #   types of functions in this file:
 #     "exposed" functions
 #       are those prefixed with 'tf-' and 'az-'
 #       these are the functions that are intended to be called by the user from the command line
-#       these are suported by tf-help
+#       these are supported by tf-help
 #       these should always return their exit code directly
 #
 #     internal functions
@@ -41,7 +48,7 @@
 #     debug logging can be disabled from the command line by calling
 #       _dsb_tf_debug_disable_debug_logging
 #
-#   maintainance and development
+#   maintenance and development
 #     call graph functionality can be installed from the command line by calling
 #       _dsb_tf_debug_install_call_graph_and_deps_ubuntu
 #     call graphs can be generated from the command line
@@ -80,7 +87,7 @@ unsetFunctionsWithPrefix() {
   done
 }
 
-# functions with knonw prefixes
+# functions with known prefixes
 unsetFunctionsWithPrefix '_dsb_'
 unsetFunctionsWithPrefix 'tf-'
 unsetFunctionsWithPrefix 'az-'
@@ -128,6 +135,8 @@ declare -gA _dsbTfModulesDirList # Associative array, key is module name, value 
 declare -g _dsbTfTflintWrapperDir=""    # directory where the tflint wrapper script will be placed
 declare -g _dsbTfTflintWrapperScript="" # full path to the tflint wrapper script
 
+declare -g _dsbTfRealpathCmd="" # the command to use for realpath
+
 declare -g _dsbTfSelectedEnv=""                        # the currently selected environment is persisted here
 declare -g _dsbTfSelectedEnvDir=""                     # full path to the directory of the currently selected environment
 declare -g _dsbTfSelectedEnvLockFile=""                # full path to the lock file of the currently selected environment
@@ -140,7 +149,7 @@ declare -g _dsbTfSubscriptionName="" # Azure subscription name of the currently 
 
 ###################################################################################################
 #
-# Utility functions: general
+# Utility functions: logging
 #
 ###################################################################################################
 
@@ -239,6 +248,34 @@ _dsb_w() {
     echo -e "\e[33mWARNING: $1\e[0m"
   fi
 }
+
+###################################################################################################
+#
+# Init: Architecture check and specific setup
+#
+###################################################################################################
+
+# Check architecture
+if [[ $(uname -m) == "arm64" ]]; then
+  # MacOS
+  _dsbTfRealpathCmd="grealpath" # location of realpath binary
+elif [[ $(uname -m) == "aarch64" ]] && [[ $(uname -s) == "Linux" ]]; then
+  # ARM64 Linux
+  _dsbTfRealpathCmd="realpath"
+elif [[ $(uname -m) == "x86_64" ]] && [[ $(uname -s) == "Linux" ]]; then
+  # x86_64 Linux
+  _dsbTfRealpathCmd="realpath"
+else
+  _dsb_e "Init error: architecture: $(uname -m), operating system: $(uname -s) is unsupported."
+  _dsb_e "DSB Terraform Project Helpers was not loaded."
+  return 1
+fi
+
+###################################################################################################
+#
+# Utility functions: general
+#
+###################################################################################################
 
 # what:
 #   use gh cli to get the currently logged in GitHub account
@@ -1751,9 +1788,9 @@ _dsb_tf_check_terraform_config_inspect() {
 # returns:
 #   exit code directly
 _dsb_tf_check_realpath() {
-  if ! realpath --version &>/dev/null; then
+  if ! $_dsbTfRealpathCmd . &>/dev/null; then
     _dsb_e "realpath not found."
-    _dsb_e "  checked with command: realpath --version"
+    _dsb_e "  checked with command: '$_dsbTfRealpathCmd .'"
     _dsb_e "  make sure realpath is available in your PATH"
     _dsb_e "  install it with one of:"
     _dsb_e "    - Ubuntu: 'sudo apt-get install coreutils'"
@@ -2153,7 +2190,7 @@ _dsb_tf_check_env() {
 #   echos the relative path
 _dsb_tf_get_rel_dir() {
   local dirName=${1}
-  realpath --relative-to="${_dsbTfRootDir:-.}" "${dirName}"
+  ${_dsbTfRealpathCmd} --relative-to="${_dsbTfRootDir:-.}" "${dirName}"
 }
 
 # what:
@@ -2183,7 +2220,7 @@ _dsb_tf_get_rel_dir() {
 #     - _dsbTfTflintWrapperDir
 #     - _dsbTfTflintWrapperPath
 _dsb_tf_enumerate_directories() {
-  _dsbTfRootDir="$(realpath .)"
+  _dsbTfRootDir="$(pwd)"
 
   _dsbTfFilesList=()
   _dsbTfLintConfigFilesList=()
