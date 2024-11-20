@@ -2246,6 +2246,58 @@ _dsb_tf_get_rel_dir() {
 }
 
 # what:
+#   a function that should be piped to, receives lines of data on stdin
+#   looks for log line patterns known to contain paths, if found, modifies the path in the log line
+#   so that it is relative to the to the root directory of the Terraform project
+#   if no known log line pattern is found or the selected environment is not set, the line is echoed as is.
+# input:
+#   line(s) on stdin
+# on info:
+#   nothing
+# returns:
+#   echos the modified line(s)
+_dsb_tf_fixup_paths_from_stdin() {
+  local appendPath=${_dsbTfSelectedEnvDir:-}
+  local line path modified_path relative_path modified_line
+
+  # this loop reads each line from the input and stores it in the variable 'line'.
+  #   the 'IFS=' ensures that leading/trailing whitespace is not trimmed.
+  #   the '-r' option prevents backslashes from being interpreted as escape characters.
+  while IFS= read -r line; do
+
+    # if path to append is empty, echo the line as is
+    if [ -z "${appendPath}" ]; then
+      echo -e "${line}"
+      continue
+    fi
+
+    # Pattern 1: "on <path> line <number>"
+    if [[ ${line} =~ on[[:space:]]+(.+)[[:space:]]+line[[:space:]]+([0-9]+) ]]; then
+      path="${BASH_REMATCH[1]}" # extract the path from the regex match
+
+    # Pattern 2: "@ <path>"
+    elif [[ ${line} =~ @[[:space:]]+(.+) ]]; then
+      path="${BASH_REMATCH[1]}" # extract the path from the regex match
+
+    # Pattern 3: "Linting in: <path>"
+    elif [[ ${line} =~ Linting[[:space:]]+in:[[:space:]]+(.+) ]]; then
+      path="${BASH_REMATCH[1]}" # extract the path from the regex match
+
+    # Echo the line as is
+    else
+      echo -e "${line}"
+      continue
+    fi
+
+    modified_path="${appendPath}/${path}"                   # ex. '../../main/providers.tf' -> '/my/abs/path/to/env/../../main/providers.tf'
+    relative_path=$(_dsb_tf_get_rel_dir "${modified_path}") # becomes relative to the root dir, ex. '/my/abs/path/to/env/../../main/providers.tf' -> 'main/providers.tf'
+    modified_line="${line//${path}/${relative_path}}"       # modify the path in the line
+    echo -e "${modified_line}"                              # echo the modified line
+
+  done
+}
+
+# what:
 #   enumerate directories with current directory as root
 #     - modules
 #     - main
@@ -3421,7 +3473,9 @@ _dsb_tf_init_env_actual() {
   _dsb_d "subId: ${subId}"
   _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
 
-  terraform -chdir="${envDir}" init -reconfigure ${extraInitArgs}
+  # output from the command will have paths relative to the current environment directory
+  #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
+  terraform -chdir="${envDir}" init -reconfigure ${extraInitArgs} 2>&1 | _dsb_tf_fixup_paths_from_stdin
 }
 
 # what:
@@ -3496,8 +3550,10 @@ _dsb_tf_init_dir() {
   _dsb_d "init in ${dirPath}"
   _dsb_d "with plugin-dir: ${envDir}/.terraform/providers"
 
+  # output from the command will have paths relative to the current environment directory
+  #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
   TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true \
-    terraform -chdir="${dirPath}" init -input=false -plugin-dir="${envDir}/.terraform/providers" -backend=false -reconfigure
+    terraform -chdir="${dirPath}" init -input=false -plugin-dir="${envDir}/.terraform/providers" -backend=false -reconfigure 2>&1 | _dsb_tf_fixup_paths_from_stdin
 
   _dsb_d "removing ${dirPath}/.terraform.lock.hcl"
   rm "${dirPath}/.terraform.lock.hcl"
@@ -3878,7 +3934,9 @@ _dsb_tf_validate_env() {
 
   _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
 
-  if ! terraform -chdir="${envDir}" validate; then
+  # output from the command will have paths relative to the current environment directory
+  #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
+  if ! terraform -chdir="${envDir}" validate 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
     _dsb_e "terraform validate in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
     _dsbTfReturnCode=1
   else
@@ -3918,7 +3976,9 @@ _dsb_tf_plan_env() {
 
   _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
 
-  if ! terraform -chdir="${envDir}" plan; then
+  # output from the command will have paths relative to the current environment directory
+  #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
+  if ! terraform -chdir="${envDir}" plan 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
     _dsb_e "terraform plan in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
     _dsbTfReturnCode=1
   else
@@ -3958,7 +4018,9 @@ _dsb_tf_apply_env() {
 
   _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
 
-  if ! terraform -chdir="${envDir}" apply; then
+  # output from the command will have paths relative to the current environment directory
+  #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
+  if ! terraform -chdir="${envDir}" apply 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
     _dsb_e "terraform apply in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
     _dsbTfReturnCode=1
   else
@@ -3997,7 +4059,7 @@ _dsb_tf_destroy_env() {
   local envDir="${_dsbTfSelectedEnvDir}"
   _dsb_i ""
   _dsb_i "To run terraform destroy for environment: $(_dsb_tf_get_rel_dir "${envDir}"), run the following command manually:"
-  _dsb_i "  terraform -chdir='${envDir}' destroy"
+  _dsb_i "  terraform -chdir='${envDir}' destroy 2>&1 | _dsb_tf_fixup_paths_from_stdin"
 
   return 0 # caller reads _dsbTfReturnCode
 }
@@ -4106,7 +4168,9 @@ _dsb_tf_run_tflint() {
   fi
 
   # invoke the tflint wrapper script
-  if ! bash -s -- <"${_dsbTfTflintWrapperPath}"; then
+  #   output from the command will have paths relative to the current environment directory
+  #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
+  if ! bash -s -- <"${_dsbTfTflintWrapperPath}" 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
     _dsb_i_append "" # newline without any prefix
     _dsb_w "tflint operation resulted in non-zero exit code."
     _dsbTfReturnCode=1
@@ -5493,7 +5557,7 @@ _dsb_tf_list_available_terraform_provider_upgrades() {
       done # end of loop through all providers
 
       _dsb_i ""
-      _dsb_i "    to investigate further use: terraform -chdir='$(_dsb_tf_get_rel_dir "${envDir}")' providers"
+      _dsb_i "    to investigate further use: terraform -chdir='$(_dsb_tf_get_rel_dir "${envDir}")' providers 2>&1 | _dsb_tf_fixup_paths_from_stdin"
 
     done # end of loop through all environments
   fi
