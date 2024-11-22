@@ -3287,7 +3287,7 @@ _dsb_tf_az_login() {
 #     - _dsbTfAzureUpn
 #     - _dsbTfSubscriptionId
 #     - _dsbTfSubscriptionName
-_dsb_tf_az_re-login() {
+_dsb_tf_az_re_login() {
   _dsb_tf_az_logout
   local logoutStatus="${_dsbTfReturnCode}"
   _dsb_tf_az_login
@@ -6061,7 +6061,7 @@ az-login() {
 
 az-relog() {
   _dsb_tf_configure_shell
-  _dsb_tf_az_re-login
+  _dsb_tf_az_re_login
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
