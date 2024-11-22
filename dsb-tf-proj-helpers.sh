@@ -1784,7 +1784,7 @@ _dsb_tf_check_hcledit() {
     _dsb_e "  checked with command: hcledit version"
     _dsb_e "  make sure hcledit is available in your PATH"
     _dsb_e "  for installation instructions see: https://github.com/minamijoyo/hcledit?tab=readme-ov-file#install"
-    _dsb_e "  or install it with: 'go install github.com/minamijoyo/hcledit@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
+    _dsb_e "  or install it with: 'go install github.com/minamijoyo/hcledit@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo 'export PATH=\$PATH:\$(go env GOPATH)/bin' >> ~/.bashrc'"
     return 1
   fi
   return 0
@@ -1805,7 +1805,7 @@ _dsb_tf_check_hcledit() {
 #     _dsb_e "  checked with command: terraform-docs --version"
 #     _dsb_e "  make sure terraform-docs is available in your PATH"
 #     _dsb_e "  for installation instructions see: https://terraform-docs.io/user-guide/installation/"
-#     _dsb_e "  or install it with: 'go install github.com/terraform-docs/terraform-docs@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
+#     _dsb_e "  or install it with: 'go install github.com/terraform-docs/terraform-docs@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo 'export PATH=\$PATH:\$(go env GOPATH)/bin' >> ~/.bashrc'"
 #     return 1
 #   fi
 #   return 0
@@ -1825,7 +1825,7 @@ _dsb_tf_check_terraform_config_inspect() {
     _dsb_e "  checked with command: terraform-config-inspect"
     _dsb_e "  make sure terraform-config-inspect is available in your PATH"
     _dsb_e "  for installation instructions see: https://github.com/hashicorp/terraform-config-inspect"
-    _dsb_e "  or install it with: 'go install github.com/hashicorp/terraform-config-inspect@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo \"export PATH=\$PATH:\$(go env GOPATH)/bin\" >> ~/.bashrc'"
+    _dsb_e "  or install it with: 'go install github.com/hashicorp/terraform-config-inspect@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo 'export PATH=\$PATH:\$(go env GOPATH)/bin' >> ~/.bashrc'"
     return 1
   fi
   return 0
