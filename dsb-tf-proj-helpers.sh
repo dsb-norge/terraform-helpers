@@ -2847,7 +2847,7 @@ _dsb_tf_look_for_subscription_hint_file() {
 # returns:
 #   array of GitHub workflow files
 _dsb_tf_get_github_workflow_files() {
-  find "${_dsbTfRootDir}/.github/workflows" -name "*.yml" -type f
+  find "${_dsbTfRootDir}/.github/workflows" -name "*.yml" -type f 2>/dev/null || : # allow find to fail in case the directory does not exist
 }
 
 ###################################################################################################
@@ -3766,7 +3766,6 @@ _dsb_tf_init() {
     else
       local envDir="${_dsbTfSelectedEnvDir}" # available thanks to _dsb_tf_terraform_preflight
       _dsb_d "    envDir: ${envDir}"
-      _dsb_i "  dir: $(_dsb_tf_get_rel_dir "${envDir}")"
 
       if ! _dsb_tf_init_env_actual "${doUpgrade}"; then
         _dsb_e "  init in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
@@ -5639,7 +5638,7 @@ _dsb_tf_bump_an_env() {
     _dsbTfReturnCode=1
   else
     local envDir="${_dsbTfSelectedEnvDir}" # available thanks to _dsb_tf_set_env
-    _dsb_d "  dir: $(_dsb_tf_get_rel_dir "${envDir}")"
+    _dsb_d "    envDir: ${envDir}"
 
     # terraform init -upgrade the project
     if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_init 1 0 "${givenEnv}"; then # $1 = 1 means do -upgrade, $2 = 0 means do not unset the selected environment
@@ -5802,7 +5801,7 @@ _dsb_tf_bump_the_project() {
       ((preflightStatus += 1))
     else
       local envDir="${_dsbTfSelectedEnvDir}" # available thanks to _dsb_tf_set_env
-      _dsb_i "  dir: $(_dsb_tf_get_rel_dir "${envDir}")"
+      _dsb_d "    envDir: ${envDir}"
 
       # terraform init -upgrade the project
       if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_init 1 1 "${envName}"; then # $1 = 1 means do -upgrade, $2 = 1 means unset the selected environment after the operation
