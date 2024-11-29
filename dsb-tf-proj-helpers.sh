@@ -4018,8 +4018,7 @@ _dsb_tf_apply_env() {
   _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
 
   # output from the command will have paths relative to the current environment directory
-  #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
-  if ! terraform -chdir="${envDir}" apply 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+  if ! terraform -chdir="${envDir}" apply; then
     _dsb_e "terraform apply in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
     _dsbTfReturnCode=1
   else
@@ -4058,7 +4057,7 @@ _dsb_tf_destroy_env() {
   local envDir="${_dsbTfSelectedEnvDir}"
   _dsb_i ""
   _dsb_i "To run terraform destroy for environment: $(_dsb_tf_get_rel_dir "${envDir}"), run the following command manually:"
-  _dsb_i "  terraform -chdir='${envDir}' destroy 2>&1 | _dsb_tf_fixup_paths_from_stdin"
+  _dsb_i "  terraform -chdir='${envDir}' destroy"
 
   return 0 # caller reads _dsbTfReturnCode
 }
