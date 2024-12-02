@@ -71,7 +71,6 @@
 #
 ###################################################################################################
 
-set -x 
 # variables starting with '_dsbTf'
 varNames=$(typeset -p | awk '$3 ~ /^_dsbTf/ { sub(/=.*/, "", $3); print $3 }') || varNames=''
 for varName in ${varNames}; do
