@@ -81,7 +81,7 @@ done
 unsetFunctionsWithPrefix() {
   local prefix="${1}"
   local functionNames
-  functionNames=$(declare -F | grep -e " ${prefix}" | cut --fields 3 --delimiter=' ') || functionNames=''
+  functionNames=$(declare -F | grep -e " ${prefix}" | "${_dsbTfCutCmd}" --fields 3 --delimiter=' ') || functionNames=''
   for functionName in ${functionNames}; do
     unset -f "${functionName}" || :
   done
@@ -136,6 +136,7 @@ declare -g _dsbTfTflintWrapperDir=""    # directory where the tflint wrapper scr
 declare -g _dsbTfTflintWrapperScript="" # full path to the tflint wrapper script
 
 declare -g _dsbTfRealpathCmd="" # the command to use for realpath
+declare -g _dsbTfCutCmd=""      # the command to use for cut
 
 declare -g _dsbTfSelectedEnv=""                        # the currently selected environment is persisted here
 declare -g _dsbTfSelectedEnvDir=""                     # full path to the directory of the currently selected environment
@@ -258,13 +259,16 @@ _dsb_w() {
 # Check architecture
 if [[ $(uname -m) == "arm64" ]]; then
   # MacOS
-  _dsbTfRealpathCmd="grealpath" # location of realpath binary
+  _dsbTfRealpathCmd="grealpath" # location of GNU realpath binary
+  _dsbTfCutCmd="gcut"            # location of GNU cut binary
 elif [[ $(uname -m) == "aarch64" ]] && [[ $(uname -s) == "Linux" ]]; then
   # ARM64 Linux
   _dsbTfRealpathCmd="realpath"
+  _dsbTfCutCmd="cut"
 elif [[ $(uname -m) == "x86_64" ]] && [[ $(uname -s) == "Linux" ]]; then
   # x86_64 Linux
   _dsbTfRealpathCmd="realpath"
+  _dsbTfCutCmd="cut"
 else
   _dsb_e "Init error: architecture: $(uname -m), operating system: $(uname -s) is unsupported."
   _dsb_e "DSB Terraform Project Helpers was not loaded."
@@ -5062,7 +5066,7 @@ _dsb_tf_bump_registry_module_versions() {
     local moduleName moduleDeclaration moduleDeclarationLineNumber vsCodeFileLink
     moduleName=$(echo "${hclBlockAddress}" | awk -F. '{print $2}')                                           # block name is on the form 'module.my_module', we need just the name part
     moduleDeclaration="module \"${moduleName}\""                                                             # we search for 'module "my_module"'
-    moduleDeclarationLineNumber=$(grep -n "${moduleDeclaration}" "${tfFile}" | cut -d: -f1 2>/dev/null || :) # extract line number
+    moduleDeclarationLineNumber=$(grep -n "${moduleDeclaration}" "${tfFile}" | "${_dsbTfCutCmd}" -d: -f1 2>/dev/null || :) # extract line number
     if [ -n "${moduleDeclarationLineNumber}" ]; then
       vsCodeFileLink="($(_dsb_tf_get_rel_dir "${tfFile}")#${moduleDeclarationLineNumber})"
     fi
@@ -5272,7 +5276,7 @@ _dsb_tf_bump_tflint_plugin_versions() {
     local pluginName pluginDeclaration pluginDeclarationLineNumber vsCodeFileLink
     pluginName=$(echo "${hclBlockAddress}" | awk -F. '{print $2}')                                            # block name is on the form 'plugin.my_plugin', we need just the name part
     pluginDeclaration="plugin \"${pluginName}\""                                                              # we search for 'plugin "my_plugin"'
-    pluginDeclarationLineNumber=$(grep -n "${pluginDeclaration}" "${hclFile}" | cut -d: -f1 2>/dev/null || :) # extract line number
+    pluginDeclarationLineNumber=$(grep -n "${pluginDeclaration}" "${hclFile}" | "${_dsbTfCutCmd}" -d: -f1 2>/dev/null || :) # extract line number
     if [ -n "${pluginDeclarationLineNumber}" ]; then
       vsCodeFileLink="($(_dsb_tf_get_rel_dir "${hclFile}")#${pluginDeclarationLineNumber})"
     fi
