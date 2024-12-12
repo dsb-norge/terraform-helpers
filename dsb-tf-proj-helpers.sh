@@ -81,10 +81,21 @@ done
 unsetFunctionsWithPrefix() {
   local prefix="${1}"
   local functionNames
-  functionNames=$(declare -F | grep -e " ${prefix}" | "${_dsbTfCutCmd}" --fields 3 --delimiter=' ') || functionNames=''
-  for functionName in ${functionNames}; do
-    unset -f "${functionName}" || :
-  done
+  local cutCmd
+
+  if [[ $(uname -m) == "arm64" ]]; then cutCmd="gcut"; fi                                  # MacOS: GNU cut binary
+  if [[ $(uname -m) == "aarch64" ]] && [[ $(uname -s) == "Linux" ]]; then cutCmd="cut"; fi # ARM64 Linux
+  if [[ $(uname -m) == "x86_64" ]] && [[ $(uname -s) == "Linux" ]]; then cutCmd="cut"; fi  # x86_64 Linux
+
+  # run just if cut command is set
+  if [ -n "${cutCmd}" ]; then
+    echo before
+    functionNames=$(declare -F | grep -e " ${prefix}" | "${cutCmd}" --fields 3 --delimiter=' ') || functionNames=''
+    echo after
+    for functionName in ${functionNames}; do
+      unset -f "${functionName}" || :
+    done
+  fi
 }
 
 # functions with known prefixes
@@ -260,7 +271,7 @@ _dsb_w() {
 if [[ $(uname -m) == "arm64" ]]; then
   # MacOS
   _dsbTfRealpathCmd="grealpath" # location of GNU realpath binary
-  _dsbTfCutCmd="gcut"            # location of GNU cut binary
+  _dsbTfCutCmd="gcut"           # location of GNU cut binary
 elif [[ $(uname -m) == "aarch64" ]] && [[ $(uname -s) == "Linux" ]]; then
   # ARM64 Linux
   _dsbTfRealpathCmd="realpath"
@@ -5064,8 +5075,8 @@ _dsb_tf_bump_registry_module_versions() {
 
     # resolve line number of the module declaration in the file to create a link to the file (clickable in VS Code terminal)
     local moduleName moduleDeclaration moduleDeclarationLineNumber vsCodeFileLink
-    moduleName=$(echo "${hclBlockAddress}" | awk -F. '{print $2}')                                           # block name is on the form 'module.my_module', we need just the name part
-    moduleDeclaration="module \"${moduleName}\""                                                             # we search for 'module "my_module"'
+    moduleName=$(echo "${hclBlockAddress}" | awk -F. '{print $2}')                                                         # block name is on the form 'module.my_module', we need just the name part
+    moduleDeclaration="module \"${moduleName}\""                                                                           # we search for 'module "my_module"'
     moduleDeclarationLineNumber=$(grep -n "${moduleDeclaration}" "${tfFile}" | "${_dsbTfCutCmd}" -d: -f1 2>/dev/null || :) # extract line number
     if [ -n "${moduleDeclarationLineNumber}" ]; then
       vsCodeFileLink="($(_dsb_tf_get_rel_dir "${tfFile}")#${moduleDeclarationLineNumber})"
@@ -5274,8 +5285,8 @@ _dsb_tf_bump_tflint_plugin_versions() {
 
     # resolve line number of the plugin declaration in the file to create a link to the file (clickable in VS Code terminal)
     local pluginName pluginDeclaration pluginDeclarationLineNumber vsCodeFileLink
-    pluginName=$(echo "${hclBlockAddress}" | awk -F. '{print $2}')                                            # block name is on the form 'plugin.my_plugin', we need just the name part
-    pluginDeclaration="plugin \"${pluginName}\""                                                              # we search for 'plugin "my_plugin"'
+    pluginName=$(echo "${hclBlockAddress}" | awk -F. '{print $2}')                                                          # block name is on the form 'plugin.my_plugin', we need just the name part
+    pluginDeclaration="plugin \"${pluginName}\""                                                                            # we search for 'plugin "my_plugin"'
     pluginDeclarationLineNumber=$(grep -n "${pluginDeclaration}" "${hclFile}" | "${_dsbTfCutCmd}" -d: -f1 2>/dev/null || :) # extract line number
     if [ -n "${pluginDeclarationLineNumber}" ]; then
       vsCodeFileLink="($(_dsb_tf_get_rel_dir "${hclFile}")#${pluginDeclarationLineNumber})"
