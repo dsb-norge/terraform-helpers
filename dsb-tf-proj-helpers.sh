@@ -89,9 +89,7 @@ unsetFunctionsWithPrefix() {
 
   # run just if cut command is set
   if [ -n "${cutCmd}" ]; then
-    echo before
     functionNames=$(declare -F | grep -e " ${prefix}" | "${cutCmd}" --fields 3 --delimiter=' ') || functionNames=''
-    echo after
     for functionName in ${functionNames}; do
       unset -f "${functionName}" || :
     done
@@ -3539,9 +3537,7 @@ _dsb_tf_init_env() {
 #   uses lock file from the selected environment
 #   uses .terraform/providers from the selected environment from plugin cache
 #   NOTE:
-#     this means init in the selected environment must have been run before this
 #   ALSO NOTE:
-#     function does not perform any pre flight checks
 # input:
 #   $1: directory path
 # on info:
@@ -5739,14 +5735,12 @@ _dsb_tf_bump_the_project() {
     return 0
   elif [ "${envCount}" -eq 1 ] && [ -n "${givenEnv}" ]; then # a single environment was explicitly specified
 
-    # we set the supplied env early to catch any issues before we start bumping
     if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${givenEnv}"; then
       _dsb_d "Failed to set environment '${givenEnv}' with non-zero exit code."
       _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
       _dsb_e "  please run 'tf-check-env ${givenEnv}' for more information."
       _dsbTfReturnCode=1
       return 0
-    elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
       _dsb_d "Failed to set environment '${givenEnv}' with exit code 0, but _dsbTfReturnCode is non-zero"
       _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
       _dsb_e "  please run 'tf-check-env ${givenEnv}' for more information."
