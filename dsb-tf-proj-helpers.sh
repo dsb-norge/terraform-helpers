@@ -4133,6 +4133,12 @@ _dsb_tf_install_tflint_wrapper() {
 #   exit code in _dsbTfReturnCode
 _dsb_tf_run_tflint() {
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+  shift || :
+  local lintArguments="$*"
+
+  _dsb_d "called with:"
+  _dsb_d " - selectedEnv: ${selectedEnv}"
+  _dsb_d " - lintArguments: ${lintArguments}"
 
   if [ -z "${selectedEnv}" ]; then
     _dsb_e "No environment selected, please run 'tf-select-env' or 'tf-set-env <env>'"
@@ -4179,7 +4185,7 @@ _dsb_tf_run_tflint() {
   # invoke the tflint wrapper script
   #   output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
-  if ! bash -s -- <"${_dsbTfTflintWrapperPath}" 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+  if ! bash -s -- ${lintArguments} <"${_dsbTfTflintWrapperPath}" 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
     _dsb_i_append "" # newline without any prefix
     _dsb_w "tflint operation resulted in non-zero exit code."
     _dsbTfReturnCode=1
@@ -6182,9 +6188,20 @@ tf-destroy() {
 # -----------------
 
 tf-lint() {
-  local envName="${1:-}"
+  local lintArguments=()
+  local envName=""
+
+  # check if the first argument is a flag or an environment name
+  if [[ ${1:-} == -* ]]; then
+    lintArguments=("$@")
+  else
+    envName="${1:-}"
+    shift || :
+    lintArguments=("$@")
+  fi
+
   _dsb_tf_configure_shell
-  _dsb_tf_run_tflint "${envName}"
+  _dsb_tf_run_tflint "${envName}" "${lintArguments[@]}"
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
