@@ -4182,10 +4182,18 @@ _dsb_tf_run_tflint() {
     return 0
   fi
 
+  # get GitHub API token
+  local ghToken
+  if ! ghToken=$(gh auth token); then
+    _dsb_e "Failed to get GitHub API token."
+    _dsbTfReturnCode=1
+    return 0
+  fi
+
   # invoke the tflint wrapper script
   #   output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
-  if ! bash -s -- ${lintArguments} <"${_dsbTfTflintWrapperPath}" 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+  if ! GITHUB_TOKEN=${ghToken} bash -s -- ${lintArguments} <"${_dsbTfTflintWrapperPath}" 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
     _dsb_i_append "" # newline without any prefix
     _dsb_w "tflint operation resulted in non-zero exit code."
     _dsbTfReturnCode=1
