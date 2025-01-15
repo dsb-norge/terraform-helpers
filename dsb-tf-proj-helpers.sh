@@ -1071,11 +1071,28 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Show the status of tools, authentication, and environment."
     ;;
   tf-lint)
-    _dsb_i "tf-lint [env]:"
+    _dsb_i "tf-lint [env] [wrapper script flags]:"
     _dsb_i "  Run tflint for the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Note that this uses an external TFLint wrapper script from:"
+    _dsb_i "    https://github.com/dsb-norge/terraform-tflint-wrappers/blob/main/tflint_linux.sh"
+    _dsb_i ""
+    _dsb_i "  About the wrapper script:"
+    _dsb_i "    - It will be cached locally in the project directory under './.tflint'"
+    _dsb_i "    - It will not be updated automatically by tf-helpers"
+    _dsb_i "    - To update the wrapper script, first run tf-clean-tflint, then run tf-lint."
+    _dsb_i "    - The script supports flags to control it's operation, some examples:"
+    _dsb_i "      - Skip checking if latest tflint is installed locally:"
+    _dsb_i "          tf-lint --skip-check"
+    _dsb_i "      - Use specific TFLint version:"
+    _dsb_i "          tf-lint --use-version 0.54.0"
+    _dsb_i "      - Force re-download of TFLint plugins:"
+    _dsb_i "          tf-lint --re-init"
+    _dsb_i "      - See more options by running:"
+    _dsb_i "          tf-lint --help"
     _dsb_i ""
     _dsb_i "  Related commands: tf-init, tf-validate."
     ;;
@@ -1430,10 +1447,13 @@ _dsb_tf_completions_for_available_envs() {
   # note: debug mode must be disabled, otherwise the debug output will mess up the completions
   _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
 
-  # only complete if _dsbTfAvailableEnvs is set
-  if [[ -v _dsbTfAvailableEnvs ]]; then
-    if [[ -n "${_dsbTfAvailableEnvs[*]}" ]]; then
-      mapfile -t COMPREPLY < <(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "${cur}")
+  # only complete the first argument
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    # only complete if _dsbTfAvailableEnvs is set
+    if [[ -v _dsbTfAvailableEnvs ]]; then
+      if [[ -n "${_dsbTfAvailableEnvs[*]}" ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "${cur}")
+      fi
     fi
   fi
 }
@@ -1450,11 +1470,41 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_available_envs tf-plan
   complete -F _dsb_tf_completions_for_available_envs tf-apply
   complete -F _dsb_tf_completions_for_available_envs tf-destroy
-  complete -F _dsb_tf_completions_for_available_envs tf-lint
   complete -F _dsb_tf_completions_for_available_envs tf-show-provider-upgrades
   complete -F _dsb_tf_completions_for_available_envs tf-bump-env
   complete -F _dsb_tf_completions_for_available_envs tf-bump
 }
+
+# special for tf-lint
+# supports [env] and wrapper script flags
+# --------------------------------------------------
+_dsb_tf_completions_for_tf_lint() {
+  local cur
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+
+  # always enumerate, we do not know the directory the function is called from
+  # note: debug mode must be disabled, otherwise the debug output will mess up the completions
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    # complete for the first argument
+    # only complete if _dsbTfAvailableEnvs is set
+    if [[ -v _dsbTfAvailableEnvs ]]; then
+      if [[ -n "${_dsbTfAvailableEnvs[*]}" ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "${cur}")
+      fi
+    fi
+  elif [[ ${COMP_CWORD} -ge 2 && ${COMP_WORDS[0]} == "tf-lint" ]]; then
+    # complete for the second argument and beyond
+    mapfile -t COMPREPLY < <(compgen -W "--force-install --help --re-init --remove --skip-latest-check --uninstall --use-version" -- "${cur}")
+  fi
+}
+
+_dsb_tf_register_completions_for_tf_lint() {
+  complete -F _dsb_tf_completions_for_tf_lint tf-lint
+}
+
 
 # for tf-help
 # --------------------------------------------------
@@ -1477,6 +1527,7 @@ _dsb_tf_register_completions_for_tf_help() {
 # make it easier to configure the shell
 _dsb_tf_register_all_completions() {
   _dsb_tf_register_completions_for_available_envs
+  _dsb_tf_register_completions_for_tf_lint
   _dsb_tf_register_completions_for_tf_help
 }
 
