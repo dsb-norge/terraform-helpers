@@ -1088,7 +1088,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i "      - Skip checking if latest tflint is installed locally:"
     _dsb_i "          tf-lint --skip-check"
     _dsb_i "      - Use specific TFLint version:"
-    _dsb_i "          tf-lint --use-version 0.54.0"
+    _dsb_i "          tf-lint --use-version 'v0.54.0'"
     _dsb_i "      - Force re-download of TFLint plugins:"
     _dsb_i "          tf-lint --re-init"
     _dsb_i "      - See more options by running:"
