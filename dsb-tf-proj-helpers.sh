@@ -819,7 +819,7 @@ _dsb_tf_help() {
   local arg="${1:-help}"
   case "${arg}" in
   all)
-    _dsb_tf_help_commands
+    _dsb_tf_help_all
     ;;
   commands)
     _dsb_tf_help_commands
@@ -870,7 +870,7 @@ _dsb_tf_help_help() {
   _dsb_i "General Help:"
   _dsb_i "  tf-help groups    -> show all command groups"
   _dsb_i "  tf-help [group]   -> show help for a specific command group"
-  _dsb_i "  tf-help commands  -> show all commands, make sure to group and indent commands by group"
+  _dsb_i "  tf-help commands  -> show all commands"
   _dsb_i "  tf-help [command] -> show help for a specific command"
   _dsb_i "  tf-help all       -> show all help"
   _dsb_i ""
@@ -971,9 +971,9 @@ _dsb_tf_help_group_upgrading() {
 }
 
 _dsb_tf_help_commands() {
-  _dsb_tf_help_help
+  _dsb_i "DSB Terraform Project Helpers 🚀"
   _dsb_i ""
-  _dsb_i "Groups:"
+  _dsb_i "All available commands:"
   _dsb_i ""
   _dsb_tf_help_group_environments
   _dsb_i ""
@@ -986,6 +986,11 @@ _dsb_tf_help_commands() {
   _dsb_tf_help_group_general
   _dsb_i ""
   _dsb_tf_help_group_azure
+  _dsb_i ""
+}
+
+_dsb_tf_help_all() {
+  _dsb_tf_help_help
   _dsb_i ""
   _dsb_i "Detailed Help For All Commands:"
   _dsb_i ""
