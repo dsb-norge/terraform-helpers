@@ -750,6 +750,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "az-logout"
     "az-relog"
     "az-set-sub"
+    "az-select-sub"
     "az-whoami"
     # checks
     "tf-check-dir"
@@ -938,6 +939,7 @@ _dsb_tf_help_group_azure() {
   _dsb_i "    az-relog              -> Azure re-login"
   _dsb_i "    az-whoami             -> Show Azure account information"
   _dsb_i "    az-set-sub            -> Set Azure subscription from current env hint file"
+  _dsb_i "    az-select-sub         -> List and select active Azure subscription"
 }
 
 _dsb_tf_help_group_terraform() {
@@ -1145,6 +1147,12 @@ _dsb_tf_help_specific_command() {
   az-set-sub)
     _dsb_i "az-set-sub:"
     _dsb_i "  Use the the Azure CLI to set Azure subscription using subscription hint file from selected environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: az-login, az-whoami, az-select-sub."
+    ;;
+  az-select-sub)
+    _dsb_i "az-select-sub:"
+    _dsb_i "  Use the the Azure CLI to list available subscriptions, then select the active subscription."
     _dsb_i ""
     _dsb_i "  Related commands: az-login, az-whoami."
     ;;
@@ -1509,7 +1517,6 @@ _dsb_tf_completions_for_tf_lint() {
 _dsb_tf_register_completions_for_tf_lint() {
   complete -F _dsb_tf_completions_for_tf_lint tf-lint
 }
-
 
 # for tf-help
 # --------------------------------------------------
@@ -3175,6 +3182,25 @@ _dsb_tf_select_env() {
 ###################################################################################################
 
 # what:
+#   check if the Azure CLI is installed
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+_dsb_tf_az_is_logged_in() {
+  local azCliStatus=0
+
+  az account show &>/dev/null
+  local exitCode=$?
+
+  _dsb_d "exitCode: ${exitCode}"
+
+  return "${exitCode}"
+}
+
+# what:
 #   check if the user is logged in with Azure CLI
 #   if logged in, populate global variables with account details
 #   if not logged in, clear the global variables
@@ -3193,18 +3219,15 @@ _dsb_tf_az_enumerate_account() {
 
   # if az cli is not installed, do not fail
   if ! _dsb_tf_check_az_cli; then
+    _dsb_d "Azure CLI not installed, skipping enumeration."
     return 0
   fi
 
-  local showOutput
-  showOutput=$(az account show 2>&1)
-  local showStatus=$?
+  if _dsb_tf_az_is_logged_in; then
+    local showOutput azUpn subId subName tenantDisplayName
+    showOutput=$(az account show 2>&1)
+    _dsb_d "showOutput: ${showOutput}"
 
-  _dsb_d "showStatus: ${showStatus}"
-  _dsb_d "showOutput: ${showOutput}"
-
-  if [ "${showStatus}" -eq 0 ]; then
-    local azUpn subId subName tenantDisplayName
     azUpn=$(echo "${showOutput}" | jq -r '.user.name')
     subId=$(echo "${showOutput}" | jq -r '.id')
     subName=$(echo "${showOutput}" | jq -r '.name')
@@ -3367,11 +3390,6 @@ _dsb_tf_az_re_login() {
   return 0 # caller reads _dsbTfReturnCode
 }
 
-# returns exit code in _dsbTfReturnCode
-# sets the subscription to the selected environment subscription hint
-# updates the selected subscription global variables
-#   - _dsbTfSubscriptionId
-#   - _dsbTfSubscriptionName
 # what:
 #   set the Azure subscription according to the selected environment's subscription hint
 # input:
@@ -3443,6 +3461,141 @@ _dsb_tf_az_set_sub() {
   fi
 
   _dsb_d "returning exit code in _dsbTfReturnCode=$_dsbTfReturnCode"
+  return 0 # caller reads _dsbTfReturnCode
+}
+
+# what:
+#   allows the user to select the active Azure subscription using azure cli
+# input:
+#   none
+# on info:
+#   subscription ID and name are printed (implicitly by _dsb_tf_az_enumerate_account)
+# returns:
+#   exit code in _dsbTfReturnCode
+#   several global variables are updated (implicitly by _dsb_tf_az_enumerate_account):
+#     - _dsbTfAzureUpn
+#     - _dsbTfSubscriptionId
+#     - _dsbTfSubscriptionName
+_dsb_tf_az_select_sub() {
+
+  _dsbTfReturnCode=1 # default to failure
+
+  # need the cli
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_az_cli; then
+    _dsb_e "Azure CLI check failed, please run 'tf-check-prereqs'"
+    return 0
+  fi
+
+  # check if user is logged in
+  if ! _dsb_tf_az_is_logged_in; then
+    _dsb_i "Not logged in with Azure CLI."
+    _dsb_i "  please run 'az-login'"
+    return 0
+  fi
+
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
+    _dsb_e "Azure CLI account enumeration failed, please run 'az-whoami'"
+    return 0
+  fi
+
+  local selectedSubId="${_dsbTfSubscriptionId:-}"
+  _dsb_d "selected subscription id: ${selectedSubId}"
+
+  local accountJson
+  if ! accountJson=$(az account list --all 2>&1); then
+    _dsb_e "Azure subscriptions enumeration failed."
+    _dsb_e "  please run 'az-whoami'"
+    _dsb_e "  or check output of 'az account list --all'"
+    return 0
+  fi
+
+  _dsb_d "accountJson: ${accountJson}"
+
+  # sort json on tenantDisplayName, name and id
+  accountJson=$(echo "${accountJson}" | jq -r 'sort_by(.tenantDisplayName, .name, .id)')
+
+  local -a availableSubIds availableSubNames availableSubTenantNames
+  mapfile -t availableSubIds < <(echo "${accountJson}" | jq -r '.[].id')
+  mapfile -t availableSubNames < <(echo "${accountJson}" | jq -r '.[].name')
+  mapfile -t availableSubTenantNames < <(echo "${accountJson}" | jq -r '.[].tenantDisplayName')
+
+  local subCount=${#availableSubIds[@]}
+
+  _dsb_d "available subs count in availableEnvs: ${subCount}"
+  _dsb_d "available subs: ${availableSubNames[*]}"
+
+  if [ "${subCount}" -eq 0 ]; then
+    _dsb_w "No Azure subscriptions found."
+    _dsb_i "  verify that you are logged as the correct user with 'az-whoami'"
+  else
+    local envIdx=1
+    _dsb_i "Available subscriptions, tenant names in parentheses:"
+    local subId
+    for subId in "${availableSubIds[@]}"; do
+      subName="${availableSubNames[$((envIdx - 1))]}"
+      subTenantName="${availableSubTenantNames[$((envIdx - 1))]}"
+      if [ "${subId}" == "${selectedSubId}" ]; then
+        _dsb_i "  -> ${envIdx}) ${subName} (${subTenantName})"
+      else
+        _dsb_i "     ${envIdx}) ${subName} (${subTenantName})"
+      fi
+      ((envIdx++))
+    done
+
+    if [ -n "${selectedSubId}" ]; then
+      _dsb_i ""
+      _dsb_i " -> indicates the currently selected"
+    fi
+
+    local -a validChoices
+    mapfile -t validChoices < <(seq 1 "${subCount}")
+
+    local userInput idx
+    local gotValidInput=0
+    while [ "${gotValidInput}" -ne 1 ]; do
+      read -r -p "Enter index of subscription to set: " userInput
+      # clear the current console line
+      echo -en "\033[1A\033[2K"
+      for idx in "${validChoices[@]}"; do
+        if [ "${idx}" == "${userInput}" ]; then
+          gotValidInput=1
+          _dsb_d "idx = ${idx} is valid"
+          break
+        fi
+      done
+    done
+
+    _dsb_i ""
+
+    # set the subscription
+    local subNameToSet subIdToSet subTenantNameToSet
+    subNameToSet="${availableSubNames[$((userInput - 1))]}"
+    subIdToSet="${availableSubIds[$((userInput - 1))]}"
+    subTenantNameToSet="${availableSubTenantNames[$((userInput - 1))]}"
+
+    _dsb_d "current subscription id: ${_dsbTfSubscriptionId:-}"
+    _dsb_d "current subscription name: ${_dsbTfSubscriptionName:-}"
+    _dsb_d "setting:"
+    _dsb_d "  subscription name: ${subNameToSet}"
+    _dsb_d "  subscription id: ${subIdToSet}"
+    _dsb_d "  subscription tenant name: ${subTenantNameToSet}"
+
+    if az account set --subscription "${subIdToSet}"; then
+      # updates the selected subscription global variable
+      _dsb_tf_az_enumerate_account
+      _dsb_d "Subscription ID set to: ${_dsbTfSubscriptionId:-}"
+      _dsb_d "Subscription name set to: ${_dsbTfSubscriptionName:-}"
+      _dsbTfReturnCode=0 # indicate success
+    else
+      _dsb_e "Failed to set subscription."
+      _dsb_e "  subscription name: ${subNameToSet}"
+      _dsb_e "  subscription id: ${subIdToSet}"
+      _dsb_e "  subscription tenant name: ${subTenantNameToSet}"
+    fi
+
+  fi # end subCount check
+
+  _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
 }
 
@@ -6147,6 +6300,14 @@ az-relog() {
 az-set-sub() {
   _dsb_tf_configure_shell
   _dsb_tf_az_set_sub
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+az-select-sub() {
+  _dsb_tf_configure_shell
+  _dsb_tf_az_select_sub
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
