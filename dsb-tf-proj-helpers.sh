@@ -2359,6 +2359,10 @@ _dsb_tf_fixup_paths_from_stdin() {
     elif [[ ${line} =~ Linting[[:space:]]+in:[[:space:]]+(.+) ]]; then
       path="${BASH_REMATCH[1]}" # extract the path from the regex match
 
+    # Pattern 4: "../../<path>:<number>"
+    elif [[ ${line} =~ (\.\./\.\./[^:]+):([0-9]+) ]]; then
+      path="${BASH_REMATCH[1]}" # extract the path from the regex match
+
     # Echo the line as is
     else
       echo -e "${line}"
