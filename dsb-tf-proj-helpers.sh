@@ -3702,6 +3702,17 @@ _dsb_tf_init_env_actual() {
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
   terraform -chdir="${envDir}" init -reconfigure ${extraInitArgs} 2>&1 | _dsb_tf_fixup_paths_from_stdin
+
+  # make sure hashes for all required platforms are available in the lock file
+  if [ "${doUpgrade}" -eq 1 ]; then
+    _dsb_d "adding hashes to the lock file"
+
+    # hardcoded to windows, macOS and linux
+    #   pipe to _dsb_tf_fixup_paths_from_stdin to make paths relative to the root directory
+    terraform -chdir="${envDir}" providers lock -platform=windows_amd64 -platform=darwin_amd64 -platform=linux_amd64 2>&1 | _dsb_tf_fixup_paths_from_stdin
+
+    _dsb_d "hashes added"
+  fi
 }
 
 # what:
