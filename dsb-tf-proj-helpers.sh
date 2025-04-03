@@ -3709,7 +3709,7 @@ _dsb_tf_init_env_actual() {
 
     # hardcoded to windows, macOS and linux
     #   pipe to _dsb_tf_fixup_paths_from_stdin to make paths relative to the root directory
-    terraform -chdir="${envDir}" providers lock -platform=windows_amd64 -platform=darwin_amd64 -platform=linux_amd64 2>&1 | _dsb_tf_fixup_paths_from_stdin
+    terraform -chdir="${envDir}" providers lock -platform=windows_amd64 -platform=darwin_amd64 -platform=linux_amd64 -platform=linux_arm64 2>&1 | _dsb_tf_fixup_paths_from_stdin
 
     _dsb_d "hashes added"
   fi
