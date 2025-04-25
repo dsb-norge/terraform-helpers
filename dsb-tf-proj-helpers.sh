@@ -3682,7 +3682,7 @@ _dsb_tf_terraform_preflight() {
 # on info:
 #   nothing
 # returns:
-#   no return, terraform will potentially return non-zero exit code
+#   1 when terraform returns non-zero exit code, otherwise 0
 _dsb_tf_init_env_actual() {
   local doUpgrade="${1:-0}"
 
@@ -3701,7 +3701,10 @@ _dsb_tf_init_env_actual() {
 
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
-  terraform -chdir="${envDir}" init -reconfigure ${extraInitArgs} 2>&1 | _dsb_tf_fixup_paths_from_stdin
+  if ! terraform -chdir="${envDir}" init -reconfigure ${extraInitArgs} 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+    _dsb_d "terraform init failed"
+    return 1
+  fi
 
   # make sure hashes for all required platforms are available in the lock file
   if [ "${doUpgrade}" -eq 1 ]; then
@@ -3709,10 +3712,15 @@ _dsb_tf_init_env_actual() {
 
     # hardcoded to windows, macOS and linux
     #   pipe to _dsb_tf_fixup_paths_from_stdin to make paths relative to the root directory
-    terraform -chdir="${envDir}" providers lock -platform=windows_amd64 -platform=darwin_amd64 -platform=linux_amd64 -platform=linux_arm64 2>&1 | _dsb_tf_fixup_paths_from_stdin
+    if ! terraform -chdir="${envDir}" providers lock -platform=windows_amd64 -platform=darwin_amd64 -platform=linux_amd64 -platform=linux_arm64 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+      _dsb_d "adding hashes to the lock file failed"
+      return 1
+    fi
 
     _dsb_d "hashes added"
   fi
+
+  return 0
 }
 
 # what:
