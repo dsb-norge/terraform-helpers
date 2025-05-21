@@ -776,6 +776,9 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-init-all"
     "tf-init-main"
     "tf-init-modules"
+    "tf-init-offline"
+    "tf-init-env-offline"
+    "tf-init-all-offline"
     "tf-fmt"
     "tf-fmt-fix"
     "tf-validate"
@@ -786,6 +789,9 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-upgrade"
     "tf-upgrade-env"
     "tf-upgrade-all"
+    "tf-upgrade-offline"
+    "tf-upgrade-env-offline"
+    "tf-upgrade-all-offline"
     "tf-bump-cicd"
     "tf-bump-modules"
     "tf-bump-tflint-plugins"
@@ -794,6 +800,9 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-bump"
     "tf-bump-env"
     "tf-bump-all"
+    "tf-bump-offline"
+    "tf-bump-env-offline"
+    "tf-bump-all-offline"
   )
   echo "${commands[@]}"
 }
@@ -810,6 +819,7 @@ _dsb_tf_help_enumerate_supported_topics() {
     "general"
     "terraform"
     "upgrading"
+    "offline"
   )
   local -a validCommands
   mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
@@ -849,6 +859,9 @@ _dsb_tf_help() {
   upgrading)
     _dsb_tf_help_group_upgrading
     ;;
+  offline)
+    _dsb_tf_help_group_offline
+    ;;
   *)
     local -a validCommands
     mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
@@ -880,6 +893,7 @@ _dsb_tf_help_help() {
   _dsb_i "  az-relog          -> Azure re-login"
   _dsb_i "  tf-set-env [env]  -> Set environment"
   _dsb_i "  tf-init           -> Initialize Terraform project"
+  _dsb_i "  tf-init-offline   -> Initialize Terraform project, without backend"
   _dsb_i "  tf-upgrade        -> Upgrade Terraform dependencies (within existing version constraints)"
   _dsb_i "  tf-fmt-fix        -> Run syntax check and fix recursively from current directory"
   _dsb_i "  tf-validate       -> Make Terraform validate the project"
@@ -900,6 +914,7 @@ _dsb_tf_help_groups() {
   _dsb_i "  checks        -> Check related commands"
   _dsb_i "  general       -> General help"
   _dsb_i "  azure         -> Azure related commands"
+  _dsb_i "  offline       -> Commands for working without access to remote state"
   _dsb_i "  all           -> All help"
   _dsb_i ""
   _dsb_i "Use 'tf-help [group]' to get detailed help for a specific group."
@@ -944,17 +959,42 @@ _dsb_tf_help_group_azure() {
 
 _dsb_tf_help_group_terraform() {
   _dsb_i "  Terraform Commands:"
-  _dsb_i "    tf-init [env]         -> Initialize selected or given environment (incl. main and local sub-modules)"
-  _dsb_i "    tf-init-env [env]     -> Initialize selected or given environment (environment directory only)"
-  _dsb_i "    tf-init-all           -> Initialize entire Terraform project, all environments"
-  _dsb_i "    tf-init-main          -> Initialize Terraform project's main module"
-  _dsb_i "    tf-init-modules       -> Initialize Terraform project's local sub-modules"
-  _dsb_i "    tf-fmt                -> Run syntax check recursively from current directory"
-  _dsb_i "    tf-fmt-fix            -> Run syntax check and fix recursively from current directory"
-  _dsb_i "    tf-validate [env]     -> Make Terraform validate the project with selected or given environment"
-  _dsb_i "    tf-plan [env]         -> Make Terraform create a plan for the selected or given environment"
-  _dsb_i "    tf-apply [env]        -> Make Terraform apply changes for the selected or given environment"
-  _dsb_i "    tf-destroy [env]      -> Show command to manually destroy the selected or given environment"
+  _dsb_i "    tf-init [env]             -> Initialize selected or given environment (incl. main and local sub-modules)"
+  _dsb_i "    tf-init-env [env]         -> Initialize selected or given environment (environment directory only)"
+  _dsb_i "    tf-init-all               -> Initialize entire Terraform project, all environments"
+  _dsb_i "    tf-init-main              -> Initialize Terraform project's main module"
+  _dsb_i "    tf-init-modules           -> Initialize Terraform project's local sub-modules"
+  _dsb_i "    tf-init-offline [env]     -> Same as 'tf-init', without backend"
+  _dsb_i "    tf-init-env-offline [env] -> Same as 'tf-init-env', without backend"
+  _dsb_i "    tf-init-all-offline       -> Same as 'tf-init-all', without backend"
+  _dsb_i "    tf-fmt                    -> Run syntax check recursively from current directory"
+  _dsb_i "    tf-fmt-fix                -> Run syntax check and fix recursively from current directory"
+  _dsb_i "    tf-validate [env]         -> Make Terraform validate the project with selected or given environment"
+  _dsb_i "    tf-plan [env]             -> Make Terraform create a plan for the selected or given environment"
+  _dsb_i "    tf-apply [env]            -> Make Terraform apply changes for the selected or given environment"
+  _dsb_i "    tf-destroy [env]          -> Show command to manually destroy the selected or given environment"
+}
+
+_dsb_tf_help_group_offline() {
+  _dsb_i "Offline Commands"
+  _dsb_i ""
+  _dsb_i "  These are variants of commands that supports \"offline\" mode."
+  _dsb_i ""
+  _dsb_i "  Offline meaning that operations are performed without a terraform backend."
+  _dsb_i "  Usefull when working without access to the remote terraform backend."
+  _dsb_i ""
+  _dsb_i "  Terraform Offline Commands:"
+  _dsb_i "    tf-init-offline [env]         -> Initialize selected or given environment (incl. main and local sub-modules)"
+  _dsb_i "    tf-init-env-offline [env]     -> Initialize selected or given environment (environment directory only)"
+  _dsb_i "    tf-init-all-offline           -> Initialize entire Terraform project, all environments"
+  _dsb_i ""
+  _dsb_i "  Upgrade Offline Commands:"
+  _dsb_i "    tf-bump-env-offline [env]     -> Upgrade Terraform deps. for selected or given environment and list provider versions, latest vs. lock file"
+  _dsb_i "    tf-bump-offline [env]         -> All-in-one bump function for selected or given environment"
+  _dsb_i "    tf-bump-all-offline           -> All-in-one bump function for entire project, all environments"
+  _dsb_i "    tf-upgrade-env-offline [env]  -> Upgrade Terraform deps. for selected or given environment (environment directory only)"
+  _dsb_i "    tf-upgrade-offline [env]      -> Upgrade Terraform deps. for selected or given environment (also upgrades main and local sub-modules)"
+  _dsb_i "    tf-upgrade-all-offline        -> Upgrade Terraform deps. in entire project, all environments"
 }
 
 _dsb_tf_help_group_upgrading() {
@@ -962,9 +1002,15 @@ _dsb_tf_help_group_upgrading() {
   _dsb_i "    tf-bump-env [env]               -> Upgrade Terraform deps. for selected or given environment and list provider versions, latest vs. lock file"
   _dsb_i "    tf-bump [env]                   -> All-in-one bump function for selected or given environment"
   _dsb_i "    tf-bump-all                     -> All-in-one bump function for entire project, all environments"
+  _dsb_i "    tf-bump-env-offline [env]       -> Same as 'tf-bump-env', without backend"
+  _dsb_i "    tf-bump-offline [env]           -> Same as 'tf-bump', without backend"
+  _dsb_i "    tf-bump-all-offline             -> Same as 'tf-bump-all', without backend"
   _dsb_i "    tf-upgrade-env [env]            -> Upgrade Terraform deps. for selected or given environment (environment directory only)"
   _dsb_i "    tf-upgrade [env]                -> Upgrade Terraform deps. for selected or given environment (also upgrades main and local sub-modules)"
   _dsb_i "    tf-upgrade-all                  -> Upgrade Terraform deps. in entire project, all environments"
+  _dsb_i "    tf-upgrade-env-offline [env]    -> Same as 'tf-upgrade-env', without backend"
+  _dsb_i "    tf-upgrade-offline [env]        -> Same as 'tf-upgrade', without backend"
+  _dsb_i "    tf-upgrade-all-offline          -> Same as 'tf-upgrade-all', without backend"
   _dsb_i "    tf-bump-modules                 -> Bump module versions in .tf files (only applies to official registry modules)"
   _dsb_i "    tf-bump-cicd                    -> Bump versions in GitHub workflows"
   _dsb_i "    tf-bump-tflint-plugins          -> Bump tflint plugin versions in .tflint.hcl files"
@@ -1157,12 +1203,15 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Related commands: az-login, az-whoami."
     ;;
   # terraform
-  tf-init)
-    _dsb_i "tf-init [env]:"
+  tf-init | tf-init-offline)
+    _dsb_i "tf-init [env]"
+    _dsb_i "tf-init-offline [env]"
     _dsb_i "  Initialize the specified Terraform environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
     _dsb_i "  This also initializes the main module and any local sub-modules."
+    _dsb_i ""
+    _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
     _dsb_i ""
     _dsb_i "  Note:"
     _dsb_i "    For a complete initialization of the entire project, use 'tf-init-all'."
@@ -1171,10 +1220,13 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-init-all, tf-upgrade, tf-plan, tf-apply."
     ;;
-  tf-init-env)
-    _dsb_i "tf-init-env [env]:"
+  tf-init-env | tf-init-env-offline)
+    _dsb_i "tf-init-env [env]"
+    _dsb_i "tf-init-env-offline [env]"
     _dsb_i "  Initialize the specified Terraform environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
     _dsb_i ""
     _dsb_i "  Note:"
     _dsb_i "    This initializes just the environment directory, not sub-modules and not the main module."
@@ -1185,11 +1237,14 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade-env, tf-init, tf-init-all."
     ;;
-  tf-init-all)
+  tf-init-all | tf-init-all-offline)
     _dsb_i "tf-init-all"
+    _dsb_i "tf-init-all-offline"
     _dsb_i "  Initialize the entire Terraform project."
     _dsb_i ""
     _dsb_i "  This initializes the project completely, all environment directories, main module, and local sub-modules."
+    _dsb_i ""
+    _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
     _dsb_i ""
     _dsb_i "  Related commands: tf-upgrade, tf-plan, tf-apply, tf-upgrade-all, tf-bump-all"
     ;;
@@ -1279,8 +1334,9 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Related commands: tf-init, tf-validate, tf-plan, tf-apply."
     ;;
     # upgrading
-  tf-bump)
-    _dsb_i "tf-bump [env]:"
+  tf-bump | tf-bump-offline)
+    _dsb_i "tf-bump [env]"
+    _dsb_i "tf-bump-offline [env]"
     _dsb_i "  All-in-one bump function for the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
@@ -1288,6 +1344,8 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    - all modules sourced from the official Hashicorp registry, to latest, in entire project"
     _dsb_i "    - tflint plugin versions in .tflint.hcl files, in entire project"
     _dsb_i "    - versions in GitHub workflows"
+    _dsb_i ""
+    _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
     _dsb_i ""
     _dsb_i "  Also:"
     _dsb_i "    - upgrades Terraform dependencies for the specified environment"
@@ -1299,8 +1357,9 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-bump-all, tf-upgrade, tf-bump-modules, tf-bump-cicd, tf-bump-tflint-plugins, tf-show-provider-upgrades."
     ;;
-  tf-bump-env)
-    _dsb_i "tf-bump-env [env]:"
+  tf-bump-env | tf-bump-env-offline)
+    _dsb_i "tf-bump-env [env]"
+    _dsb_i "tf-bump-env-offline [env]"
     _dsb_i "  Bump function for the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
@@ -1310,6 +1369,8 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Aids with provider upgrading by also listing provider versions."
     _dsb_i "  Latest available vs. lock file for the specified environment."
     _dsb_i ""
+    _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
+    _dsb_i ""
     _dsb_i "  Note:"
     _dsb_i "    This does not upgrade modules, tflint plugins, or GitHub workflows."
     _dsb_i "    See 'tf-bump' or 'tf-bump-all' for more complete upgrade scenarios."
@@ -1318,8 +1379,9 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-bump, tf-bump-all, tf-bump-modules, tf-bump-cicd, tf-bump-tflint-plugins, tf-show-provider-upgrades."
     ;;
-  tf-bump-all)
-    _dsb_i "tf-bump-all [env]:"
+  tf-bump-all | tf-bump-all-offline)
+    _dsb_i "tf-bump-all [env]"
+    _dsb_i "tf-bump-all-offline [env]"
     _dsb_i "  All-in-one bump function the entire project."
     _dsb_i ""
     _dsb_i "  Upgrades:"
@@ -1333,15 +1395,20 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    - aids with provider upgrading by also:"
     _dsb_i "      - listing provider versions, latest available vs. lock file for all environments"
     _dsb_i ""
+    _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
+    _dsb_i ""
     _dsb_i "  Related commands: tf-upgrade-all, tf-init-all, tf-bump, tf-upgrade, tf-bump-modules, tf-bump-cicd, tf-bump-tflint-plugins, tf-show-provider-upgrades."
     ;;
-  tf-upgrade)
-    _dsb_i "tf-upgrade [env]:"
+  tf-upgrade | tf-upgrade-offline)
+    _dsb_i "tf-upgrade [env]"
+    _dsb_i "tf-upgrade-offline [env]"
     _dsb_i "  Upgrade Terraform dependencies for the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
     _dsb_i "  This also upgrades and initializes the main module and any local sub-modules."
     _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
+    _dsb_i ""
+    _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
     _dsb_i ""
     _dsb_i "  Note:"
     _dsb_i "    For a complete upgrade of the entire project, use 'tf-upgrade-all'."
@@ -1350,12 +1417,15 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-init, tf-upgrade-all, tf-plan, tf-apply, tf-bump-modules, tf-bump."
     ;;
-  tf-upgrade-env)
-    _dsb_i "tf-upgrade-env [env]:"
+  tf-upgrade-env | tf-upgrade-env-offline)
+    _dsb_i "tf-upgrade-env [env]"
+    _dsb_i "tf-upgrade-env-offline [env]"
     _dsb_i "  Upgrade Terraform dependencies and initialize the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
     _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
+    _dsb_i ""
+    _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
     _dsb_i ""
     _dsb_i "  Note:"
     _dsb_i "    This upgrades and initializes just the environment directory, not sub-modules and main."
@@ -1366,12 +1436,15 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade, tf-upgrade-all, tf-bump."
     ;;
-  tf-upgrade-all)
-    _dsb_i "tf-upgrade-all:"
+  tf-upgrade-all | tf-upgrade-all-offline)
+    _dsb_i "tf-upgrade-all"
+    _dsb_i "tf-upgrade-all-offline"
     _dsb_i "  Upgrade Terraform dependencies and initialize the entire project."
     _dsb_i ""
     _dsb_i "  This upgrades and initializes the project completely, environment directory, sub-modules and main."
     _dsb_i "  Upgrade is performed within the current version constraints, ie. no version constraints are changed."
+    _dsb_i ""
+    _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
     _dsb_i ""
     _dsb_i "  Related commands: tf-bump-all, tf-init, tf-plan, tf-apply, tf-bump-modules."
     ;;
@@ -1476,16 +1549,22 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_available_envs tf-check-env
   complete -F _dsb_tf_completions_for_available_envs tf-select-env
   complete -F _dsb_tf_completions_for_available_envs tf-init-env
+  complete -F _dsb_tf_completions_for_available_envs tf-init-env-offline
   complete -F _dsb_tf_completions_for_available_envs tf-init
+  complete -F _dsb_tf_completions_for_available_envs tf-init-offline
   complete -F _dsb_tf_completions_for_available_envs tf-upgrade-env
+  complete -F _dsb_tf_completions_for_available_envs tf-upgrade-env-offline
   complete -F _dsb_tf_completions_for_available_envs tf-upgrade
+  complete -F _dsb_tf_completions_for_available_envs tf-upgrade-offline
   complete -F _dsb_tf_completions_for_available_envs tf-validate
   complete -F _dsb_tf_completions_for_available_envs tf-plan
   complete -F _dsb_tf_completions_for_available_envs tf-apply
   complete -F _dsb_tf_completions_for_available_envs tf-destroy
   complete -F _dsb_tf_completions_for_available_envs tf-show-provider-upgrades
-  complete -F _dsb_tf_completions_for_available_envs tf-bump-env
   complete -F _dsb_tf_completions_for_available_envs tf-bump
+  complete -F _dsb_tf_completions_for_available_envs tf-bump-offline
+  complete -F _dsb_tf_completions_for_available_envs tf-bump-env
+  complete -F _dsb_tf_completions_for_available_envs tf-bump-env-offline
 }
 
 # special for tf-lint
@@ -3678,32 +3757,67 @@ _dsb_tf_terraform_preflight() {
 #   this function does not perform any pre flight checks
 #   if $1 is set to 1 (do upgrade), it will run terraform init -upgrade
 # input:
-#   $1: do upgrade (optional)
+#   $1: do upgrade (optional, defaults to 0)
+#   $2: offline init, ie. with -backend=false (optional, defaults to 0)
 # on info:
 #   nothing
 # returns:
 #   1 when terraform returns non-zero exit code, otherwise 0
 _dsb_tf_init_env_actual() {
-  local doUpgrade="${1:-0}"
+  local doUpgrade="${1:-0}"   # defaults to 0
+  local offlineInit="${2:-0}" # defaults to 0
 
   local envDir="${_dsbTfSelectedEnvDir}"
   local subId="${_dsbTfSubscriptionId}"
   local extraInitArgs=""
-
-  if [ "${doUpgrade}" -eq 1 ]; then
-    extraInitArgs="-upgrade"
-  fi
+  local localStateFile="${envDir}/.terraform/terraform.tfstate"
+  local localStateFileOld="${envDir}/.terraform/terraform.tfstate.tf-helpers-old"
 
   _dsb_d "doUpgrade: ${doUpgrade}"
+  _dsb_d "offlineInit: ${offlineInit}"
   _dsb_d "envDir: ${envDir}"
   _dsb_d "subId: ${subId}"
   _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
 
+  if [ "${doUpgrade}" -eq 1 ]; then
+    extraInitArgs=" -upgrade"
+  fi
+
+  if [ "${offlineInit}" -eq 1 ]; then
+    extraInitArgs+=" -backend=false"
+
+    # if a local state file exists it must be removed otherwise terraform will use the backend config declared in the file
+    _dsb_d "looking for tfstate file: ${localStateFile}"
+    if [ -f "${localStateFile}" ]; then
+      _dsb_d "found, renaming ..."
+      if ! mv --force "${localStateFile}" "${localStateFileOld}"; then
+        _dsb_d "terraform init failed, during rename of local state file"
+        return 1
+      fi
+    fi
+  fi
+
+  _dsb_d "extraInitArgs: ${extraInitArgs}"
+
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
   if ! terraform -chdir="${envDir}" init -reconfigure ${extraInitArgs} 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
-    _dsb_d "terraform init failed"
+    _dsb_d "terraform init failed, attempting to restore tfstate file ... "
+
+    if [ -f "${localStateFileOld}" ]; then
+      mv --force "${localStateFileOld}" "${localStateFile}" || :
+    fi
+
     return 1
+  fi
+
+  # put the local state file back
+  if [ -f "${localStateFileOld}" ]; then
+    _dsb_d "attempting to restore tfstate file ... "
+    if ! mv --force "${localStateFileOld}" "${localStateFile}"; then
+      _dsb_d "terraform init failed, during restore of local state file"
+      return 1
+    fi
   fi
 
   # make sure hashes for all required platforms are available in the lock file
@@ -3728,19 +3842,22 @@ _dsb_tf_init_env_actual() {
 #   if $2 is set to 1 (do upgrade), it will run terraform init -upgrade
 # input:
 #   $1: do upgrade
-#   $2: environment directory (optional, defaults to selected environment directory)
+#   $2: offline init, ie. with -backend=false (optional, defaults to 0)
+#   $3: environment directory (optional, defaults to selected environment directory)
 # on info:
 #   nothing
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_init_env() {
   local doUpgrade="${1}"
-  local selectedEnv="${2:-${_dsbTfSelectedEnv:-}}"
+  local offlineInit="${2:-0}" # defaults to 0
+  local selectedEnv="${3:-${_dsbTfSelectedEnv:-}}"
 
   declare -g _dsbTfReturnCode=0 # default return code
 
   _dsb_d "called with:"
   _dsb_d "  doUpgrade: ${doUpgrade}"
+  _dsb_d "  offlineInit: ${offlineInit}"
   _dsb_d "  selectedEnv: ${selectedEnv}"
 
   if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
@@ -3756,7 +3873,7 @@ _dsb_tf_init_env() {
 
   _dsb_i ""
   _dsb_i "Initializing environment: $(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvDir}")"
-  if ! _dsb_tf_init_env_actual "${doUpgrade}"; then
+  if ! _dsb_tf_init_env_actual "${doUpgrade}" "${offlineInit}"; then
     _dsb_e "init in ./$(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvDir:-}") failed"
     _dsbTfReturnCode=1
   fi
@@ -3934,18 +4051,21 @@ _dsb_tf_init_main() {
 # input:
 #   $1: do upgrade
 #   $2: clear selected environment after (optional, defaults to 1)
-#   $3: name of environment to init, if not provided all environments are checked
+#   $3: offline init, ie. with -backend=false (optional, defaults to 0)
+#   $4: name of environment to init, if not provided all environments are checked
 # on info:
 #   status messages are printed
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_init() {
   local doUpgrade="${1}"
-  local clearSelectedEnvAfter="${2:-1}"
-  local envToInit="${3:-}"
+  local clearSelectedEnvAfter="${2:-1}" # defaults to 1
+  local offlineInit="${3:-0}"           # defaults to 0
+  local envToInit="${4:-}"              # defaults to empty string
 
   _dsb_d "called with:"
   _dsb_d "  doUpgrade: ${doUpgrade}"
+  _dsb_d "  offlineInit: ${offlineInit}"
   _dsb_d "  clearSelectedEnvAfter: ${clearSelectedEnvAfter}"
   _dsb_d "  envToInit: ${envToInit}"
 
@@ -3954,6 +4074,9 @@ _dsb_tf_init() {
   local operationFriendlyName="Initialization"
   if [ "${doUpgrade}" -eq 1 ]; then
     operationFriendlyName="Upgrade"
+  fi
+  if [ "${offlineInit}" -eq 1 ]; then
+    operationFriendlyName+=" (offline)"
   fi
 
   # check if the current root directory is a valid Terraform project
@@ -4010,7 +4133,7 @@ _dsb_tf_init() {
       local envDir="${_dsbTfSelectedEnvDir}" # available thanks to _dsb_tf_terraform_preflight
       _dsb_d "    envDir: ${envDir}"
 
-      if ! _dsb_tf_init_env_actual "${doUpgrade}"; then
+      if ! _dsb_tf_init_env_actual "${doUpgrade}" "${offlineInit}"; then
         _dsb_e "  init in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
         ((initEnvStatus += 1))
       else
@@ -4060,16 +4183,21 @@ _dsb_tf_init() {
 #   and if the not specified, it attempts to use the selected environment
 # input:
 #   $1: do upgrade
-#   $2: optional, environment name to init, if not provided the selected environment is used
+#   $2: offline init, ie. with -backend=false (optional, defaults to 0)
+#   $3: optional, environment name to init, if not provided the selected environment is used
+#
 # on info:
 #   nothing, status messages indirectly from _dsb_tf_init
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_init_full_single_env() {
   local doUpgrade="${1}"
-  local envToInit="${2:-}"
+  local offlineInit="${2:-0}" # defaults to 0
+  local envToInit="${3:-}"    # defaults to empty string
 
-  _dsb_d "called with doUpgrade: ${doUpgrade}, envToInit: ${envToInit}"
+  _dsb_d "doUpgrade: ${doUpgrade}"
+  _dsb_d "envToInit: ${envToInit}"
+  _dsb_d "offlineInit: ${offlineInit}"
 
   declare -g _dsbTfReturnCode=0 # default return code
 
@@ -4083,7 +4211,7 @@ _dsb_tf_init_full_single_env() {
     _dsb_e "  or run 'tf-set-env <env>' first"
     _dsbTfReturnCode=1
   else
-    _dsb_tf_init "${doUpgrade}" 0 "${envToInit}" # $1 = 'init -upgrade', $2 = clearSelectedEnvAfter, $3 = envToInit
+    _dsb_tf_init "${doUpgrade}" 0 "${offlineInit}" "${envToInit}" # $1 = 'init -upgrade', $2 = clearSelectedEnvAfter, $3 = with/without backend
   fi
 
   _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
@@ -5859,16 +5987,19 @@ _dsb_tf_list_available_terraform_provider_upgrades_for_env() {
 #   it then lists the latest available provider versions and locked versions for the environment
 # input:
 #   $1: environment name to bump
+#   $2: init without backend? (optional, defaults to 0)
 # on info:
 #   status messages are printed
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_bump_an_env() {
-  local givenEnv="${1}" # used when calling terraform init -upgrade
+  local givenEnv="${1}"       # used when calling terraform init -upgrade
+  local offlineInit="${2:-0}" # defaults to 0
 
   declare -g _dsbTfReturnCode=0 # default return code
 
-  _dsb_d "called with givenEnv: ${givenEnv}"
+  _dsb_d "givenEnv: ${givenEnv}"
+  _dsb_d "offlineInit: ${offlineInit}"
 
   # check if the current root directory is a valid Terraform project
   # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so we don't need to call it again in this function
@@ -5897,7 +6028,7 @@ _dsb_tf_bump_an_env() {
     _dsb_d "    envDir: ${envDir}"
 
     # terraform init -upgrade the project
-    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_init 1 0 "${givenEnv}"; then # $1 = 1 means do -upgrade, $2 = 0 means do not unset the selected environment
+    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_init 1 0 "${offlineInit}" "${givenEnv}"; then # $1 = 1 means do -upgrade, $2 = 0 means do not unset the selected environment, $3 = with/without backend
       _dsb_d "Failed to upgrade the environment '${givenEnv}' with non-zero exit code."
       initStatus=1
     elif [ "${_dsbTfReturnCode}" -ne 0 ]; then
@@ -5938,19 +6069,20 @@ _dsb_tf_bump_an_env() {
 #   either for a single environment, if specified
 #   or for all environments in the project, when not specified
 # input:
-#   $1: optional, environment name to bump, if not provided all environments are bumped
-#   $2: optional, set to 0 to skip bumping modules, tflint plugins and CI/CD files
+#   $1: optional, init without backend, defaults to 0
+#   $2: optional, environment name to bump, if not provided all environments are bumped
 # on info:
 #   status messages are printed
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_bump_the_project() {
-  local givenEnv="${1:-}"                  # used when calling terraform init -upgrade
-  local bumpModulesTfLintAndCicd="${2:-1}" #set to 0 to skip bumping modules, tflint plugins and CI/CD files
+  local offlineInit="${1:-0}" # defaults to 0
+  local givenEnv="${2:-}"     # defaults to empty string
 
   declare -g _dsbTfReturnCode=0 # default return code
 
-  _dsb_d "called with givenEnv: ${givenEnv}"
+  _dsb_d "offlineInit: ${offlineInit}"
+  _dsb_d "givenEnv: ${givenEnv}"
 
   # check if the current root directory is a valid Terraform project
   # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so we don't need to call it again in this function
@@ -6001,36 +6133,33 @@ _dsb_tf_bump_the_project() {
   local moduleStatus=0
   local tflintPluginStatus=0
   local cicdStatus=0
-  if [ "${bumpModulesTfLintAndCicd}" -ne 0 ]; then
 
-    # bump the versions of all modules in the project
-    if ! _dsb_tf_bump_registry_module_versions; then
-      _dsb_e "Failed to bump module versions"
-      moduleStatus=1
-    else
-      moduleStatus=${_dsbTfReturnCode}
-    fi
-    _dsb_i ""
-
-    # bump the versions of all tflint plugins in the project
-    if ! _dsb_tf_bump_tflint_plugin_versions; then
-      _dsb_e "Failed to bump tflint plugin versions"
-      tflintPluginStatus=1
-    else
-      tflintPluginStatus=${_dsbTfReturnCode}
-    fi
-    _dsb_i ""
-
-    # bump tflint and terraform versions in the CI/CD pipeline files
-    if ! _dsb_tf_bump_github; then
-      _dsb_e "Failed to bump CI/CD versions"
-      cicdStatus=1
-    else
-      cicdStatus=${_dsbTfReturnCode}
-    fi
-    _dsb_i ""
-
+  # bump the versions of all modules in the project
+  if ! _dsb_tf_bump_registry_module_versions; then
+    _dsb_e "Failed to bump module versions"
+    moduleStatus=1
+  else
+    moduleStatus=${_dsbTfReturnCode}
   fi
+  _dsb_i ""
+
+  # bump the versions of all tflint plugins in the project
+  if ! _dsb_tf_bump_tflint_plugin_versions; then
+    _dsb_e "Failed to bump tflint plugin versions"
+    tflintPluginStatus=1
+  else
+    tflintPluginStatus=${_dsbTfReturnCode}
+  fi
+  _dsb_i ""
+
+  # bump tflint and terraform versions in the CI/CD pipeline files
+  if ! _dsb_tf_bump_github; then
+    _dsb_e "Failed to bump CI/CD versions"
+    cicdStatus=1
+  else
+    cicdStatus=${_dsbTfReturnCode}
+  fi
+  _dsb_i ""
 
   local preflightStatus=0
   local terraformStatus=0
@@ -6058,7 +6187,7 @@ _dsb_tf_bump_the_project() {
       _dsb_d "    envDir: ${envDir}"
 
       # terraform init -upgrade the project
-      if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_init 1 1 "${envName}"; then # $1 = 1 means do -upgrade, $2 = 1 means unset the selected environment after the operation
+      if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_init 1 1 "${offlineInit}" "${envName}"; then # $1 = 1 means do -upgrade, $2 = 1 means unset the selected environment after the operation, $3 = with/without backend
         _dsb_d "Failed to upgrade the environment '${envName}' with non-zero exit code."
         _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
         _dsb_e "  Failed to upgrade the environment '${envName}', please run 'tf-upgrade-env ${envName}' for more information."
@@ -6097,22 +6226,20 @@ _dsb_tf_bump_the_project() {
     if [ "${_dsbTfReturnCode}" -ne 0 ]; then
       _dsb_e "  Number of failures during bumping: ${_dsbTfReturnCode}"
     fi
-    if [ "${bumpModulesTfLintAndCicd}" -ne 0 ]; then
-      if [ ${moduleStatus} -eq 0 ]; then
-        _dsb_i "  \e[32m☑\e[0m  Module versions                : succeeded"
-      else
-        _dsb_e "  \e[31m☒\e[0m  Module versions                : failure reported"
-      fi
-      if [ ${tflintPluginStatus} -eq 0 ]; then
-        _dsb_i "  \e[32m☑\e[0m  Tflint plugin versions         : succeeded"
-      else
-        _dsb_e "  \e[31m☒\e[0m  Tflint plugin versions         : failure reported"
-      fi
-      if [ ${cicdStatus} -eq 0 ]; then
-        _dsb_i "  \e[32m☑\e[0m  CI/CD versions                 : succeeded"
-      else
-        _dsb_e "  \e[31m☒\e[0m  CI/CD versions                 : failure reported"
-      fi
+    if [ ${moduleStatus} -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  Module versions                : succeeded"
+    else
+      _dsb_e "  \e[31m☒\e[0m  Module versions                : failure reported"
+    fi
+    if [ ${tflintPluginStatus} -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  Tflint plugin versions         : succeeded"
+    else
+      _dsb_e "  \e[31m☒\e[0m  Tflint plugin versions         : failure reported"
+    fi
+    if [ ${cicdStatus} -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  CI/CD versions                 : succeeded"
+    else
+      _dsb_e "  \e[31m☒\e[0m  CI/CD versions                 : failure reported"
     fi
     if [ ${terraformStatus} -eq 0 ]; then
       _dsb_i "  \e[32m☑\e[0m  Terraform dependencies         : succeeded"
@@ -6144,19 +6271,20 @@ _dsb_tf_bump_the_project() {
 #   it allows to specify an environment to bump the versions for
 #   and if the not specified, it attempts to use the selected environment
 # input:
-#   $1: optional, environment name to bump, if not provided the selected environment is used
-#   $2: optional, set to 0 to skip bumping modules, tflint plugins and CI/CD files
+#   $1: optional, init without backend, defaults to 0
+#   $2: optional, environment name to bump, if not provided the selected environment is used
 # on info:
 #   nothing, status messages indirectly from _dsb_tf_bump_the_project
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_bump_the_project_single_env() {
-  local givenEnv="${1:-}"
-  local bumpModulesTfLintAndCicd="${2:-1}" #set to 0 to skip bumping modules, tflint plugins and CI/CD files
+  local offlineInit="${1:-0}" # defaults to 0
+  local givenEnv="${2:-}"     # defaults to empty string
 
   declare -g _dsbTfReturnCode=0 # default return code
 
-  _dsb_d "called with envToCheck: ${givenEnv}"
+  _dsb_d "offlineInit: ${offlineInit}"
+  _dsb_d "givenEnv: ${givenEnv}"
 
   if [ -z "${givenEnv}" ]; then
     givenEnv=${_dsbTfSelectedEnv:-}
@@ -6168,7 +6296,7 @@ _dsb_tf_bump_the_project_single_env() {
     _dsb_e "  or run 'tf-set-env <env>' first"
     _dsbTfReturnCode=1
   else
-    _dsb_tf_bump_the_project "${givenEnv}" "${bumpModulesTfLintAndCicd}" # $1: envToBump, $2: set to 0 to skip bumping modules, tflint plugins and CI/CD files
+    _dsb_tf_bump_the_project "${offlineInit}" "${givenEnv}"
   fi
 
   _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
@@ -6341,7 +6469,16 @@ az-select-sub() {
 tf-init-env() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_init_env 0 "${envName}" # $1 = 0 means do not -upgrade
+  _dsb_tf_init_env 0 0 "${envName}" # $1 = 0 means do not -upgrade, $2 = 0 means with backend
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-init-env-offline() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_init_env 0 1 "${envName}" # $1 = 0 means do not -upgrade, $2 = 1 means without backend
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
@@ -6366,7 +6503,16 @@ tf-init-main() {
 tf-init() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_init_full_single_env 0 "${envName}" # $1 = 0 means do not -upgrade
+  _dsb_tf_init_full_single_env 0 0 "${envName}" # $1 = 0 means do not -upgrade, $2 = 0 means with backend
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-init-offline() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_init_full_single_env 0 1 "${envName}" # $1 = 0 means do not -upgrade, $2 = 1 means without backend
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
@@ -6374,7 +6520,15 @@ tf-init() {
 
 tf-init-all() {
   _dsb_tf_configure_shell
-  _dsb_tf_init 0 # $1 = 0 means do not -upgrade
+  _dsb_tf_init 0 1 0 # $1 = 0 means do not -upgrade, $2 = 1 means clear env after, $3 = 0 means with backend
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-init-all-offline() {
+  _dsb_tf_configure_shell
+  _dsb_tf_init 0 1 1 # $1 = 0 means do not -upgrade, $2 = 1 means clear env after, $3 = 0 means without backend
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
@@ -6488,7 +6642,16 @@ tf-clean-all() {
 tf-upgrade-env() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_init_env 1 "${envName}" # $1 = 1 means do -upgrade
+  _dsb_tf_init_env 1 0 "${envName}" # $1 = 1 means do-upgrade, $2 = 0 means with backend
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-upgrade-env-offline() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_init_env 1 1 "${envName}" # $1 = 1 means do-upgrade, $2 = 1 means without backend
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
@@ -6497,16 +6660,32 @@ tf-upgrade-env() {
 tf-upgrade() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_init_full_single_env 1 "${envName}" # $1 = 1 means do -upgrade
+  _dsb_tf_init_full_single_env 1 0 "${envName}" # $1 = 1 means do -upgrade, $2 = 0 means with backend
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-upgrade-offline() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_init_full_single_env 1 1 "${envName}" # $1 = 1 means do -upgrade, $2 = 1 means without backend
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
 }
 
 tf-upgrade-all() {
-  local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_init 1 "${envName}" # $1 = 1 means do -upgrade
+  _dsb_tf_init 1 1 0 # $1 = 1 means do -upgrade, $2 = 1 means clear env after, $3 = 0 means with backend
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-upgrade-all-offline() {
+  _dsb_tf_configure_shell
+  _dsb_tf_init 1 1 1 # $1 = 1 means do -upgrade, $2 = 1 means clear env after, $3 = 1 means without backend
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
@@ -6556,7 +6735,16 @@ tf-show-all-provider-upgrades() {
 tf-bump-env() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_bump_an_env "${envName}"
+  _dsb_tf_bump_an_env 0 "${envName}" # $1 = 0 means with backend
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-bump-env-offline() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_bump_an_env 1 "${envName}" # $1 = 1 means without backend
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
@@ -6565,7 +6753,16 @@ tf-bump-env() {
 tf-bump() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_bump_the_project_single_env "${envName}"
+  _dsb_tf_bump_the_project_single_env 0 "${envName}" # $1 = 0 means with backend
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-bump-offline() {
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  _dsb_tf_bump_the_project_single_env 1 "${envName}" # $1 = 1 means without backend
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
@@ -6573,7 +6770,15 @@ tf-bump() {
 
 tf-bump-all() {
   _dsb_tf_configure_shell
-  _dsb_tf_bump_the_project
+  _dsb_tf_bump_the_project 0 # $1 = 0 means with backend
+  local returnCode="${_dsbTfReturnCode}"
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-bump-all-offline() {
+  _dsb_tf_configure_shell
+  _dsb_tf_bump_the_project 1 # $1 = 1 means without backend
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
