@@ -6735,7 +6735,7 @@ tf-show-all-provider-upgrades() {
 tf-bump-env() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_bump_an_env 0 "${envName}" # $1 = 0 means with backend
+  _dsb_tf_bump_an_env "${envName}" 0 # $2 = 0 means with backend
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
@@ -6744,7 +6744,7 @@ tf-bump-env() {
 tf-bump-env-offline() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
-  _dsb_tf_bump_an_env 1 "${envName}" # $1 = 1 means without backend
+  _dsb_tf_bump_an_env "${envName}" 1 # $2 = 1 means without backend
   local returnCode="${_dsbTfReturnCode}"
   _dsb_tf_restore_shell
   return "${returnCode}"
