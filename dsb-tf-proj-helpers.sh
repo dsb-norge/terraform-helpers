@@ -82,14 +82,35 @@ unsetFunctionsWithPrefix() {
   local prefix="${1}"
   local functionNames
   local cutCmd
+  local mvCmd
 
-  if [[ $(uname -m) == "arm64" ]]; then cutCmd="gcut"; fi                                  # MacOS: GNU cut binary
-  if [[ $(uname -m) == "aarch64" ]] && [[ $(uname -s) == "Linux" ]]; then cutCmd="cut"; fi # ARM64 Linux
-  if [[ $(uname -m) == "x86_64" ]] && [[ $(uname -s) == "Linux" ]]; then cutCmd="cut"; fi  # x86_64 Linux
+# MacOS: GNU commands mapping
+  if [[ $(uname -m) == "arm64" ]]; then 
+    cutCmd="gcut"
+    mvCmd="gmv"
+  fi    
+# ARM64 Linux                              
+  if [[ $(uname -m) == "aarch64" ]] && [[ $(uname -s) == "Linux" ]]; then 
+    cutCmd="cut"
+    mvCmd="mv"
+  fi
+# x86_64 Linux
+  if [[ $(uname -m) == "x86_64" ]] && [[ $(uname -s) == "Linux" ]]; then
+    cutCmd="cut"
+    mvCmd="mv"
+  fi
 
   # run just if cut command is set
   if [ -n "${cutCmd}" ]; then
     functionNames=$(declare -F | grep -e " ${prefix}" | "${cutCmd}" --fields 3 --delimiter=' ') || functionNames=''
+    for functionName in ${functionNames}; do
+      unset -f "${functionName}" || :
+    done
+  fi
+
+  # run just if mv command is set
+  if [ -n "${mvCmd}" ]; then
+    functionNames=$(declare -F | grep -e " ${prefix}" | "${mvCmd}" --fields 3 --delimiter=' ') || functionNames=''
     for functionName in ${functionNames}; do
       unset -f "${functionName}" || :
     done
@@ -146,6 +167,7 @@ declare -g _dsbTfTflintWrapperScript="" # full path to the tflint wrapper script
 
 declare -g _dsbTfRealpathCmd="" # the command to use for realpath
 declare -g _dsbTfCutCmd=""      # the command to use for cut
+declare -g _dsbTfMvCmd=""       # the command to use for mv
 
 declare -g _dsbTfSelectedEnv=""                        # the currently selected environment is persisted here
 declare -g _dsbTfSelectedEnvDir=""                     # full path to the directory of the currently selected environment
@@ -270,14 +292,17 @@ if [[ $(uname -m) == "arm64" ]]; then
   # MacOS
   _dsbTfRealpathCmd="grealpath" # location of GNU realpath binary
   _dsbTfCutCmd="gcut"           # location of GNU cut binary
+  _dsbTfMvCmd="gmv"             # location of GNU mv binary
 elif [[ $(uname -m) == "aarch64" ]] && [[ $(uname -s) == "Linux" ]]; then
   # ARM64 Linux
   _dsbTfRealpathCmd="realpath"
   _dsbTfCutCmd="cut"
+  _dsbTfMvCmd="mv"
 elif [[ $(uname -m) == "x86_64" ]] && [[ $(uname -s) == "Linux" ]]; then
   # x86_64 Linux
   _dsbTfRealpathCmd="realpath"
   _dsbTfCutCmd="cut"
+  _dsbTfMvCmd="mv"
 else
   _dsb_e "Init error: architecture: $(uname -m), operating system: $(uname -s) is unsupported."
   _dsb_e "DSB Terraform Project Helpers was not loaded."
@@ -566,7 +591,7 @@ _dsb_tf_debug_generate_call_graphs() {
     local tmpFile
     tmpFile=$(mktemp)
     sed "s/${funcName}/${newFuncName}/g" ${outFile} >"${tmpFile}"
-    mv "${tmpFile}" ${outFile}
+    "${_dsbTfMvCmd}" "${tmpFile}" ${outFile}
 
     replacements[${funcName}]="${newFuncName}" # record the replacement
   done
@@ -3790,7 +3815,7 @@ _dsb_tf_init_env_actual() {
     _dsb_d "looking for tfstate file: ${localStateFile}"
     if [ -f "${localStateFile}" ]; then
       _dsb_d "found, renaming ..."
-      if ! mv --force "${localStateFile}" "${localStateFileOld}"; then
+      if ! "${_dsbTfMvCmd}" --force "${localStateFile}" "${localStateFileOld}"; then
         _dsb_d "terraform init failed, during rename of local state file"
         return 1
       fi
@@ -3805,7 +3830,7 @@ _dsb_tf_init_env_actual() {
     _dsb_d "terraform init failed, attempting to restore tfstate file ... "
 
     if [ -f "${localStateFileOld}" ]; then
-      mv --force "${localStateFileOld}" "${localStateFile}" || :
+      "${_dsbTfMvCmd}" --force "${localStateFileOld}" "${localStateFile}" || :
     fi
 
     return 1
@@ -3814,7 +3839,7 @@ _dsb_tf_init_env_actual() {
   # put the local state file back
   if [ -f "${localStateFileOld}" ]; then
     _dsb_d "attempting to restore tfstate file ... "
-    if ! mv --force "${localStateFileOld}" "${localStateFile}"; then
+    if ! "${_dsbTfMvCmd}" --force "${localStateFileOld}" "${localStateFile}"; then
       _dsb_d "terraform init failed, during restore of local state file"
       return 1
     fi
