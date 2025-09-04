@@ -3642,10 +3642,13 @@ _dsb_tf_az_select_sub() {
     for subId in "${availableSubIds[@]}"; do
       subName="${availableSubNames[$((envIdx - 1))]}"
       subTenantName="${availableSubTenantNames[$((envIdx - 1))]}"
+      # ${#subCount} is number of digits, used to right-align the index numbers
+      local idxStr
+      idxStr=$(printf "%*d" "${#subCount}" "${envIdx}")
       if [ "${subId}" == "${selectedSubId}" ]; then
-        _dsb_i "  -> ${envIdx}) ${subName} (${subTenantName})"
+        _dsb_i "  -> ${idxStr}) ${subName} (${subTenantName})"
       else
-        _dsb_i "     ${envIdx}) ${subName} (${subTenantName})"
+        _dsb_i "     ${idxStr}) ${subName} (${subTenantName})"
       fi
       ((envIdx++))
     done
