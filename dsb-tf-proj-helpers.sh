@@ -2855,6 +2855,11 @@ _dsb_tf_look_for_environment_file() {
   local suppliedGlobalToSavePathTo="${3:-}"
   local selectedEnv selectedEnvDir lookForFilename
 
+  _dsb_d "called with:"
+  _dsb_d "  suppliedEnv: ${suppliedEnv}"
+  _dsb_d "  suppliedFileType: ${suppliedFileType}"
+  _dsb_d "  suppliedGlobalToSavePathTo: ${suppliedGlobalToSavePathTo}"
+
   case "${suppliedFileType}" in
   "lock")
     lookForFilename=".terraform.lock.hcl"
@@ -3770,14 +3775,19 @@ _dsb_tf_az_select_sub() {
 #   sets the subscription to the selected environment
 # input:
 #   $1: environment name
+#   $2: if we are in offline mode (optional, defaults to 0)
+#         ie. do not expect to be able to resolve subscription name to id
 # on info:
 #   nothing
 # returns:
 #   exit code in _dsbTfReturnCode
 _dsb_tf_terraform_preflight() {
   local selectedEnv="${1}"
+  local offlineInit="${2:-0}" # defaults to 0
 
-  _dsb_d "called with: selectedEnv=${selectedEnv}"
+  _dsb_d "called with:"
+  _dsb_d "  selectedEnv: ${selectedEnv}"
+  _dsb_d "  offlineInit: ${offlineInit}"
 
   if [ -z "${selectedEnv}" ]; then
     _dsb_e "No environment selected, please run 'tf-select-env' or 'tf-set-env <env>'"
@@ -3809,19 +3819,23 @@ _dsb_tf_terraform_preflight() {
     return 1
   fi
 
-  # should be set when _dsb_tf_set_env was successful
+  # subscription should be set when _dsb_tf_set_env was successful and we are not offline
   local subId="${_dsbTfSubscriptionId:-}"
-  if [ -z "${subId}" ]; then
+  if [ -z "${subId}" ] && [ "${offlineInit}" -eq 0 ]; then
     _dsb_d "unset ARM_SUBSCRIPTION_ID"
     unset ARM_SUBSCRIPTION_ID
     _dsb_internal_error "Internal error: expected to find subscription ID." \
       "  expected in: _dsbTfSubscriptionId"
     return 1
+  elif [ "${offlineInit}" -eq 1 ]; then
+    _dsb_d "offline mode, setting ARM_SUBSCRIPTION_ID to empty string"
+    export ARM_SUBSCRIPTION_ID=""
   else
     # required by azurerm terraform provider
     export ARM_SUBSCRIPTION_ID="${subId}"
-    _dsb_d "exported ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
   fi
+
+  _dsb_d "current ARM_SUBSCRIPTION_ID: '${ARM_SUBSCRIPTION_ID}'"
 
   return 0
 }
@@ -3847,11 +3861,12 @@ _dsb_tf_init_env_actual() {
   local localStateFile="${envDir}/.terraform/terraform.tfstate"
   local localStateFileOld="${envDir}/.terraform/terraform.tfstate.tf-helpers-old"
 
-  _dsb_d "doUpgrade: ${doUpgrade}"
-  _dsb_d "offlineInit: ${offlineInit}"
-  _dsb_d "envDir: ${envDir}"
-  _dsb_d "subId: ${subId}"
-  _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
+  _dsb_d "called with:"
+  _dsb_d "  doUpgrade: ${doUpgrade}"
+  _dsb_d "  offlineInit: ${offlineInit}"
+  _dsb_d "  envDir: ${envDir}"
+  _dsb_d "  subId: ${subId}"
+  _dsb_d "  current ARM_SUBSCRIPTION_ID: '${ARM_SUBSCRIPTION_ID}'"
 
   if [ "${doUpgrade}" -eq 1 ]; then
     extraInitArgs=" -upgrade"
@@ -3934,7 +3949,7 @@ _dsb_tf_init_env() {
   _dsb_d "  offlineInit: ${offlineInit}"
   _dsb_d "  selectedEnv: ${selectedEnv}"
 
-  if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}" "${offlineInit}"; then
     _dsbTfReturnCode=1
     _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
     _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
@@ -4193,7 +4208,7 @@ _dsb_tf_init() {
     _dsb_i ""
 
     # preflight, check if terraform is installed, set the environment and check if it is valid
-    if ! _dsb_tf_terraform_preflight "${envName}"; then
+    if ! _dsb_tf_terraform_preflight "${envName}" "${offlineInit}"; then
       _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
       _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
       _dsb_e "  preflight checks failed for ${envName}"
@@ -4269,9 +4284,10 @@ _dsb_tf_init_full_single_env() {
   local offlineInit="${2:-0}" # defaults to 0
   local envToInit="${3:-}"    # defaults to empty string
 
-  _dsb_d "doUpgrade: ${doUpgrade}"
-  _dsb_d "envToInit: ${envToInit}"
-  _dsb_d "offlineInit: ${offlineInit}"
+  _dsb_d "called with:"
+  _dsb_d "  doUpgrade: ${doUpgrade}"
+  _dsb_d "  envToInit: ${envToInit}"
+  _dsb_d "  offlineInit: ${offlineInit}"
 
   declare -g _dsbTfReturnCode=0 # default return code
 
@@ -4361,7 +4377,8 @@ _dsb_tf_fmt() {
 _dsb_tf_validate_env() {
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
 
-  if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+  # we always do preflight in offline mode since no subscription resolution is needed for validate
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}" 1; then # $2 = 1 means offline init
     _dsbTfReturnCode=1
     _dsb_d "_dsb_tf_terraform_preflight failed with non-zero exit code"
     _dsb_d "  _dsbTfReturnCode: ${_dsbTfReturnCode}"
@@ -4376,7 +4393,7 @@ _dsb_tf_validate_env() {
   _dsb_i ""
   _dsb_i "Validating environment: $(_dsb_tf_get_rel_dir "${envDir}")"
 
-  _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
+  _dsb_d "current ARM_SUBSCRIPTION_ID: '${ARM_SUBSCRIPTION_ID}'"
 
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
@@ -4418,7 +4435,7 @@ _dsb_tf_plan_env() {
   _dsb_i ""
   _dsb_i "Creating plan for environment: $(_dsb_tf_get_rel_dir "${envDir}")"
 
-  _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
+  _dsb_d "current ARM_SUBSCRIPTION_ID: '${ARM_SUBSCRIPTION_ID}'"
 
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
@@ -4460,7 +4477,7 @@ _dsb_tf_apply_env() {
   _dsb_i ""
   _dsb_i "Running apply in environment: $(_dsb_tf_get_rel_dir "${envDir}")"
 
-  _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
+  _dsb_d "current ARM_SUBSCRIPTION_ID: '${ARM_SUBSCRIPTION_ID}'"
 
   # output from the command will have paths relative to the current environment directory
   if ! terraform -chdir="${envDir}" apply; then
@@ -4497,7 +4514,7 @@ _dsb_tf_destroy_env() {
     return 0
   fi
 
-  _dsb_d "current ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
+  _dsb_d "current ARM_SUBSCRIPTION_ID: '${ARM_SUBSCRIPTION_ID}'"
 
   local envDir="${_dsbTfSelectedEnvDir}"
   _dsb_i ""
