@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cSpell: ignore dsb, tflint, azurerm, az, tf, gh, cpanm, realpath, tfupdate, coreutils, grealpath, nonewline, prereq, prereqs, commaseparated, graphviz, libexpat, mktemp, wedi, relog, cicd, hcledit, CWORD, GOPATH, minamijoyo, reqs, chdir, alnum, ruleset
+# cSpell: ignore dsb, tflint, azurerm, az, tf, gh, cpanm, realpath, tfupdate, coreutils, grealpath, nonewline, prereq, prereqs, commaseparated, graphviz, libexpat, mktemp, wedi, relog, cicd, hcledit, CWORD, GOPATH, minamijoyo, reqs, chdir, alnum, ruleset, xclip, xsel, gcut, tfstate
 #
 # Developer notes
 #
@@ -84,17 +84,17 @@ unsetFunctionsWithPrefix() {
   local cutCmd
   local mvCmd
 
-# MacOS: GNU commands mapping
-  if [[ $(uname -m) == "arm64" ]]; then 
+  # MacOS: GNU commands mapping
+  if [[ $(uname -m) == "arm64" ]]; then
     cutCmd="gcut"
     mvCmd="gmv"
-  fi    
-# ARM64 Linux                              
-  if [[ $(uname -m) == "aarch64" ]] && [[ $(uname -s) == "Linux" ]]; then 
+  fi
+  # ARM64 Linux
+  if [[ $(uname -m) == "aarch64" ]] && [[ $(uname -s) == "Linux" ]]; then
     cutCmd="cut"
     mvCmd="mv"
   fi
-# x86_64 Linux
+  # x86_64 Linux
   if [[ $(uname -m) == "x86_64" ]] && [[ $(uname -s) == "Linux" ]]; then
     cutCmd="cut"
     mvCmd="mv"
@@ -1006,7 +1006,7 @@ _dsb_tf_help_group_offline() {
   _dsb_i "  These are variants of commands that supports \"offline\" mode."
   _dsb_i ""
   _dsb_i "  Offline meaning that operations are performed without a terraform backend."
-  _dsb_i "  Usefull when working without access to the remote terraform backend."
+  _dsb_i "  Useful when working without access to the remote terraform backend."
   _dsb_i ""
   _dsb_i "  Terraform Offline Commands:"
   _dsb_i "    tf-init-offline [env]         -> Initialize selected or given environment (incl. main and local sub-modules)"
@@ -1200,14 +1200,16 @@ _dsb_tf_help_specific_command() {
   az-login)
     _dsb_i "az-login:"
     _dsb_i "  Login to Azure with the Azure CLI using device code."
+    _dsb_i "  If possible the code will be copied to the clipboard automatically."
     _dsb_i ""
     _dsb_i "  Related commands: az-whoami, az-relog."
     ;;
   az-relog)
     _dsb_i "az-relog:"
-    _dsb_i "  re-login to Azure with the Azure CLI."
+    _dsb_i "  Re-login to Azure with the Azure CLI using device code."
+    _dsb_i "  If possible the code will be copied to the clipboard automatically."
     _dsb_i ""
-    _dsb_i "  Related commands: az-whoami."
+    _dsb_i "  Related commands: az-whoami, az-logout, az-login."
     ;;
   az-whoami)
     _dsb_i "az-whoami:"
@@ -3458,17 +3460,61 @@ _dsb_tf_az_login() {
   # make sure to clear any existing account
   az account clear &>/dev/null || :
 
-  local loginOutput
-  if ! loginOutput=$(az login --use-device-code); then
+  local captureFile
+  captureFile="$(mktemp 2>/dev/null || echo /tmp/dsb-tf-az-login-$$.log)"
+  _dsb_d "capturing az login output to ${captureFile} (streaming)"
+
+  local deviceCode
+  if eval "az login --use-device-code 2>&1" | while IFS= read -r azOutputLine; do
+    if [ -z "${deviceCode:-}" ]; then
+      # until code is found we do not suppress output from az cli
+      printf '%s\n' "${azOutputLine}" | tee -a "${captureFile}" >&2
+    else
+      # when code is found we suppress further output from az cli
+      echo "${azOutputLine}" >>"${captureFile}"
+    fi
+    if [ -z "${deviceCode:-}" ] && printf '%s' "${azOutputLine}" | grep -qi 'enter the code'; then
+      maybeCode="$(printf '%s\n' "${azOutputLine}" | awk '{for(i=1;i<=NF;i++){if($i ~ /^[A-Z0-9]{6,}$/){c=$i}}}END{if(c)print c}')"
+      if [ -n "${maybeCode}" ]; then
+        deviceCode="${maybeCode}"
+        _dsb_d "Azure device login code: ${deviceCode}"
+        local _clipOk=1
+        if command -v wl-copy >/dev/null 2>&1; then
+          _dsb_d "Using wl-copy to copy device code to clipboard."
+          printf '%s' "${deviceCode}" | wl-copy && _clipOk=0
+        elif command -v xclip >/dev/null 2>&1; then
+          _dsb_d "Using xclip to copy device code to clipboard."
+          printf '%s' "${deviceCode}" | xclip -selection clipboard && _clipOk=0
+        elif command -v xsel >/dev/null 2>&1; then
+          _dsb_d "Using xsel to copy device code to clipboard."
+          printf '%s' "${deviceCode}" | xsel --clipboard --input && _clipOk=0
+        elif command -v pbcopy >/dev/null 2>&1; then
+          _dsb_d "Using pbcopy to copy device code to clipboard."
+          printf '%s' "${deviceCode}" | pbcopy && _clipOk=0
+        fi
+        if [ ${_clipOk} -eq 0 ]; then
+          _dsb_i "Device code was copied to the clipboard for you 😉" >&2
+        else
+          _dsb_d "Clipboard tool not found; skipping copy of device code."
+        fi
+      fi
+    fi
+  done; then
+    if [ -z "${deviceCode:-}" ]; then
+      _dsb_d "device code was not found and not copied."
+    fi
+    _dsb_tf_az_enumerate_account
+    _dsbTfReturnCode=$? # caller reads _dsbTfReturnCode
+  else
     _dsb_e "Failed to login with Azure CLI."
     _dsb_e "  please run 'az login --debug' manually"
     _dsbTfReturnCode=1
-  else
-    _dsb_tf_az_enumerate_account
-    _dsbTfReturnCode=$? # caller reads _dsbTfReturnCode
   fi
 
+  local loginOutput
+  loginOutput="$(cat "${captureFile}" 2>/dev/null || :)"
   _dsb_d "loginOutput: ${loginOutput}"
+  rm -f -- "${captureFile}" 2>/dev/null || :
 
   _dsb_d "returning exit code in _dsbTfReturnCode=${_dsbTfReturnCode:-}"
   return 0 # caller reads _dsbTfReturnCode
