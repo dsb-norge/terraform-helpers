@@ -4547,6 +4547,7 @@ _dsb_tf_install_tflint_wrapper() {
   local wrapperDir="${_dsbTfTflintWrapperDir:-}"
   local wrapperPath="${_dsbTfTflintWrapperPath:-}"
   local wrapperApiUrl="/repos/dsb-norge/terraform-tflint-wrappers/contents/tflint_linux.sh"
+  local wrapperPublicUrl="https://raw.githubusercontent.com/dsb-norge/terraform-tflint-wrappers/main/tflint_linux.sh"
 
   if [ -z "${wrapperDir}" ] || [ -z "${wrapperPath}" ]; then
     _dsb_e "Internal error: expected to find tflint wrapper directory and path."
@@ -4568,7 +4569,24 @@ _dsb_tf_install_tflint_wrapper() {
   _dsb_d "  from: ${wrapperApiUrl}"
   _dsb_d "  to: ${wrapperPath}"
 
-  gh api -H 'Accept: application/vnd.github.v3.raw' "${wrapperApiUrl}" >"${wrapperPath}"
+  if _dsbTfLogErrors=0 _dsb_tf_check_gh_cli; then
+    _dsb_d "trying with GitHub CLI"
+    if ! gh api -H 'Accept: application/vnd.github.v3.raw' "${wrapperApiUrl}" 2>/dev/null >"${wrapperPath}"; then
+      _dsb_d "failed using GitHub CLI, trying with curl and public URL"
+
+      if ! curl -sSL -o "${wrapperPath}" "${wrapperPublicUrl}"; then
+        _dsb_d "curl also failed"
+        return 1
+      fi
+    fi
+  else
+    _dsb_d "GitHub CLI not available, trying with curl and public URL"
+
+    if ! curl -sSL -o "${wrapperPath}" "${wrapperPublicUrl}"; then
+      _dsb_d "curl fails"
+      return 1
+    fi
+  fi
 
   return 0
 }
@@ -4586,6 +4604,7 @@ _dsb_tf_run_tflint() {
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
   shift || :
   local lintArguments="$*"
+  local githubAuthAvailable=1 # assume available until proven otherwise
 
   _dsb_d "called with:"
   _dsb_d " - selectedEnv: ${selectedEnv}"
@@ -4598,9 +4617,9 @@ _dsb_tf_run_tflint() {
   fi
 
   # check that gh cli is installed and user is logged in
-  if ! _dsb_tf_check_gh_auth; then
-    _dsbTfReturnCode=1
-    return 0
+  if ! _dsbTfLogErrors=0 _dsb_tf_check_gh_auth; then
+    _dsb_d "GitHub authentication unavailable, proceeding without GitHub authentication"
+    githubAuthAvailable=0
   fi
 
   # leverage _dsb_tf_set_env, this enumerates directories and validates the environment
@@ -4613,6 +4632,7 @@ _dsb_tf_run_tflint() {
   fi
 
   # make sure tflint is installed
+  #   function falls back to using curl if gh cli fails, ie. if not authenticated with GitHub
   if ! _dsbTfLogErrors=0 _dsb_tf_install_tflint_wrapper; then
     _dsb_e "Failed to install tflint wrapper, consider enabling debug logging"
     _dsbTfReturnCode=1
@@ -4635,10 +4655,15 @@ _dsb_tf_run_tflint() {
 
   # get GitHub API token
   local ghToken
-  if ! ghToken=$(gh auth token); then
-    _dsb_e "Failed to get GitHub API token."
-    _dsbTfReturnCode=1
-    return 0
+  if [ "${githubAuthAvailable}" -ne 1 ]; then
+    _dsb_d "GitHub authentication unavailable, proceeding without API token"
+    ghToken=""
+  else
+    _dsb_d "GitHub authentication available, attempting to get API token"
+    if ! ghToken=$(gh auth token 2>/dev/null); then
+      _dsb_w "Failed to get GitHub API token even though authentication is available, attempting to proceed without API token"
+      ghToken=""
+    fi
   fi
 
   # invoke the tflint wrapper script
