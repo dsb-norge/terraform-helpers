@@ -3890,7 +3890,7 @@ _dsb_tf_init_env_actual() {
 
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
-  if ! terraform -chdir="${envDir}" init -reconfigure ${extraInitArgs} 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+  if ! terraform -chdir="${envDir}" init -reconfigure -lock=false ${extraInitArgs} 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
     _dsb_d "terraform init failed, attempting to restore tfstate file ... "
 
     if [ -f "${localStateFileOld}" ]; then
