@@ -4439,7 +4439,7 @@ _dsb_tf_plan_env() {
 
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
-  if ! terraform -chdir="${envDir}" plan 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+  if ! terraform -chdir="${envDir}" plan -lock=false 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
     _dsb_e "terraform plan in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
     _dsbTfReturnCode=1
   else
