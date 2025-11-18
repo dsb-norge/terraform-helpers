@@ -82,35 +82,23 @@ unsetFunctionsWithPrefix() {
   local prefix="${1}"
   local functionNames
   local cutCmd
-  local mvCmd
 
   # MacOS: GNU commands mapping
   if [[ $(uname -m) == "arm64" ]]; then
     cutCmd="gcut"
-    mvCmd="gmv"
   fi
   # ARM64 Linux
   if [[ $(uname -m) == "aarch64" ]] && [[ $(uname -s) == "Linux" ]]; then
     cutCmd="cut"
-    mvCmd="mv"
   fi
   # x86_64 Linux
   if [[ $(uname -m) == "x86_64" ]] && [[ $(uname -s) == "Linux" ]]; then
     cutCmd="cut"
-    mvCmd="mv"
   fi
 
   # run just if cut command is set
   if [ -n "${cutCmd}" ]; then
     functionNames=$(declare -F | grep -e " ${prefix}" | "${cutCmd}" --fields 3 --delimiter=' ') || functionNames=''
-    for functionName in ${functionNames}; do
-      unset -f "${functionName}" || :
-    done
-  fi
-
-  # run just if mv command is set
-  if [ -n "${mvCmd}" ]; then
-    functionNames=$(declare -F | grep -e " ${prefix}" | "${mvCmd}" --fields 3 --delimiter=' ') || functionNames=''
     for functionName in ${functionNames}; do
       unset -f "${functionName}" || :
     done
