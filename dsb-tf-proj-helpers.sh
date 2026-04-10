@@ -6008,7 +6008,7 @@ _dsb_tf_list_available_terraform_provider_upgrades() {
       for provider in ${providers}; do
         local source version_constraints
         source=$(echo "${tfConfigJson}" | jq -r ".required_providers[\"${provider}\"].source // empty")
-        version_constraints=$(echo "${tfConfigJson}" | jq -r ".required_providers[\"${provider}\"].version_constraints[] // empty")
+        version_constraints=$(echo "${tfConfigJson}" | jq -r "(.required_providers[\"${provider}\"].version_constraints // [])[] // empty")
 
         _dsb_d "    provider: ${provider}"
         _dsb_d "      source: ${source}"
