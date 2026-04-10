@@ -1,0 +1,29 @@
+{
+  "name": "terraform-helpers",
+  "version": "1.0.0",
+  "description": "Collection of helper scripts for terraform projects.",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsb-norge/terraform-helpers.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/dsb-norge/terraform-helpers/issues"
+  },
+  "homepage": "https://github.com/dsb-norge/terraform-helpers#readme",
+  "devDependencies": {
+    "bats": "^1.13.0",
+    "bats-assert": "^2.2.4",
+    "bats-file": "github:bats-core/bats-file",
+    "bats-support": "^0.3.0"
+  }
+}

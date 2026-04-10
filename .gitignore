@@ -42,3 +42,7 @@
 
 # call graphs are for debugging purposes only
 call-graphs/
+
+# npm (bats-core test dependencies)
+node_modules/
+package-lock.json
