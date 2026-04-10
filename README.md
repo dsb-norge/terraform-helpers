@@ -16,7 +16,7 @@ source <(gh api -H "Accept: application/vnd.github.v3.raw" /repos/dsb-norge/terr
 
 # load from public endpoint with curl
 #   note: has the potential of the user being rate limited by GitHub
-source <(curl -s https://raw.githubusercontent.com/dsb-norge/terraform-helpers/blob/main/dsb-tf-proj-helpers.sh) ;
+source <(curl -s https://raw.githubusercontent.com/dsb-norge/terraform-helpers/main/dsb-tf-proj-helpers.sh) ;
 
 # invoke the help function
 tf-help
