@@ -586,7 +586,7 @@ _dsb_tf_debug_generate_call_graphs() {
 
   # ignore uninteresting functions
   # shellcheck disable=SC2016
-  local ignoreStatic='($unset.*|_dsb_[wedi](\(\))?|$_dsb_tf_error_.*|_dsb_tf_configure_shell(\(\))?|_dsb_tf_restore_shell.*(\(\))?|$_dsb_tf_help.*|_dsb_tf_completions(\(\))?|$_dsb_tf_register_.*|$_dsb_tf_debug_.*'
+  local ignoreStatic='($unset.*|_dsb_[wedi](\(\))?|$_dsb_tf_error_.*|_dsb_tf_signal_handler(\(\))?|_dsb_tf_configure_shell(\(\))?|_dsb_tf_restore_shell.*(\(\))?|$_dsb_tf_help.*|_dsb_tf_completions(\(\))?|$_dsb_tf_register_.*|$_dsb_tf_debug_.*'
 
   if [ -n "${functionToGenerateFor}" ]; then
     local startFuncStrip="${functionToGenerateFor//()/}" # no trailing ()
@@ -653,16 +653,30 @@ _dsb_tf_debug_generate_call_graphs() {
 ###################################################################################################
 
 _dsb_tf_error_handler() {
-  # Remove error trapping to prevent the error handler from being triggered
+  # ERR trap handler: logs the error and preserves state so execution can continue.
+  # Does NOT call _dsb_tf_restore_shell — the exposed function will do that.
+  # Uses a guard variable instead of removing traps, so subsequent errors are also caught.
   local returnCode=${1:-$?}
+
+  # guard against recursive invocation (e.g. if logging commands fail within this handler)
+  if [ "${_dsbTfInErrorHandler:-0}" -eq 1 ]; then
+    return "${returnCode}"
+  fi
+  declare -g _dsbTfInErrorHandler=1
+
+  # skip logging from subshells (e.g. pipeline components with set -E)
+  # the parent shell's trap will fire with the correct line number and full command
+  if [ "${BASH_SUBSHELL:-0}" -gt 0 ]; then
+    declare -g _dsbTfInErrorHandler=0
+    return "${returnCode}"
+  fi
 
   _dsb_d "error handler input: $*"
 
   _dsbTfLogErrors=1
-  _dsb_tf_error_stop_trapping
 
   if [ "${returnCode}" -ne 0 ]; then
-    _dsb_e "Error occurred:"
+    _dsb_e "Error occurred (execution continues):"
     _dsb_e "  file      : dsb-tf-proj-helpers.sh" # hardcoded because file will be sourced by curl
     _dsb_e "  line      : ${BASH_LINENO[0]} (dsb-tf-proj-helpers.sh:${BASH_LINENO[0]})"
     _dsb_e "  function  : ${FUNCNAME[1]}"
@@ -672,8 +686,26 @@ _dsb_tf_error_handler() {
     for ((i = 1; i < ${#FUNCNAME[@]}; i++)); do
       _dsb_e "  ${FUNCNAME[$i]} called at (dsb-tf-proj-helpers.sh:${BASH_LINENO[$((i - 1))]})"
     done
-    _dsb_e "Operation aborted."
   fi
+
+  # Preserve the error code so the exposed function can read it
+  declare -g _dsbTfReturnCode="${returnCode}"
+
+  declare -g _dsbTfInErrorHandler=0
+  _dsb_d "returning code: ${returnCode}"
+  return "${returnCode}"
+}
+
+_dsb_tf_signal_handler() {
+  # Signal handler for SIGHUP/SIGINT: must restore the shell since execution will not continue.
+  local returnCode=${1:-$?}
+
+  _dsb_d "signal handler input: $*"
+
+  _dsbTfLogErrors=1
+  _dsb_tf_error_stop_trapping
+
+  _dsb_e "Signal received, aborting."
 
   _dsb_tf_restore_shell
 
@@ -687,11 +719,10 @@ _dsb_tf_error_start_trapping() {
   # -o pipefail: Return the exit status of the last command in the pipeline that failed
   set -Eo pipefail
 
-  # Signals:
-  # - ERR: This signal is triggered when a command fails. It is useful for error handling in scripts.
-  # - SIGHUP: This signal is sent to a process when its controlling terminal is closed. It is often used to reload configuration files.
-  # - SIGINT: This signal is sent when an interrupt is generated (usually by pressing Ctrl+C). It is used to stop a process gracefully.
-  trap '_dsb_tf_error_handler $?' ERR SIGHUP SIGINT
+  # ERR: command failure — handler logs but does not restore shell (execution continues)
+  trap '_dsb_tf_error_handler $?' ERR
+  # SIGHUP/SIGINT: signals that abort execution — handler restores shell before returning
+  trap '_dsb_tf_signal_handler $?' SIGHUP SIGINT
 
   _dsb_d "error trapping started from ${FUNCNAME[1]}"
 }
@@ -719,6 +750,7 @@ _dsb_tf_configure_shell() {
   declare -g _dsbTfLogInfo=1
   declare -g _dsbTfLogWarnings=1
   declare -g _dsbTfLogErrors=1
+  declare -g _dsbTfInErrorHandler=0
 
   declare -ga _dsbTfFilesList=()
   declare -ga _dsbTfLintConfigFilesList=()
@@ -747,6 +779,7 @@ _dsb_tf_restore_shell() {
   unset _dsbTfLogInfo
   unset _dsbTfLogWarnings
   unset _dsbTfLogErrors
+  unset _dsbTfInErrorHandler
   unset _dsbTfReturnCode
 }
 
