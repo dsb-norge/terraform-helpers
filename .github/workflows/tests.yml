@@ -1,0 +1,105 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  test:
+    name: Run bats tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
+
+      - name: Run tests
+        id: tests
+        shell: bash
+        run: |
+          set +e
+          npx bats test/*.bats 2>&1 | tee "$RUNNER_TEMP/test-output.txt"
+          exit_code=${PIPESTATUS[0]}
+          set -e
+
+          passed=$(grep -cE "^ok " "$RUNNER_TEMP/test-output.txt" || true)
+          failed=$(grep -cE "^not ok " "$RUNNER_TEMP/test-output.txt" || true)
+          total=$((passed + failed))
+
+          echo "passed=${passed}" >> "$GITHUB_OUTPUT"
+          echo "failed=${failed}" >> "$GITHUB_OUTPUT"
+          echo "total=${total}" >> "$GITHUB_OUTPUT"
+
+          echo "### Test Results" >> "$GITHUB_STEP_SUMMARY"
+          echo "**${passed}** passed, **${failed}** failed out of **${total}** tests" >> "$GITHUB_STEP_SUMMARY"
+
+          exit "${exit_code}"
+
+      - name: Build comment body
+        if: always() && github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          passed="${{ steps.tests.outputs.passed }}"
+          failed="${{ steps.tests.outputs.failed }}"
+          total="${{ steps.tests.outputs.total }}"
+          outcome="${{ steps.tests.outcome }}"
+          sha="${{ github.event.pull_request.head.sha }}"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          {
+            echo "<!-- test-results -->"
+            if [ "${outcome}" = "success" ]; then
+              echo "## :white_check_mark: Tests passed"
+            else
+              echo "## :x: Tests failed"
+            fi
+            echo ""
+            echo "**${passed}** passed, **${failed}** failed out of **${total}** tests"
+            echo ""
+          } > "$RUNNER_TEMP/comment.md"
+
+          if [ "${failed:-0}" -gt 0 ] && [ -f "$RUNNER_TEMP/test-output.txt" ]; then
+            {
+              echo "<details>"
+              echo "<summary>Failed tests</summary>"
+              echo ""
+              echo '```'
+              grep -E "^not ok " "$RUNNER_TEMP/test-output.txt" || true
+              echo '```'
+              echo ""
+              echo "</details>"
+              echo ""
+            } >> "$RUNNER_TEMP/comment.md"
+          fi
+
+          echo "[View full run](${run_url}) | Commit \`${sha:0:7}\`" >> "$RUNNER_TEMP/comment.md"
+
+      - name: Find existing comment
+        if: always() && github.event_name == 'pull_request'
+        id: find-comment
+        uses: peter-evans/find-comment@v3
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-author: "github-actions[bot]"
+          body-includes: "<!-- test-results -->"
+
+      - name: Post or update PR comment
+        if: always() && github.event_name == 'pull_request'
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          comment-id: ${{ steps.find-comment.outputs.comment-id }}
+          issue-number: ${{ github.event.pull_request.number }}
+          edit-mode: replace
+          body-path: ${{ runner.temp }}/comment.md
