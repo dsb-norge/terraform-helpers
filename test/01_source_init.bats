@@ -1,0 +1,90 @@
+#!/usr/bin/env bats
+load 'helpers/test_helper'
+
+# Create the project fixture once for the file
+setup_file() {
+  export _INIT_TEST_PROJECT="${BATS_FILE_TMPDIR}/project"
+  cp -r "${FIXTURES_DIR}/project_standard" "${_INIT_TEST_PROJECT}"
+}
+
+setup() {
+  default_test_setup
+  cd "${_INIT_TEST_PROJECT}"
+  mock_standard_tools
+  source "${SUT}"
+}
+
+teardown() {
+  default_test_teardown
+}
+
+# -- Tests --
+
+@test "sourcing defines tf-* exposed functions" {
+  assert_function_exists "tf-help"
+  assert_function_exists "tf-status"
+  assert_function_exists "tf-check-tools"
+  assert_function_exists "tf-check-dir"
+  assert_function_exists "tf-check-prereqs"
+  assert_function_exists "tf-list-envs"
+  assert_function_exists "tf-set-env"
+  assert_function_exists "tf-select-env"
+  assert_function_exists "tf-clear-env"
+  assert_function_exists "tf-check-env"
+  assert_function_exists "tf-init"
+  assert_function_exists "tf-plan"
+  assert_function_exists "tf-apply"
+}
+
+@test "sourcing defines az-* exposed functions" {
+  assert_function_exists "az-login"
+  assert_function_exists "az-logout"
+  assert_function_exists "az-whoami"
+  assert_function_exists "az-set-sub"
+  assert_function_exists "az-select-sub"
+  assert_function_exists "az-relog"
+}
+
+@test "sourcing defines internal _dsb_* functions" {
+  assert_function_exists "_dsb_tf_configure_shell"
+  assert_function_exists "_dsb_tf_restore_shell"
+  assert_function_exists "_dsb_tf_error_handler"
+  assert_function_exists "_dsb_tf_enumerate_directories"
+  assert_function_exists "_dsb_e"
+  assert_function_exists "_dsb_i"
+  assert_function_exists "_dsb_w"
+  assert_function_exists "_dsb_d"
+}
+
+@test "sourcing on unsupported arch fails" {
+  mock_uname_unsupported
+  run bash -c "source '${SUT}'"
+  assert_failure
+  assert_output --partial "unsupported"
+}
+
+@test "re-sourcing is idempotent" {
+  # Source again -- should succeed and functions still work
+  source "${SUT}"
+  assert_function_exists "tf-help"
+  assert_function_exists "_dsb_tf_configure_shell"
+  assert_global_set "_dsbTfRootDir"
+}
+
+@test "_dsbTfRootDir is set after sourcing" {
+  assert_global_set "_dsbTfRootDir"
+}
+
+@test "startup message is printed during sourcing" {
+  # Source in a subshell and capture output
+  local project_dir
+  project_dir="$(create_standard_project)"
+  run bash -c "cd '${project_dir}' && source '${SUT}' 2>&1"
+  assert_success
+  assert_output --partial "DSB Terraform Project Helpers"
+}
+
+@test "tab completions are registered for tf-set-env" {
+  run complete -p tf-set-env
+  assert_success
+}
