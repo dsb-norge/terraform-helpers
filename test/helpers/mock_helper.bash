@@ -244,6 +244,56 @@ mock_terraform_init_fails() {
   export -f terraform
 }
 
+mock_terraform_validate_fails() {
+  terraform() {
+    case "$1" in
+      -version|--version) echo "Terraform v1.7.0"; return 0 ;;
+      -chdir=*)
+        shift
+        case "$1" in
+          init)
+            echo "Initializing the backend..."
+            echo "Terraform has been successfully initialized!"
+            return 0
+            ;;
+          validate)
+            echo "Error: Missing required argument" >&2
+            return 1
+            ;;
+          *) return 0 ;;
+        esac
+        ;;
+      *) return 0 ;;
+    esac
+  }
+  export -f terraform
+}
+
+mock_terraform_plan_fails() {
+  terraform() {
+    case "$1" in
+      -version|--version) echo "Terraform v1.7.0"; return 0 ;;
+      -chdir=*)
+        shift
+        case "$1" in
+          init)
+            echo "Initializing the backend..."
+            echo "Terraform has been successfully initialized!"
+            return 0
+            ;;
+          plan)
+            echo "Error: Error acquiring the state lock" >&2
+            return 1
+            ;;
+          *) return 0 ;;
+        esac
+        ;;
+      *) return 0 ;;
+    esac
+  }
+  export -f terraform
+}
+
 # ============================================================
 # jq -- we use the real jq if available, mock if not
 # ============================================================

@@ -90,3 +90,36 @@ teardown() {
   run complete -p tf-set-env
   assert_success
 }
+
+@test "download guard: first non-comment/non-blank line is opening brace" {
+  # Skip the shebang and any comment/blank lines, the next line must be '{'
+  local first_code_line
+  first_code_line=$(grep -v '^\s*$' "${SUT}" | grep -v '^\s*#' | grep -v '^#!/' | head -1)
+  [[ "${first_code_line}" == "{ "* ]]
+}
+
+@test "download guard: last non-blank line is closing brace" {
+  local last_line
+  last_line=$(grep -v '^\s*$' "${SUT}" | tail -1)
+  [[ "${last_line}" == "} "* ]]
+}
+
+@test "bash version guard exists in script" {
+  local count
+  count=$(command grep -c 'BASH_VERSINFO' "${SUT}")
+  # The version guard uses BASH_VERSINFO across at least 2 lines
+  [[ "${count}" -ge 2 ]]
+}
+
+@test "sourcing succeeds even when caller has set -e active" {
+  local project_dir
+  project_dir="$(create_standard_project)"
+  run bash -c '
+    set -e
+    cd "'"${project_dir}"'"
+    source "'"${SUT}"'" >/dev/null 2>&1
+    echo "SOURCE_OK"
+  '
+  assert_success
+  assert_output --partial "SOURCE_OK"
+}

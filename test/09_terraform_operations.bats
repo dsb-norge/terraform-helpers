@@ -138,6 +138,35 @@ teardown() {
   assert_output --partial "Terraform check failed"
 }
 
+# -------------------------------------------------------
+# Pipeline failure detection
+# -------------------------------------------------------
+
+@test "tf-init reports failure when terraform init fails" {
+  mock_terraform_init_fails
+  mock_az
+  run tf-init "dev"
+  assert_failure
+}
+
+@test "tf-validate reports failure when terraform validate fails" {
+  mock_terraform_validate_fails
+  mock_az
+  run tf-validate "dev"
+  assert_failure
+}
+
+@test "tf-plan reports failure when terraform plan fails" {
+  mock_terraform_plan_fails
+  mock_az
+  run tf-plan "dev"
+  assert_failure
+}
+
+# -------------------------------------------------------
+# Terraform preflight (continued)
+# -------------------------------------------------------
+
 @test "terraform preflight exports ARM_SUBSCRIPTION_ID on online operations" {
   mock_terraform
   mock_az

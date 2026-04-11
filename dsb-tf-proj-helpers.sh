@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+{ # this ensures the entire script is downloaded before execution
+
+# Require bash 4.3+ for associative arrays, namerefs, etc.
+if [ -z "${BASH_VERSION:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ] || \
+   { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 3 ]; }; then
+  echo "ERROR: dsb-tf-proj-helpers.sh requires bash 4.3 or later (current: ${BASH_VERSION:-unknown})" >&2
+  # shellcheck disable=SC2317 # exit 1 is the fallback when not sourced (return fails)
+  return 1 2>/dev/null || exit 1
+fi
+
 # cSpell: ignore dsb, tflint, azurerm, az, tf, gh, cpanm, realpath, tfupdate, coreutils, grealpath, nonewline, prereq, prereqs, commaseparated, graphviz, libexpat, mktemp, wedi, relog, cicd, hcledit, CWORD, GOPATH, minamijoyo, reqs, chdir, alnum, ruleset, xclip, xsel, gcut, tfstate
 #
 # Developer notes
@@ -635,7 +645,7 @@ _dsb_tf_debug_generate_call_graphs() {
   fi
 
   # remove the copy of the shell script with the exposed functions renamed
-  rm ${outFile}
+  rm -f "${outFile}"
 }
 
 ###################################################################################################
@@ -704,6 +714,9 @@ _dsb_tf_configure_shell() {
 
   # Signal traps only (for cleanup on Ctrl+C) -- NO ERR trap
   trap '_dsb_tf_signal_handler' SIGHUP SIGINT
+
+  # Clean up any leftover temp files from interrupted operations
+  rm -f "/tmp/dsb-tf-helpers-$$-"* 2>/dev/null || :
 
   # some default values
   declare -g _dsbTfLogInfo=1
@@ -3442,7 +3455,7 @@ _dsb_tf_az_login() {
   az account clear &>/dev/null || :
 
   local captureFile
-  captureFile="$(mktemp 2>/dev/null || echo /tmp/dsb-tf-az-login-$$.log)"
+  captureFile="/tmp/dsb-tf-helpers-$$-az-login"
   _dsb_d "capturing az login output to ${captureFile} (streaming)"
 
   local deviceCode
@@ -3867,7 +3880,8 @@ _dsb_tf_init_env_actual() {
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
   # shellcheck disable=SC2086 # extraInitArgs is intentionally unquoted for word splitting
-  if ! terraform -chdir="${envDir}" init -reconfigure -lock=false ${extraInitArgs} 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+  terraform -chdir="${envDir}" init -reconfigure -lock=false ${extraInitArgs} 2>&1 | _dsb_tf_fixup_paths_from_stdin
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
     _dsb_d "terraform init failed, attempting to restore tfstate file ... "
 
     if [ -f "${localStateFileOld}" ]; then
@@ -3892,7 +3906,8 @@ _dsb_tf_init_env_actual() {
 
     # hardcoded to windows, macOS and linux
     #   pipe to _dsb_tf_fixup_paths_from_stdin to make paths relative to the root directory
-    if ! terraform -chdir="${envDir}" providers lock -platform=windows_amd64 -platform=darwin_amd64 -platform=linux_amd64 -platform=linux_arm64 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+    terraform -chdir="${envDir}" providers lock -platform=windows_amd64 -platform=darwin_amd64 -platform=linux_amd64 -platform=linux_arm64 2>&1 | _dsb_tf_fixup_paths_from_stdin
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
       _dsb_d "adding hashes to the lock file failed"
       return 1
     fi
@@ -3964,7 +3979,10 @@ _dsb_tf_init_dir() {
 
   _dsb_d "copying from ${envDir}/.terraform.lock.hcl"
   _dsb_d "to ${dirPath}/.terraform.lock.hcl"
-  cp -f "${envDir}/.terraform.lock.hcl" "${dirPath}/.terraform.lock.hcl"
+  if ! cp -f "${envDir}/.terraform.lock.hcl" "${dirPath}/.terraform.lock.hcl"; then
+    _dsb_tf_error_push "failed to copy lock file to ${dirPath}"
+    return 1
+  fi
 
   _dsb_d "removing ${dirPath}/.terraform"
   rm -rf "${dirPath}/.terraform"
@@ -3976,9 +3994,14 @@ _dsb_tf_init_dir() {
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
   TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE=true \
     terraform -chdir="${dirPath}" init -input=false -plugin-dir="${envDir}/.terraform/providers" -backend=false -reconfigure 2>&1 | _dsb_tf_fixup_paths_from_stdin
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+    _dsb_tf_error_push "terraform init failed in ${dirPath}"
+    rm -f "${dirPath}/.terraform.lock.hcl"
+    return 1
+  fi
 
   _dsb_d "removing ${dirPath}/.terraform.lock.hcl"
-  rm "${dirPath}/.terraform.lock.hcl"
+  rm -f "${dirPath}/.terraform.lock.hcl"
 }
 
 # what:
@@ -4254,6 +4277,7 @@ _dsb_tf_init_full_single_env() {
     returnCode=1
   else
     _dsb_tf_init "${doUpgrade}" 0 "${offlineInit}" "${envToInit}" # $1 = 'init -upgrade', $2 = clearSelectedEnvAfter, $3 = with/without backend
+    returnCode=$?
   fi
 
   _dsb_d "done"
@@ -4345,7 +4369,8 @@ _dsb_tf_validate_env() {
 
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
-  if ! terraform -chdir="${envDir}" validate 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+  terraform -chdir="${envDir}" validate 2>&1 | _dsb_tf_fixup_paths_from_stdin
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
     _dsb_e "terraform validate in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
     returnCode=1
   else
@@ -4387,7 +4412,8 @@ _dsb_tf_plan_env() {
 
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
-  if ! terraform -chdir="${envDir}" plan -lock=false 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+  terraform -chdir="${envDir}" plan -lock=false 2>&1 | _dsb_tf_fixup_paths_from_stdin
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
     _dsb_e "terraform plan in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
     returnCode=1
   else
@@ -4593,8 +4619,9 @@ _dsb_tf_run_tflint() {
     return 1
   fi
 
-  if ! pushd "${envDir}" >/dev/null; then
-    _dsb_e "Failed to change to environment directory: ${envDir}"
+  local _savedPwd="${PWD}"
+  if ! cd "${envDir}"; then
+    _dsb_tf_error_push "failed to change to environment directory: ${envDir}"
     return 1
   fi
 
@@ -4615,7 +4642,8 @@ _dsb_tf_run_tflint() {
   #   output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
   # shellcheck disable=SC2086 # lintArguments is intentionally unquoted for word splitting
-  if ! GITHUB_TOKEN=${ghToken} bash -s -- ${lintArguments} <"${_dsbTfTflintWrapperPath}" 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+  GITHUB_TOKEN=${ghToken} bash -s -- ${lintArguments} <"${_dsbTfTflintWrapperPath}" 2>&1 | _dsb_tf_fixup_paths_from_stdin
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
     _dsb_i_append "" # newline without any prefix
     _dsb_w "tflint operation resulted in non-zero exit code."
     returnCode=1
@@ -4623,9 +4651,7 @@ _dsb_tf_run_tflint() {
     returnCode=0
   fi
 
-  if ! popd >/dev/null; then
-    _dsb_w "Failed to change back to root directory after linting."
-  fi
+  cd "${_savedPwd}" || _dsb_w "Failed to restore working directory"
 
   _dsb_d "done"
 
@@ -6099,7 +6125,8 @@ _dsb_tf_bump_an_env() {
     fi
   fi
 
-  returnCode+=$((initStatus + listStatus)) || :
+  # Use proper arithmetic instead of += which would do string concatenation (e.g. "0" + "1" = "01" not 1)
+  returnCode=$(( returnCode + initStatus + listStatus ))
 
   if [ ${returnCode} -ne 0 ]; then
     _dsb_e "Failures reported during bumping, please review the output further up"
@@ -7031,3 +7058,4 @@ _dsb_tf_enumerate_directories || :
 _dsb_tf_register_all_completions || :
 _dsb_i "DSB Terraform Project Helpers 🚀"
 _dsb_i "  to get started, run 'tf-help' or 'tf-status'"
+} # this ensures the entire script is downloaded before execution

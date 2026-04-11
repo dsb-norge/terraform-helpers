@@ -39,6 +39,31 @@ teardown() {
   [[ -f "${project_dir}/.tflint/tflint.sh" ]]
 }
 
+@test "tf-lint reports failure when wrapper script fails" {
+  mock_az
+  mock_gh
+  # Pre-create a wrapper that exits with failure
+  mkdir -p "${project_dir}/.tflint"
+  printf '#!/usr/bin/env bash\necho "tflint error" >&2\nexit 1\n' > "${project_dir}/.tflint/tflint.sh"
+  chmod +x "${project_dir}/.tflint/tflint.sh"
+
+  run tf-lint "dev"
+  assert_failure
+}
+
+@test "tf-lint preserves working directory even on failure" {
+  mock_az
+  mock_gh
+  local original_pwd="${PWD}"
+  # Pre-create a wrapper that fails
+  mkdir -p "${project_dir}/.tflint"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "${project_dir}/.tflint/tflint.sh"
+  chmod +x "${project_dir}/.tflint/tflint.sh"
+
+  tf-lint "dev" || true
+  [[ "${PWD}" == "${original_pwd}" ]]
+}
+
 @test "tflint wrapper is not re-downloaded if present" {
   mock_az
   mock_gh
