@@ -449,6 +449,38 @@ _dsb_tf_report_status() {
   _dsb_i "  Repo type               : ${_dsbTfRepoType:-unknown}"
   _dsb_i "  Root directory          : ${_dsbTfRootDir}"
   if [ "${_dsbTfRepoType}" == "module" ]; then
+    # Root .tf files count
+    local -a _rootTfFiles=()
+    local _rtf
+    for _rtf in "${_dsbTfRootDir}"/*.tf; do
+      if [ -f "${_rtf}" ]; then
+        _rootTfFiles+=("${_rtf}")
+      fi
+    done
+    _dsb_i "  Root .tf files          : ${#_rootTfFiles[@]}"
+
+    # TFLint config
+    if [ -f "${_dsbTfRootDir}/.tflint.hcl" ]; then
+      _dsb_i "  TFLint config           : found (${_dsbTfRootDir}/.tflint.hcl)"
+    else
+      _dsb_i "  TFLint config           : not found"
+    fi
+
+    # Lock file
+    if [ -f "${_dsbTfRootDir}/.terraform.lock.hcl" ]; then
+      _dsb_i "  Lock file               : found"
+    else
+      _dsb_i "  Lock file               : not found (expected in fresh clone, run tf-init)"
+    fi
+
+    # terraform-docs config
+    if [ -f "${_dsbTfRootDir}/.terraform-docs.yml" ]; then
+      _dsb_i "  terraform-docs config   : found"
+    else
+      _dsb_i "  terraform-docs config   : not found"
+    fi
+
+    # Examples
     _dsb_i "  Examples directory      : ${_dsbTfExamplesDir:-}"
     local -a _exNames=()
     if declare -p _dsbTfExamplesDirList &>/dev/null; then
@@ -457,10 +489,13 @@ _dsb_tf_report_status() {
         _exNames+=("${_exKey}")
       done
     fi
+    mapfile -t _exNames < <(printf '%s\n' "${_exNames[@]}" | sort)
     local _exCommaSep
     _exCommaSep=$(IFS=,; echo "${_exNames[*]}")
     _exCommaSep=${_exCommaSep//,/, }
-    _dsb_i "  Available examples      : ${_exCommaSep:-none}"
+    _dsb_i "  Available examples      : ${_exCommaSep:-none} (${#_exNames[@]})"
+
+    # Tests
     _dsb_i "  Tests directory         : ${_dsbTfTestsDir:-}"
     _dsb_i "  Test files              : ${#_dsbTfTestFilesList[@]}"
     _dsb_i "  Unit test files         : ${#_dsbTfUnitTestFilesList[@]}"
@@ -857,6 +892,19 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-bump-offline"
     "tf-bump-env-offline"
     "tf-bump-all-offline"
+    # examples (module only)
+    "tf-init-examples"
+    "tf-validate-examples"
+    "tf-lint-examples"
+    # testing (module only)
+    "tf-test"
+    "tf-test-unit"
+    "tf-test-integration"
+    "tf-test-examples"
+    # docs (module only)
+    "tf-docs"
+    "tf-docs-examples"
+    "tf-docs-all"
   )
   echo "${commands[@]}"
 }
@@ -874,6 +922,9 @@ _dsb_tf_help_enumerate_supported_topics() {
     "terraform"
     "upgrading"
     "offline"
+    "examples"
+    "testing"
+    "docs"
   )
   local -a validCommands
   mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
@@ -916,6 +967,15 @@ _dsb_tf_help() {
   offline)
     _dsb_tf_help_group_offline
     ;;
+  examples)
+    _dsb_tf_help_group_examples
+    ;;
+  testing)
+    _dsb_tf_help_group_testing
+    ;;
+  docs)
+    _dsb_tf_help_group_docs
+    ;;
   *)
     local -a validCommands
     mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
@@ -948,14 +1008,19 @@ _dsb_tf_help_help() {
   _dsb_i ""
   if [ "${_dsbTfRepoType:-}" == "module" ]; then
     _dsb_i "Common Commands (module repo):"
-    _dsb_i "  tf-status         -> Show status of tools, authentication, and module structure"
-    _dsb_i "  tf-init           -> Initialize Terraform module at root"
-    _dsb_i "  tf-validate       -> Validate Terraform module at root"
-    _dsb_i "  tf-lint           -> Run tflint at root"
-    _dsb_i "  tf-fmt-fix        -> Run syntax check and fix recursively from current directory"
-    _dsb_i "  tf-upgrade        -> Upgrade Terraform dependencies at root"
-    _dsb_i "  tf-bump           -> All-in-one bump (modules, tflint plugins, cicd, providers)"
-    _dsb_i "  tf-clean          -> Remove .terraform and .terraform.lock.hcl files"
+    _dsb_i "  tf-status             -> Show status of tools, authentication, and module structure"
+    _dsb_i "  tf-init               -> Initialize Terraform module at root"
+    _dsb_i "  tf-validate           -> Validate Terraform module at root"
+    _dsb_i "  tf-lint               -> Run tflint at root"
+    _dsb_i "  tf-fmt-fix            -> Run syntax check and fix recursively from current directory"
+    _dsb_i "  tf-upgrade            -> Upgrade Terraform dependencies at root"
+    _dsb_i "  tf-bump               -> All-in-one bump (modules, tflint plugins, cicd, providers)"
+    _dsb_i "  tf-clean              -> Remove .terraform and .terraform.lock.hcl files"
+    _dsb_i "  tf-init-examples      -> Initialize example directories"
+    _dsb_i "  tf-validate-examples  -> Validate example directories"
+    _dsb_i "  tf-test-unit          -> Run unit tests"
+    _dsb_i "  tf-test-integration   -> Run integration tests (requires Azure)"
+    _dsb_i "  tf-docs-all           -> Generate documentation for root and examples"
   else
     _dsb_i "Common Commands:"
     _dsb_i "  tf-status         -> Show status of tools, authentication, and environment"
@@ -985,6 +1050,11 @@ _dsb_tf_help_groups() {
   _dsb_i "  general       -> General help"
   _dsb_i "  azure         -> Azure related commands"
   _dsb_i "  offline       -> Commands for working without access to remote state"
+  if [ "${_dsbTfRepoType:-}" == "module" ]; then
+    _dsb_i "  examples      -> Example directory commands (module repo)"
+    _dsb_i "  testing       -> Terraform test commands (module repo)"
+    _dsb_i "  docs          -> Documentation generation commands (module repo)"
+  fi
   _dsb_i "  all           -> All help"
   _dsb_i ""
   _dsb_i "Use 'tf-help [group]' to get detailed help for a specific group."
@@ -1088,6 +1158,28 @@ _dsb_tf_help_group_upgrading() {
   _dsb_i "    tf-show-all-provider-upgrades   -> Show all available provider upgrades for all environments"
 }
 
+_dsb_tf_help_group_examples() {
+  _dsb_i "  Example Commands (module repo only):"
+  _dsb_i "    tf-init-examples [example]     -> Initialize all or a specific example directory"
+  _dsb_i "    tf-validate-examples [example] -> Validate all or a specific example directory"
+  _dsb_i "    tf-lint-examples [example]     -> Run tflint on all or a specific example directory"
+}
+
+_dsb_tf_help_group_testing() {
+  _dsb_i "  Testing Commands (module repo only):"
+  _dsb_i "    tf-test [filter]               -> Run terraform test (all or specific test file)"
+  _dsb_i "    tf-test-unit                   -> Run unit tests only (unit-*.tftest.hcl)"
+  _dsb_i "    tf-test-integration            -> Run integration tests only (requires Azure subscription)"
+  _dsb_i "    tf-test-examples [example]     -> Test examples (init + apply + destroy, requires Azure subscription)"
+}
+
+_dsb_tf_help_group_docs() {
+  _dsb_i "  Documentation Commands (module repo only):"
+  _dsb_i "    tf-docs                        -> Generate terraform-docs for module root"
+  _dsb_i "    tf-docs-examples               -> Generate terraform-docs for all examples"
+  _dsb_i "    tf-docs-all                    -> Generate terraform-docs for root and all examples"
+}
+
 _dsb_tf_help_commands() {
   _dsb_i "DSB Terraform Project Helpers 🚀"
   _dsb_i ""
@@ -1113,6 +1205,12 @@ _dsb_tf_help_commands() {
     _dsb_i "    tf-bump-cicd          -> Bump versions in GitHub workflows"
     _dsb_i "    tf-bump-tflint-plugins -> Bump tflint plugin versions in .tflint.hcl files"
     _dsb_i "    tf-show-provider-upgrades -> Show available provider upgrades for root"
+    _dsb_i ""
+    _dsb_tf_help_group_examples
+    _dsb_i ""
+    _dsb_tf_help_group_testing
+    _dsb_i ""
+    _dsb_tf_help_group_docs
     _dsb_i ""
     _dsb_tf_help_group_checks
     _dsb_i ""
@@ -1613,6 +1711,111 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-show-provider-upgrades, tf-bump, tf-bump-all."
     ;;
+  # examples (module only)
+  tf-init-examples)
+    _dsb_i "tf-init-examples [example]:"
+    _dsb_i "  Initialize all or a specific example directory (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Runs 'terraform init -reconfigure' in each example subdirectory under examples/."
+    _dsb_i "  If an example name is given, only that example is initialized."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for example names."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-validate-examples, tf-lint-examples."
+    ;;
+  tf-validate-examples)
+    _dsb_i "tf-validate-examples [example]:"
+    _dsb_i "  Validate all or a specific example directory (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Runs 'terraform validate' in each example subdirectory under examples/."
+    _dsb_i "  Examples must be initialized first (run tf-init-examples)."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for example names."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init-examples, tf-lint-examples."
+    ;;
+  tf-lint-examples)
+    _dsb_i "tf-lint-examples [example]:"
+    _dsb_i "  Run tflint on all or a specific example directory (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Lints each example using the root .tflint.hcl configuration."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for example names."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init-examples, tf-validate-examples."
+    ;;
+  # testing (module only)
+  tf-test)
+    _dsb_i "tf-test [filter]:"
+    _dsb_i "  Run terraform test at module root (module repo only)."
+    _dsb_i ""
+    _dsb_i "  If a filter is given (a test file name), only that test file is run."
+    _dsb_i "  If no filter is given and integration tests exist, subscription confirmation is required."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for test file names."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-test-unit, tf-test-integration."
+    ;;
+  tf-test-unit)
+    _dsb_i "tf-test-unit:"
+    _dsb_i "  Run unit tests only (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Runs all test files matching unit-*.tftest.hcl."
+    _dsb_i "  Unit tests use mocked providers and do not need Azure authentication."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-test, tf-test-integration."
+    ;;
+  tf-test-integration)
+    _dsb_i "tf-test-integration:"
+    _dsb_i "  Run integration tests only (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Runs all test files matching integration-*.tftest.hcl."
+    _dsb_i "  WARNING: Integration tests deploy real Azure resources."
+    _dsb_i "  Requires Azure CLI login and subscription confirmation."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-test, tf-test-unit."
+    ;;
+  tf-test-examples)
+    _dsb_i "tf-test-examples [example]:"
+    _dsb_i "  Test examples by running init + apply + destroy (module repo only)."
+    _dsb_i ""
+    _dsb_i "  For each example: initializes, applies, then destroys."
+    _dsb_i "  WARNING: This deploys real Azure resources."
+    _dsb_i "  Requires Azure CLI login and subscription confirmation."
+    _dsb_i "  On failure, asks whether to continue with remaining examples."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for example names."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init-examples, tf-test-integration."
+    ;;
+  # docs (module only)
+  tf-docs)
+    _dsb_i "tf-docs:"
+    _dsb_i "  Generate terraform-docs for the module root (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Runs 'terraform-docs .' using the root .terraform-docs.yml configuration."
+    _dsb_i "  Requires terraform-docs to be installed."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-docs-examples, tf-docs-all."
+    ;;
+  tf-docs-examples)
+    _dsb_i "tf-docs-examples:"
+    _dsb_i "  Generate terraform-docs for all example directories (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Uses the examples/.terraform-docs.yml configuration."
+    _dsb_i "  Requires terraform-docs to be installed."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-docs, tf-docs-all."
+    ;;
+  tf-docs-all)
+    _dsb_i "tf-docs-all:"
+    _dsb_i "  Generate terraform-docs for root and all examples (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Runs tf-docs then tf-docs-examples."
+    _dsb_i "  Requires terraform-docs to be installed."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-docs, tf-docs-examples."
+    ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
     ;;
@@ -1717,11 +1920,68 @@ _dsb_tf_register_completions_for_tf_help() {
   complete -F _dsb_tf_completions_for_tf_help tf-help
 }
 
+# for module repo example names
+# --------------------------------------------------
+_dsb_tf_completions_for_example_names() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    if [[ -v _dsbTfExamplesDirList ]]; then
+      local -a exNames=()
+      local _exKey
+      for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
+        exNames+=("${_exKey}")
+      done
+      if [[ -n "${exNames[*]}" ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${exNames[*]}" -- "${cur}")
+      fi
+    fi
+  fi
+}
+
+_dsb_tf_register_completions_for_example_names() {
+  complete -F _dsb_tf_completions_for_example_names tf-init-examples
+  complete -F _dsb_tf_completions_for_example_names tf-validate-examples
+  complete -F _dsb_tf_completions_for_example_names tf-lint-examples
+  complete -F _dsb_tf_completions_for_example_names tf-test-examples
+}
+
+# for module repo test file names
+# --------------------------------------------------
+_dsb_tf_completions_for_test_names() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    if [[ -v _dsbTfTestFilesList ]]; then
+      local -a testNames=()
+      local _tFile
+      for _tFile in "${_dsbTfTestFilesList[@]}"; do
+        testNames+=("$(basename "${_tFile}")")
+      done
+      if [[ -n "${testNames[*]}" ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${testNames[*]}" -- "${cur}")
+      fi
+    fi
+  fi
+}
+
+_dsb_tf_register_completions_for_test_names() {
+  complete -F _dsb_tf_completions_for_test_names tf-test
+}
+
 # make it easier to configure the shell
 _dsb_tf_register_all_completions() {
   _dsb_tf_register_completions_for_available_envs
   _dsb_tf_register_completions_for_tf_lint
   _dsb_tf_register_completions_for_tf_help
+  _dsb_tf_register_completions_for_example_names
+  _dsb_tf_register_completions_for_test_names
 }
 
 ###################################################################################################
@@ -2047,7 +2307,6 @@ _dsb_tf_check_hcledit() {
   return 0
 }
 
-# TODO: need this?
 # what:
 #   check if terraform-docs is available
 # input:
@@ -2056,17 +2315,17 @@ _dsb_tf_check_hcledit() {
 #   nothing
 # returns:
 #   exit code directly
-# _dsb_tf_check_terraform_docs() {
-#   if ! terraform-docs --version &>/dev/null; then
-#     _dsb_e "terraform-docs not found."
-#     _dsb_e "  checked with command: terraform-docs --version"
-#     _dsb_e "  make sure terraform-docs is available in your PATH"
-#     _dsb_e "  for installation instructions see: https://terraform-docs.io/user-guide/installation/"
-#     _dsb_e "  or install it with: 'go install github.com/terraform-docs/terraform-docs@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo 'export PATH=\$PATH:\$(go env GOPATH)/bin' >> ~/.bashrc'"
-#     return 1
-#   fi
-#   return 0
-# }
+_dsb_tf_check_terraform_docs() {
+  if ! terraform-docs --version &>/dev/null; then
+    _dsb_e "terraform-docs not found."
+    _dsb_e "  checked with command: terraform-docs --version"
+    _dsb_e "  make sure terraform-docs is available in your PATH"
+    _dsb_e "  for installation instructions see: https://terraform-docs.io/user-guide/installation/"
+    _dsb_e "  or install it with: 'go install github.com/terraform-docs/terraform-docs@latest; export PATH=\$PATH:\$(go env GOPATH)/bin; echo 'export PATH=\$PATH:\$(go env GOPATH)/bin' >> ~/.bashrc'"
+    return 1
+  fi
+  return 0
+}
 
 # what:
 #   check if terraform-config-inspect is available
@@ -2166,9 +2425,9 @@ _dsb_tf_check_tools() {
   _dsb_tf_check_hcledit
   local hcleditStatus=$?
 
-  # _dsb_i "Checking terraform-docs ..."
-  # _dsb_tf_check_terraform_docs
-  # local terraformDocsStatus=$?
+  _dsb_i "Checking terraform-docs ..."
+  _dsb_tf_check_terraform_docs
+  local terraformDocsStatus=$?
 
   _dsb_i "Checking terraform-config-inspect ..."
   _dsb_tf_check_terraform_config_inspect
@@ -2182,7 +2441,7 @@ _dsb_tf_check_tools() {
   _dsb_tf_check_curl
   local curlStatus=$?
 
-  # local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformDocsStatus + terraformConfigInspectStatus + realpathStatus + curlStatus))
+  # Note: terraformDocsStatus is excluded -- terraform-docs is optional (warn only, don't fail)
   local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformConfigInspectStatus + realpathStatus + curlStatus))
 
   _dsb_i ""
@@ -2222,11 +2481,11 @@ _dsb_tf_check_tools() {
   else
     _dsb_i "  \e[31m☒\e[0m  hcledit check                  : fails, see above for more information."
   fi
-  # if [ ${terraformDocsStatus} -eq 0 ]; then
-  #   _dsb_i "  \e[32m☑\e[0m  terraform-docs check           : passed."
-  # else
-  #   _dsb_i "  \e[31m☒\e[0m  terraform-docs check           : fails, see above for more information."
-  # fi
+  if [ ${terraformDocsStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  terraform-docs check           : passed."
+  else
+    _dsb_i "  \e[31m☒\e[0m  terraform-docs check           : warns, see above for more information."
+  fi
   if [ ${terraformConfigInspectStatus} -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  terraform-config-inspect check : passed."
   else
@@ -2309,7 +2568,35 @@ _dsb_tf_check_current_dir() {
       _dsb_tf_error_push "versions.tf not found in root directory"
     fi
 
-    local returnCode=$((rootTfStatus + versionsTfStatus))
+    # Registry requirements
+    _dsb_i "Checking README.md  ..."
+    local readmeStatus=0
+    if [ ! -f "${_dsbTfRootDir}/README.md" ]; then
+      readmeStatus=1
+      _dsb_e "README.md not found in root directory (required for Terraform registry)"
+      _dsb_tf_error_push "README.md not found in root directory"
+    fi
+
+    _dsb_i "Checking LICENSE  ..."
+    local licenseStatus=0
+    if [ ! -f "${_dsbTfRootDir}/LICENSE" ] && [ ! -f "${_dsbTfRootDir}/LICENSE.md" ]; then
+      licenseStatus=1
+      _dsb_e "LICENSE or LICENSE.md not found in root directory (required for Terraform registry)"
+      _dsb_tf_error_push "LICENSE not found in root directory"
+    fi
+
+    # Recommended directories (warn only, don't affect return code)
+    _dsb_i "Checking examples/  ..."
+    if [ ! -d "${_dsbTfRootDir}/examples" ]; then
+      _dsb_w "examples/ directory not found (recommended)"
+    fi
+
+    _dsb_i "Checking tests/  ..."
+    if [ ! -d "${_dsbTfRootDir}/tests" ]; then
+      _dsb_w "tests/ directory not found (recommended)"
+    fi
+
+    local returnCode=$((rootTfStatus + versionsTfStatus + readmeStatus + licenseStatus))
 
     _dsb_i ""
     _dsb_i "Directory check summary (module repo):"
@@ -2324,6 +2611,30 @@ _dsb_tf_check_current_dir() {
       _dsb_i "  \e[32m☑\e[0m  versions.tf check            : passed."
     else
       _dsb_i "  \e[31m☒\e[0m  versions.tf check            : failed."
+    fi
+
+    if [ "${readmeStatus}" -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  README.md check              : passed."
+    else
+      _dsb_i "  \e[31m☒\e[0m  README.md check              : failed (required for registry)."
+    fi
+
+    if [ "${licenseStatus}" -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  LICENSE check                : passed."
+    else
+      _dsb_i "  \e[31m☒\e[0m  LICENSE check                : failed (required for registry)."
+    fi
+
+    if [ -d "${_dsbTfRootDir}/examples" ]; then
+      _dsb_i "  \e[32m☑\e[0m  examples/ check              : present."
+    else
+      _dsb_i "  \e[33m⚠\e[0m  examples/ check              : not found (recommended)."
+    fi
+
+    if [ -d "${_dsbTfRootDir}/tests" ]; then
+      _dsb_i "  \e[32m☑\e[0m  tests/ check                 : present."
+    else
+      _dsb_i "  \e[33m⚠\e[0m  tests/ check                 : not found (recommended)."
     fi
 
     _dsb_i ""
@@ -2447,10 +2758,32 @@ _dsb_tf_check_prereqs() {
     _dsb_i "  \e[31m☒\e[0m  Working directory check      : failed, please run 'tf-check-dir'"
   fi
 
+  if [ "${_dsbTfRepoType}" == "module" ]; then
+    # Module repos: check Azure auth (info only, don't fail)
+    _dsb_i_nonewline "Checking Azure authentication (for integration tests) ..."
+    local azAuthStatus=0
+    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_az_cli; then
+      azAuthStatus=1
+    elif ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_is_logged_in; then
+      azAuthStatus=1
+    fi
+    _dsb_i_append " done."
+
+    if [ ${azAuthStatus} -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  Azure authentication check   : passed (needed for integration tests only)."
+    else
+      _dsb_i "  \e[33m⚠\e[0m  Azure authentication check   : not available (needed for integration tests only)."
+    fi
+  fi
+
   _dsb_i ""
   if [ ${returnCode} -eq 0 ]; then
     _dsb_i "\e[32mAll pre-reqs check passed.\e[0m"
-    _dsb_i "  now try 'tf-select-env' to select an environment."
+    if [ "${_dsbTfRepoType}" == "module" ]; then
+      _dsb_i "  now try 'tf-status' for a full overview."
+    else
+      _dsb_i "  now try 'tf-select-env' to select an environment."
+    fi
   else
     _dsb_e "\e[31mPre-reqs check failed, for more information see above.\e[0m"
   fi
@@ -2551,6 +2884,16 @@ _dsb_tf_require_project_repo() {
     _dsb_e "This command is only available in Terraform project repos."
     _dsb_e "  detected repo type: ${_dsbTfRepoType:-unknown}"
     _dsb_tf_error_push "command requires project repo, current repo type: ${_dsbTfRepoType:-unknown}"
+    return 1
+  fi
+  return 0
+}
+
+_dsb_tf_require_module_repo() {
+  if [ "${_dsbTfRepoType:-}" != "module" ]; then
+    _dsb_e "This command is only available in Terraform module repos."
+    _dsb_e "  detected repo type: ${_dsbTfRepoType:-unknown}"
+    _dsb_tf_error_push "command requires module repo, current repo type: ${_dsbTfRepoType:-unknown}"
     return 1
   fi
   return 0
@@ -6953,6 +7296,604 @@ _dsb_tf_list_available_terraform_provider_upgrades_module() {
 
 ###################################################################################################
 #
+# Internal functions: Module examples support (Phase 4)
+#
+###################################################################################################
+
+# what:
+#   runs terraform init on one or all example directories
+# input:
+#   $1: exampleName (optional, if empty runs on all examples)
+# on info:
+#   per-example status messages
+# returns:
+#   exit code directly
+_dsb_tf_init_examples() {
+  local exampleFilter="${1:-}"
+
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_terraform; then
+    _dsb_e "Terraform check failed, please run 'tf-check-tools'"
+    return 1
+  fi
+
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  local dirCheckStatus=$?
+  if [ "${dirCheckStatus}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 1
+  fi
+
+  local -a exampleNames=()
+  if [ -n "${exampleFilter}" ]; then
+    if [ -z "${_dsbTfExamplesDirList[${exampleFilter}]:-}" ]; then
+      _dsb_e "Example '${exampleFilter}' not found."
+      _dsb_e "  available examples: $(IFS=', '; echo "${!_dsbTfExamplesDirList[*]}")"
+      return 1
+    fi
+    exampleNames=("${exampleFilter}")
+  else
+    local _exKey
+    for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
+      exampleNames+=("${_exKey}")
+    done
+  fi
+
+  if [ "${#exampleNames[@]}" -eq 0 ]; then
+    _dsb_w "No examples found."
+    return 0
+  fi
+
+  # sort for deterministic order
+  mapfile -t exampleNames < <(printf '%s\n' "${exampleNames[@]}" | sort)
+
+  local returnCode=0
+  local successCount=0
+  local failCount=0
+
+  _dsb_i "Initializing examples ..."
+  for exName in "${exampleNames[@]}"; do
+    local exDir="${_dsbTfExamplesDirList[${exName}]}"
+    _dsb_i "  Initializing example: ${exName}"
+    _dsb_i "    directory: ${exDir}"
+
+    terraform -chdir="${exDir}" init -reconfigure -input=false 2>&1 | _dsb_tf_fixup_paths_from_stdin
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+      _dsb_e "  terraform init failed for example: ${exName}"
+      _dsb_tf_error_push "terraform init failed for example: ${exName}"
+      returnCode=1
+      ((failCount++))
+    else
+      ((successCount++))
+    fi
+  done
+
+  _dsb_i ""
+  _dsb_i "Examples init summary: ${successCount} succeeded, ${failCount} failed out of ${#exampleNames[@]}"
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_e "Some examples failed to initialize."
+  else
+    _dsb_i "Done."
+  fi
+  return "${returnCode}"
+}
+
+# what:
+#   runs terraform validate on one or all example directories
+# input:
+#   $1: exampleName (optional, if empty runs on all examples)
+# on info:
+#   per-example status messages
+# returns:
+#   exit code directly
+_dsb_tf_validate_examples() {
+  local exampleFilter="${1:-}"
+
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_terraform; then
+    _dsb_e "Terraform check failed, please run 'tf-check-tools'"
+    return 1
+  fi
+
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  local dirCheckStatus=$?
+  if [ "${dirCheckStatus}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 1
+  fi
+
+  local -a exampleNames=()
+  if [ -n "${exampleFilter}" ]; then
+    if [ -z "${_dsbTfExamplesDirList[${exampleFilter}]:-}" ]; then
+      _dsb_e "Example '${exampleFilter}' not found."
+      return 1
+    fi
+    exampleNames=("${exampleFilter}")
+  else
+    local _exKey
+    for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
+      exampleNames+=("${_exKey}")
+    done
+  fi
+
+  if [ "${#exampleNames[@]}" -eq 0 ]; then
+    _dsb_w "No examples found."
+    return 0
+  fi
+
+  mapfile -t exampleNames < <(printf '%s\n' "${exampleNames[@]}" | sort)
+
+  local returnCode=0
+  local successCount=0
+  local failCount=0
+
+  _dsb_i "Validating examples ..."
+  for exName in "${exampleNames[@]}"; do
+    local exDir="${_dsbTfExamplesDirList[${exName}]}"
+    _dsb_i "  Validating example: ${exName}"
+
+    # Check if init has been run
+    if [ ! -d "${exDir}/.terraform" ]; then
+      _dsb_e "  Example '${exName}' has not been initialized. Run 'tf-init-examples ${exName}' first."
+      _dsb_tf_error_push "example '${exName}' not initialized (.terraform/ missing)"
+      returnCode=1
+      ((failCount++))
+      continue
+    fi
+
+    terraform -chdir="${exDir}" validate 2>&1 | _dsb_tf_fixup_paths_from_stdin
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+      _dsb_e "  terraform validate failed for example: ${exName}"
+      _dsb_tf_error_push "terraform validate failed for example: ${exName}"
+      returnCode=1
+      ((failCount++))
+    else
+      ((successCount++))
+    fi
+  done
+
+  _dsb_i ""
+  _dsb_i "Examples validate summary: ${successCount} succeeded, ${failCount} failed out of ${#exampleNames[@]}"
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_e "Some examples failed validation."
+  else
+    _dsb_i "Done."
+  fi
+  return "${returnCode}"
+}
+
+# what:
+#   runs tflint on one or all example directories using root .tflint.hcl config
+# input:
+#   $1: exampleName (optional, if empty runs on all examples)
+# on info:
+#   per-example status messages
+# returns:
+#   exit code directly
+_dsb_tf_lint_examples() {
+  local exampleFilter="${1:-}"
+  local githubAuthAvailable=1
+
+  if ! _dsbTfLogErrors=0 _dsb_tf_check_gh_auth; then
+    _dsb_d "GitHub authentication unavailable, proceeding without GitHub authentication"
+    githubAuthAvailable=0
+  fi
+
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  local dirCheckStatus=$?
+  if [ "${dirCheckStatus}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 1
+  fi
+
+  if ! _dsbTfLogErrors=0 _dsb_tf_install_tflint_wrapper; then
+    _dsb_e "Failed to install tflint wrapper, consider enabling debug logging"
+    return 1
+  fi
+
+  local -a exampleNames=()
+  if [ -n "${exampleFilter}" ]; then
+    if [ -z "${_dsbTfExamplesDirList[${exampleFilter}]:-}" ]; then
+      _dsb_e "Example '${exampleFilter}' not found."
+      return 1
+    fi
+    exampleNames=("${exampleFilter}")
+  else
+    local _exKey
+    for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
+      exampleNames+=("${_exKey}")
+    done
+  fi
+
+  if [ "${#exampleNames[@]}" -eq 0 ]; then
+    _dsb_w "No examples found."
+    return 0
+  fi
+
+  mapfile -t exampleNames < <(printf '%s\n' "${exampleNames[@]}" | sort)
+
+  # get GitHub API token
+  local ghToken
+  if [ "${githubAuthAvailable}" -ne 1 ]; then
+    ghToken=""
+  else
+    if ! ghToken=$(gh auth token 2>/dev/null); then
+      ghToken=""
+    fi
+  fi
+
+  local returnCode=0
+  local successCount=0
+  local failCount=0
+
+  _dsb_i "Linting examples ..."
+  for exName in "${exampleNames[@]}"; do
+    local exDir="${_dsbTfExamplesDirList[${exName}]}"
+    _dsb_i "  Linting example: ${exName}"
+
+    local _savedPwd="${PWD}"
+    if ! cd "${exDir}"; then
+      _dsb_tf_error_push "failed to change to example directory: ${exDir}"
+      returnCode=1
+      ((failCount++))
+      continue
+    fi
+
+    # shellcheck disable=SC2086 # intentional
+    GITHUB_TOKEN=${ghToken} bash -s -- --config "${_dsbTfRootDir}/.tflint.hcl" <"${_dsbTfTflintWrapperPath}" 2>&1 | _dsb_tf_fixup_paths_from_stdin
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+      _dsb_w "  tflint failed for example: ${exName}"
+      returnCode=1
+      ((failCount++))
+    else
+      ((successCount++))
+    fi
+
+    cd "${_savedPwd}" || _dsb_w "Failed to restore working directory"
+  done
+
+  _dsb_i ""
+  _dsb_i "Examples lint summary: ${successCount} succeeded, ${failCount} failed out of ${#exampleNames[@]}"
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_e "Some examples failed linting."
+  else
+    _dsb_i "Done."
+  fi
+  return "${returnCode}"
+}
+
+###################################################################################################
+#
+# Internal functions: Terraform test support (Phase 5)
+#
+###################################################################################################
+
+# what:
+#   checks Azure subscription and prompts for confirmation
+#   on success, exports ARM_SUBSCRIPTION_ID
+# input:
+#   none (reads from stdin for y/n prompt)
+# on info:
+#   warning and subscription details are printed
+# returns:
+#   exit code directly
+_dsb_tf_require_azure_subscription() {
+  # check az cli is installed
+  if ! _dsbTfLogErrors=0 _dsb_tf_check_az_cli; then
+    _dsb_e "Azure CLI is not installed. Required for integration tests."
+    _dsb_e "  please install the Azure CLI: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
+    return 1
+  fi
+
+  # check logged in
+  if ! _dsb_tf_az_is_logged_in; then
+    _dsb_e "Not logged in with Azure CLI. Required for integration tests."
+    _dsb_e "  please run 'az-login' first"
+    return 1
+  fi
+
+  # get subscription details
+  local showOutput subId subName
+  showOutput=$(az account show 2>&1)
+  subId=$(echo "${showOutput}" | jq -r '.id')
+  subName=$(echo "${showOutput}" | jq -r '.name')
+
+  if [ -z "${subId}" ] || [ "${subId}" == "null" ]; then
+    _dsb_e "Failed to get Azure subscription ID."
+    return 1
+  fi
+
+  # display warning
+  _dsb_w ""
+  _dsb_w "WARNING: Integration tests deploy real Azure resources."
+  _dsb_w "  Current subscription: ${subName} (${subId})"
+  _dsb_w ""
+
+  # prompt for confirmation
+  local answer
+  read -r -p "Proceed? [y/n]: " answer
+  if [ "${answer}" != "y" ] && [ "${answer}" != "Y" ]; then
+    _dsb_i "Aborted by user."
+    return 1
+  fi
+
+  # export the subscription id
+  export ARM_SUBSCRIPTION_ID="${subId}"
+  _dsb_i "ARM_SUBSCRIPTION_ID set to: ${subId}"
+  return 0
+}
+
+# what:
+#   runs terraform test with optional filter
+# input:
+#   $@: filter arguments (optional)
+# on info:
+#   test output
+# returns:
+#   exit code directly
+_dsb_tf_run_terraform_test() {
+  local -a filterArgs=("$@")
+
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_terraform; then
+    _dsb_e "Terraform check failed, please run 'tf-check-tools'"
+    return 1
+  fi
+
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  local dirCheckStatus=$?
+  if [ "${dirCheckStatus}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 1
+  fi
+
+  _dsb_i "Running terraform test ..."
+  if [ "${#filterArgs[@]}" -gt 0 ]; then
+    _dsb_i "  filters: ${filterArgs[*]}"
+  fi
+
+  local -a testCmd=(terraform -chdir="${_dsbTfRootDir}" test)
+  local filter
+  for filter in "${filterArgs[@]}"; do
+    testCmd+=(-filter="tests/${filter}")
+  done
+
+  _dsb_d "testCmd: ${testCmd[*]}"
+
+  "${testCmd[@]}" 2>&1 | _dsb_tf_fixup_paths_from_stdin
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+    _dsb_e "terraform test failed"
+    _dsb_tf_error_push "terraform test failed"
+    return 1
+  fi
+
+  _dsb_i "Done."
+  return 0
+}
+
+# what:
+#   runs terraform test for example directories (apply + destroy)
+# input:
+#   $1: exampleName (optional, if empty runs on all examples)
+# on info:
+#   per-example status messages
+# returns:
+#   exit code directly
+_dsb_tf_test_examples() {
+  local exampleFilter="${1:-}"
+
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_terraform; then
+    _dsb_e "Terraform check failed, please run 'tf-check-tools'"
+    return 1
+  fi
+
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  local dirCheckStatus=$?
+  if [ "${dirCheckStatus}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 1
+  fi
+
+  local -a exampleNames=()
+  if [ -n "${exampleFilter}" ]; then
+    if [ -z "${_dsbTfExamplesDirList[${exampleFilter}]:-}" ]; then
+      _dsb_e "Example '${exampleFilter}' not found."
+      return 1
+    fi
+    exampleNames=("${exampleFilter}")
+  else
+    local _exKey
+    for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
+      exampleNames+=("${_exKey}")
+    done
+  fi
+
+  if [ "${#exampleNames[@]}" -eq 0 ]; then
+    _dsb_w "No examples found."
+    return 0
+  fi
+
+  mapfile -t exampleNames < <(printf '%s\n' "${exampleNames[@]}" | sort)
+
+  local returnCode=0
+  local successCount=0
+  local failCount=0
+
+  _dsb_i "Testing examples (init + apply + destroy) ..."
+  for exName in "${exampleNames[@]}"; do
+    local exDir="${_dsbTfExamplesDirList[${exName}]}"
+    _dsb_i ""
+    _dsb_i "  Testing example: ${exName}"
+    _dsb_i "    directory: ${exDir}"
+
+    local exFailed=0
+
+    # init
+    _dsb_i "    Step 1/3: terraform init ..."
+    terraform -chdir="${exDir}" init -reconfigure -input=false 2>&1 | _dsb_tf_fixup_paths_from_stdin
+    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+      _dsb_e "    terraform init failed for example: ${exName}"
+      exFailed=1
+    fi
+
+    # apply
+    if [ "${exFailed}" -eq 0 ]; then
+      _dsb_i "    Step 2/3: terraform apply ..."
+      ARM_SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID:-}" terraform -chdir="${exDir}" apply -auto-approve 2>&1 | _dsb_tf_fixup_paths_from_stdin
+      if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+        _dsb_e "    terraform apply failed for example: ${exName}"
+        exFailed=1
+      fi
+    fi
+
+    # destroy (always attempt if apply succeeded or partially ran)
+    if [ "${exFailed}" -eq 0 ]; then
+      _dsb_i "    Step 3/3: terraform destroy ..."
+      ARM_SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID:-}" terraform -chdir="${exDir}" destroy -auto-approve 2>&1 | _dsb_tf_fixup_paths_from_stdin
+      if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+        _dsb_e "    terraform destroy failed for example: ${exName}"
+        exFailed=1
+      fi
+    fi
+
+    if [ "${exFailed}" -ne 0 ]; then
+      returnCode=1
+      ((failCount++))
+      _dsb_tf_error_push "example test failed for: ${exName}"
+
+      # ask whether to continue (only if there are more examples)
+      if [ "${failCount}" -lt "${#exampleNames[@]}" ]; then
+        local answer
+        read -r -p "Continue with remaining examples? [y/n]: " answer
+        if [ "${answer}" != "y" ] && [ "${answer}" != "Y" ]; then
+          _dsb_i "Aborted by user."
+          break
+        fi
+      fi
+    else
+      ((successCount++))
+      _dsb_i "    Example '${exName}' passed."
+    fi
+  done
+
+  _dsb_i ""
+  _dsb_i "Examples test summary: ${successCount} succeeded, ${failCount} failed out of ${#exampleNames[@]}"
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_e "Some examples failed testing."
+  else
+    _dsb_i "Done."
+  fi
+  return "${returnCode}"
+}
+
+###################################################################################################
+#
+# Internal functions: Documentation generation (Phase 6)
+#
+###################################################################################################
+
+# what:
+#   runs terraform-docs at module root
+# input:
+#   none
+# on info:
+#   status messages
+# returns:
+#   exit code directly
+_dsb_tf_docs_root() {
+  if ! _dsb_tf_check_terraform_docs; then
+    return 1
+  fi
+
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  local dirCheckStatus=$?
+  if [ "${dirCheckStatus}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 1
+  fi
+
+  _dsb_i "Generating terraform-docs for module root ..."
+  _dsb_i "  directory: ${_dsbTfRootDir}"
+
+  if ! terraform-docs "${_dsbTfRootDir}" 2>&1; then
+    _dsb_e "terraform-docs failed at root"
+    _dsb_tf_error_push "terraform-docs failed at module root"
+    return 1
+  fi
+
+  _dsb_i "Done."
+  return 0
+}
+
+# what:
+#   runs terraform-docs for all example directories
+# input:
+#   none
+# on info:
+#   per-example status messages
+# returns:
+#   exit code directly
+_dsb_tf_docs_examples() {
+  if ! _dsb_tf_check_terraform_docs; then
+    return 1
+  fi
+
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  local dirCheckStatus=$?
+  if [ "${dirCheckStatus}" -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    return 1
+  fi
+
+  # check for examples terraform-docs config
+  local examplesDocsConfig="${_dsbTfExamplesDir}/.terraform-docs.yml"
+  if [ ! -f "${examplesDocsConfig}" ]; then
+    _dsb_e "Examples terraform-docs config not found: ${examplesDocsConfig}"
+    _dsb_e "  expected at: examples/.terraform-docs.yml"
+    return 1
+  fi
+
+  local -a exampleNames=()
+  local _exKey
+  for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
+    exampleNames+=("${_exKey}")
+  done
+
+  if [ "${#exampleNames[@]}" -eq 0 ]; then
+    _dsb_w "No examples found."
+    return 0
+  fi
+
+  mapfile -t exampleNames < <(printf '%s\n' "${exampleNames[@]}" | sort)
+
+  local returnCode=0
+  local successCount=0
+  local failCount=0
+
+  _dsb_i "Generating terraform-docs for examples ..."
+  for exName in "${exampleNames[@]}"; do
+    local exDir="${_dsbTfExamplesDirList[${exName}]}"
+    _dsb_i "  Generating docs for example: ${exName}"
+
+    if ! terraform-docs "${exDir}" --config "${examplesDocsConfig}" 2>&1; then
+      _dsb_e "  terraform-docs failed for example: ${exName}"
+      _dsb_tf_error_push "terraform-docs failed for example: ${exName}"
+      returnCode=1
+      ((failCount++))
+    else
+      ((successCount++))
+    fi
+  done
+
+  _dsb_i ""
+  _dsb_i "Examples docs summary: ${successCount} succeeded, ${failCount} failed out of ${#exampleNames[@]}"
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_e "Some examples failed documentation generation."
+  else
+    _dsb_i "Done."
+  fi
+  return "${returnCode}"
+}
+
+###################################################################################################
+#
 # Exposed functions
 #
 ###################################################################################################
@@ -7691,6 +8632,215 @@ tf-bump-all-offline() {
   if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
   _dsb_tf_bump_the_project 1 # $1 = 1 means without backend
   local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# Examples functions (module repo only)
+# -------------------------------------
+
+tf-init-examples() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-init-examples "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local exampleName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  _dsb_tf_init_examples "${exampleName}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-validate-examples() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-validate-examples "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local exampleName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  _dsb_tf_validate_examples "${exampleName}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-lint-examples() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-lint-examples "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local exampleName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  _dsb_tf_lint_examples "${exampleName}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# Testing functions (module repo only)
+# -------------------------------------
+
+tf-test() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-test "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local testFilter="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+
+  _dsb_tf_enumerate_directories
+
+  if [ -n "${testFilter}" ]; then
+    # specific test file requested
+    _dsb_tf_run_terraform_test "${testFilter}"
+  elif [ "${#_dsbTfIntegrationTestFilesList[@]}" -gt 0 ]; then
+    # integration tests exist, check subscription
+    if ! _dsb_tf_require_azure_subscription; then
+      _dsb_tf_error_dump
+      _dsb_tf_restore_shell
+      return 1
+    fi
+    _dsb_tf_run_terraform_test
+  else
+    # only unit tests (or no tests)
+    _dsb_tf_run_terraform_test
+  fi
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-test-unit() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-test-unit "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+
+  _dsb_tf_enumerate_directories
+
+  if [ "${#_dsbTfUnitTestFilesList[@]}" -eq 0 ]; then
+    _dsb_w "No unit test files found (matching unit-*.tftest.hcl)."
+    _dsb_tf_restore_shell
+    return 0
+  fi
+
+  local -a unitFilters=()
+  local _utFile
+  for _utFile in "${_dsbTfUnitTestFilesList[@]}"; do
+    unitFilters+=("$(basename "${_utFile}")")
+  done
+
+  _dsb_tf_run_terraform_test "${unitFilters[@]}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-test-integration() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-test-integration "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+
+  _dsb_tf_enumerate_directories
+
+  if [ "${#_dsbTfIntegrationTestFilesList[@]}" -eq 0 ]; then
+    _dsb_w "No integration test files found (matching integration-*.tftest.hcl)."
+    _dsb_tf_restore_shell
+    return 0
+  fi
+
+  if ! _dsb_tf_require_azure_subscription; then
+    _dsb_tf_error_dump
+    _dsb_tf_restore_shell
+    return 1
+  fi
+
+  local -a integrationFilters=()
+  local _itFile
+  for _itFile in "${_dsbTfIntegrationTestFilesList[@]}"; do
+    integrationFilters+=("$(basename "${_itFile}")")
+  done
+
+  _dsb_tf_run_terraform_test "${integrationFilters[@]}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-test-examples() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-test-examples "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local exampleName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+
+  if ! _dsb_tf_require_azure_subscription; then
+    _dsb_tf_error_dump
+    _dsb_tf_restore_shell
+    return 1
+  fi
+
+  _dsb_tf_test_examples "${exampleName}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# Documentation functions (module repo only)
+# -------------------------------------------
+
+tf-docs() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-docs "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  _dsb_tf_docs_root
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-docs-examples() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-docs-examples "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  _dsb_tf_docs_examples
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-docs-all() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-docs-all "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+
+  _dsb_tf_docs_root
+  local rootRC=$?
+  _dsb_tf_docs_examples
+  local examplesRC=$?
+
+  local returnCode=$((rootRC + examplesRC))
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
   fi
