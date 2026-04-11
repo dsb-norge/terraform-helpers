@@ -201,6 +201,14 @@ mock_terraform() {
             echo "Apply complete! Resources: 0 added, 0 changed, 0 destroyed."
             return 0
             ;;
+          destroy)
+            echo "Destroy complete! Resources: 0 destroyed."
+            return 0
+            ;;
+          test)
+            echo "1 passed, 0 failed."
+            return 0
+            ;;
           providers)
             shift
             case "$1" in
@@ -208,6 +216,10 @@ mock_terraform() {
             esac
             ;;
         esac
+        ;;
+      test)
+        echo "1 passed, 0 failed."
+        return 0
         ;;
       fmt)
         # Returns list of files that were changed (empty = no changes)
@@ -538,6 +550,27 @@ mock_uname_unsupported() {
 }
 
 # ============================================================
+# terraform-docs
+# ============================================================
+mock_terraform_docs() {
+  terraform-docs() {
+    case "$1" in
+      --version) echo "terraform-docs version v0.17.0"; return 0 ;;
+      *)
+        echo "mock terraform-docs output"
+        return 0
+        ;;
+    esac
+  }
+  export -f terraform-docs
+}
+
+mock_terraform_docs_not_installed() {
+  terraform-docs() { echo "command not found: terraform-docs" >&2; return 127; }
+  export -f terraform-docs
+}
+
+# ============================================================
 # Aggregate helpers
 # ============================================================
 
@@ -553,13 +586,14 @@ mock_standard_tools() {
   mock_curl
   mock_go
   mock_realpath
+  mock_terraform_docs
 }
 
 # Remove all mock function overrides
 unmock_all() {
   local cmds=(
     az gh terraform jq yq hcledit terraform-config-inspect
-    curl go realpath uname
+    curl go realpath uname terraform-docs
   )
   for cmd in "${cmds[@]}"; do
     unset -f "${cmd}" 2>/dev/null || true
