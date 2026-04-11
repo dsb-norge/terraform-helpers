@@ -154,7 +154,7 @@ teardown() {
   _dsbTfLogInfo=0
   _dsbTfLogErrors=0
   _dsb_tf_check_current_dir
-  local rc="${_dsbTfReturnCode}"
+  local rc=$?
   _dsb_tf_restore_shell
   [[ "${rc}" -eq 0 ]]
 }
@@ -166,8 +166,8 @@ teardown() {
   _dsb_tf_configure_shell || true
   _dsbTfLogInfo=0
   _dsbTfLogErrors=0
-  _dsb_tf_check_current_dir
-  local rc="${_dsbTfReturnCode}"
+  local rc=0
+  _dsb_tf_check_current_dir || rc=$?
   _dsb_tf_restore_shell
   [[ "${rc}" -ne 0 ]]
 }
