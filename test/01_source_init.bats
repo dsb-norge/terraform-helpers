@@ -48,7 +48,9 @@ teardown() {
 @test "sourcing defines internal _dsb_* functions" {
   assert_function_exists "_dsb_tf_configure_shell"
   assert_function_exists "_dsb_tf_restore_shell"
-  assert_function_exists "_dsb_tf_error_handler"
+  assert_function_exists "_dsb_tf_error_push"
+  assert_function_exists "_dsb_tf_error_clear"
+  assert_function_exists "_dsb_tf_error_dump"
   assert_function_exists "_dsb_tf_enumerate_directories"
   assert_function_exists "_dsb_e"
   assert_function_exists "_dsb_i"
