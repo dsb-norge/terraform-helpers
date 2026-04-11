@@ -150,6 +150,100 @@ if [ $? -ne 0 ]; then
 fi
 ```
 
+## Pipeline Safety (PIPESTATUS)
+
+When piping a command's output through a filter (e.g. `terraform ... | _dsb_tf_fixup_paths_from_stdin`), the pipeline exit code is the exit code of the **last** command in the pipe. Since `_dsb_tf_fixup_paths_from_stdin` always succeeds (it just reads stdin), a failing `terraform` command would be silently swallowed.
+
+**Never use `if !` with a pipeline where the left side's exit code matters.** Instead, use `PIPESTATUS`:
+
+```bash
+# WRONG -- pipeline masks terraform's exit code:
+if ! terraform ... 2>&1 | _dsb_tf_fixup_paths_from_stdin; then
+
+# CORRECT -- check PIPESTATUS[0] for the left side:
+terraform ... 2>&1 | _dsb_tf_fixup_paths_from_stdin
+if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+  # handle failure
+fi
+```
+
+`PIPESTATUS` is a bash array that holds the exit codes of all commands in the most recently executed foreground pipeline. `PIPESTATUS[0]` is the first command (terraform), `PIPESTATUS[1]` is the second (the filter), etc. It must be read **immediately** after the pipeline -- any intervening command overwrites it.
+
+This pattern is used in all 6 pipeline sites where terraform/tflint output is piped through `_dsb_tf_fixup_paths_from_stdin`.
+
+## Source-Time Initialization Safety
+
+The init/cleanup code at the top and bottom of the script runs at **source time**, before any exposed function's `set -e` neutralization guard or `_dsb_tf_configure_shell` has a chance to run. If the caller has `set -e` active, any command failure in the init code will abort the sourcing silently.
+
+**This defense is load-bearing and must be preserved in any future changes to init code.**
+
+The specific defensive patterns used:
+- `varNames=$(typeset -p | awk ...) || varNames=''` -- the `|| varNames=''` prevents `set -e` abort if the pipeline fails
+- `functionNames=$(declare -F | grep ...) || functionNames=''` -- same pattern
+- `completions=$( complete -p | grep ... | awk ... ) || completions=''` -- same pattern
+- Architecture detection uses `[[ ]]` tests, which are conditionals and don't trigger `errexit`
+- Final init uses `|| :` for safety: `_dsb_tf_enumerate_directories || :`
+
+**Rules for init code:**
+- Every command that could fail MUST use `|| :` or `|| varName=''`
+- Never add bare commands to init code -- always add a failure fallback
+- Test that sourcing works under `set -e` (there is a test for this in `01_source_init.bats`)
+
+## File Operation Safety
+
+File operations (`cp`, `rm`, `mv`) in critical paths must be checked for failure:
+
+```bash
+# WRONG -- if cp fails, terraform runs with stale/missing lock file:
+cp -f "${src}" "${dst}"
+
+# CORRECT -- check and propagate failure:
+if ! cp -f "${src}" "${dst}"; then
+  _dsb_tf_error_push "failed to copy lock file to ${dst}"
+  return 1
+fi
+```
+
+For cleanup operations where failure is non-critical, use `rm -f` (no error on missing file):
+
+```bash
+rm -f "${dirPath}/.terraform.lock.hcl"  # -f: no error if file doesn't exist
+```
+
+## Temp File Cleanup Pattern
+
+Temp files should use a predictable naming pattern so they can be cleaned up on signal interruption:
+
+```bash
+# Use a predictable path with PID:
+captureFile="/tmp/dsb-tf-helpers-$$-az-login"
+
+# NOT this -- mktemp creates unpredictable names that can't be cleaned up:
+captureFile="$(mktemp)"
+```
+
+`_dsb_tf_configure_shell` cleans up any leftover temp files matching the pattern on every invocation:
+```bash
+rm -f "/tmp/dsb-tf-helpers-$$-"* 2>/dev/null || :
+```
+
+This handles the case where a previous operation was interrupted by Ctrl+C before its cleanup code ran.
+
+## Download Guard
+
+The entire script body is wrapped in `{ ... }`:
+
+```bash
+#!/usr/bin/env bash
+{ # this ensures the entire script is downloaded before execution
+  # ... entire script ...
+} # this ensures the entire script is downloaded before execution
+```
+
+Bash reads the entire `{ }` compound command before executing any of it. If the script is loaded from a network source (`source <(curl ...)`) and the download is truncated, the incomplete `{ }` produces a syntax error instead of executing a partial script.
+
+**Do not remove the braces.** They are not decorative. They prevent a class of failures where partial downloads define some functions but leave the init code or other functions incomplete.
+
 ## Caveats
 
 - **`_dsb_tf_error_push` is manual.** If you forget to push at a failure point, the error stack will be incomplete. The error is still reported via `_dsb_e`, but the structured trace will have a gap. When writing new code, audit every `return 1` path.
@@ -157,3 +251,4 @@ fi
 - **`_dsb_internal_error` does not return.** If you forget `return 1` after it, execution will continue past the invariant check. This is a footgun -- always pair them.
 - **`set -u` is active.** All variable references must use `${var:-}` or be guaranteed to be set. Unset variable access will abort the function immediately.
 - **No `set -e`, no `pipefail`.** Failed commands do not automatically abort execution. Every command that can fail must be explicitly checked with `if !` or `$?`. This is the trade-off for predictable, explicit error handling.
+- **`PIPESTATUS` is ephemeral.** It must be read immediately after the pipeline. Any command between the pipeline and the `PIPESTATUS` check will overwrite it.
