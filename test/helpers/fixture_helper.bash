@@ -28,6 +28,12 @@ create_empty_project() {
   echo "${dest}"
 }
 
+create_module_project() {
+  local dest="${BATS_TEST_TMPDIR}/module_project"
+  cp -r "${FIXTURES_DIR}/project_module" "${dest}"
+  echo "${dest}"
+}
+
 # Create a standard project and source the script in it.
 # Returns the project dir path. Sets up mocks.
 # After this, all tf-*/az-* functions are available and the script
