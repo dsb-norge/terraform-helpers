@@ -14,7 +14,10 @@ cd terraform-helpers
 # Install test dependencies
 npm install
 
-# Run the test suite (393 tests)
+# Run the test suite (with parallel execution)
+npm test
+
+# Or run directly (sequential)
 npx bats test/*.bats
 
 # Run a specific test file

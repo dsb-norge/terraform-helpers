@@ -6,7 +6,10 @@
 # Install test dependencies
 npm install
 
-# Run the full suite
+# Run the full suite (with parallel execution)
+npm test
+
+# Run sequentially (no GNU parallel needed)
 npx bats test/*.bats
 
 # Run a single test file
@@ -14,9 +17,6 @@ npx bats test/04_version_parsing.bats
 
 # Run tests matching a name pattern
 npx bats --filter "tf-set-env" test/*.bats
-
-# Run with parallelism
-npx bats --jobs 4 test/*.bats
 
 # Run with per-test timing
 npx bats --timing test/*.bats
@@ -211,11 +211,17 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide on adding commands and
 
 ## Parallelization
 
+The test runner script (`test/run.sh`) automatically installs GNU parallel and runs tests in parallel using all available CPU cores:
+
 ```bash
+# Recommended: uses parallel execution
+npm test
+
+# Or run directly with explicit job count
 npx bats --jobs 4 test/*.bats
 ```
 
-Bats parallelizes across files. Each file is independent -- no shared state between files.
+Bats parallelizes **across files**, not within them. Each file is independent -- no shared state between files. This is why test files are structured as self-contained units.
 
 ---
 

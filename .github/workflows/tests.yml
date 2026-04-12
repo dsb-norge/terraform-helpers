@@ -25,12 +25,18 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
 
+      - name: Install GNU parallel
+        run: |
+          curl -s https://raw.githubusercontent.com/martinda/gnu-parallel/master/src/parallel > /tmp/parallel
+          chmod +x /tmp/parallel
+
       - name: Run tests
         id: tests
         shell: bash
         run: |
+          export PATH="/tmp:$PATH"
           set +e
-          npx bats test/*.bats 2>&1 | tee "$RUNNER_TEMP/test-output.txt"
+          npx bats --jobs "$(nproc)" test/*.bats 2>&1 | tee "$RUNNER_TEMP/test-output.txt"
           exit_code=${PIPESTATUS[0]}
           set -e
 
