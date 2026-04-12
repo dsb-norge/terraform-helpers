@@ -365,27 +365,13 @@ _dsb_tf_report_status() {
     if _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_enumerate_account; then
       local azUpn="${_dsbTfAzureUpn:-}"
       if [ -z "${azUpn}" ]; then
-        _dsb_internal_error "Internal error: Azure UPN not found." \
-          "  expected in _dsbTfAzureUpn, which is: ${_dsbTfAzureUpn:-}" \
-          "  azUpn is: ${azUpn}"
-        return 1 # _dsb_internal_error does not return 1 itself
+        azureAccount="  \e[31m☒\e[0m  Logged in to Azure as       : N/A, not logged in or session expired, please run 'az-login'"
+      else
+        azSubId="${_dsbTfSubscriptionId:-}"
+        azSubName="${_dsbTfSubscriptionName:-}"
+        azureAccount="  \e[32m☑\e[0m  Logged in to Azure as       : ${_dsbTfAzureUpn}"
+        azureStatus=0
       fi
-      azSubId="${_dsbTfSubscriptionId:-}"
-      azSubName="${_dsbTfSubscriptionName:-}"
-      if [ -z "${azSubId}" ]; then
-        _dsb_internal_error "Internal error: Azure Subscription ID not found." \
-          "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionId:-}" \
-          "  azSubId is: ${azSubId}"
-        return 1
-      fi
-      if [ -z "${azSubName}" ]; then
-        _dsb_internal_error "Internal error: Azure Subscription ID not found." \
-          "  expected in _dsbTfSubscriptionId, which is: ${_dsbTfSubscriptionName:-}" \
-          "  azSubName is: ${azSubName}"
-        return 1
-      fi
-      azureAccount="  \e[32m☑\e[0m  Logged in to Azure as       : ${_dsbTfAzureUpn}"
-      azureStatus=0
     else
       azureAccount="  \e[31m☒\e[0m  Logged in to Azure as       : N/A, please run 'az-whoami'"
     fi
@@ -844,6 +830,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     # checks
     "tf-check-dir"
     "tf-check-env"
+    "tf-check-az-auth"
     "tf-check-gh-auth"
     "tf-check-prereqs"
     "tf-check-tools"
@@ -1075,6 +1062,7 @@ _dsb_tf_help_group_checks() {
   _dsb_i "    tf-check-dir          -> Check if in valid Terraform project structure"
   _dsb_i "    tf-check-prereqs      -> Run all prerequisite checks"
   _dsb_i "    tf-check-tools        -> Check for required tools"
+  _dsb_i "    tf-check-az-auth      -> Check Azure CLI authentication"
   _dsb_i "    tf-check-gh-auth      -> Check GitHub authentication"
 }
 
@@ -1312,6 +1300,11 @@ _dsb_tf_help_specific_command() {
     _dsb_i "tf-check-tools:"
     _dsb_i "  Check for required tools (az cli, gh cli, terraform, jq, yq, golang, hcledit, realpath)."
     _dsb_i "  In module repos, also checks for terraform-docs (optional)."
+    ;;
+  tf-check-az-auth)
+    _dsb_i "tf-check-az-auth:"
+    _dsb_i "  Check if you are authenticated with Azure CLI."
+    _dsb_i "  If authenticated, shows account and subscription details."
     ;;
   tf-check-gh-auth)
     _dsb_i "tf-check-gh-auth:"
@@ -2428,7 +2421,7 @@ _dsb_tf_check_tools() {
   # On-demand tools -- only needed by specific commands (bump, provider upgrades)
   # Checked here for visibility, but missing ones don't fail the overall check
   _dsb_i ""
-  _dsb_i "Checking on-demand tools (needed by bump/upgrade commands) ..."
+  _dsb_i "Checking on-demand tools ..."
 
   _dsb_i "Checking yq ..."
   _dsb_tf_check_yq
@@ -2488,7 +2481,7 @@ _dsb_tf_check_tools() {
     _dsb_i "  \e[31m☒\e[0m  curl                           : MISSING, see above."
   fi
   _dsb_i ""
-  _dsb_i "  On-demand (for bump/upgrade commands):"
+  _dsb_i "  On-demand:"
   if [ ${yqStatus} -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  yq                             : passed."
   else
@@ -2500,9 +2493,9 @@ _dsb_tf_check_tools() {
     _dsb_i "  \e[33m☐\e[0m  hcledit                        : not found (needed by tf-bump-modules, tf-bump-tflint-plugins, tf-show-provider-upgrades)"
   fi
   if [ ${terraformConfigInspectStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  terraform-config-inspect        : passed."
+    _dsb_i "  \e[32m☑\e[0m  terraform-config-inspect       : passed."
   else
-    _dsb_i "  \e[33m☐\e[0m  terraform-config-inspect        : not found (needed by tf-show-provider-upgrades)"
+    _dsb_i "  \e[33m☐\e[0m  terraform-config-inspect       : not found (needed by tf-show-provider-upgrades)"
   fi
   if [ ${golangStatus} -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  Go                             : passed."
@@ -2785,7 +2778,7 @@ _dsb_tf_check_prereqs() {
     if [ ${azAuthStatus} -eq 0 ]; then
       _dsb_i "  \e[32m☑\e[0m  Azure authentication check   : passed (needed for integration tests only)."
     else
-      _dsb_i "  \e[33m⚠\e[0m  Azure authentication check   : not available (needed for integration tests only)."
+      _dsb_i "  \e[33m⚠\e[0m  Azure authentication check   : not available."
     fi
   fi
 
@@ -3873,14 +3866,13 @@ _dsb_tf_select_env() {
 # returns:
 #   exit code directly
 _dsb_tf_az_is_logged_in() {
-  local azCliStatus=0
-
-  az account show &>/dev/null
-  local exitCode=$?
-
-  _dsb_d "exitCode: ${exitCode}"
-
-  return "${exitCode}"
+  local showOutput
+  showOutput=$(az account show 2>&1) || return 1
+  # Check that the output is valid JSON with an id field (not an error message)
+  if ! echo "${showOutput}" | jq -e '.id' &>/dev/null; then
+    return 1
+  fi
+  return 0
 }
 
 # what:
@@ -8038,6 +8030,29 @@ tf-unset-env() {
   if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
   _dsb_tf_clear_env # has no return code
   _dsb_tf_restore_shell
+}
+
+tf-check-az-auth() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-check-az-auth "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_check_az_cli; then
+    _dsb_tf_error_dump
+    _dsb_tf_restore_shell
+    return 1
+  fi
+  if ! _dsb_tf_az_is_logged_in; then
+    _dsb_e "Not logged in to Azure CLI. Please run 'az login'."
+    _dsb_tf_error_dump
+    _dsb_tf_restore_shell
+    return 1
+  fi
+  _dsb_tf_az_enumerate_account
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
 }
 
 tf-check-gh-auth() {
