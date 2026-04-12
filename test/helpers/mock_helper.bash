@@ -209,6 +209,10 @@ mock_terraform() {
             echo "1 passed, 0 failed."
             return 0
             ;;
+          output)
+            echo "mock_output_key = \"mock_output_value\""
+            return 0
+            ;;
           providers)
             shift
             case "$1" in

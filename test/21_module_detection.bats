@@ -162,11 +162,10 @@ setup_module_fixture() {
   assert_clean_output_contains "only available in Terraform project repos"
 }
 
-@test "project-only gating: tf-init-all fails in module repo" {
+@test "tf-init-all succeeds in module repo (ungated)" {
   setup_module_fixture
   run tf-init-all
-  assert_failure
-  assert_clean_output_contains "only available in Terraform project repos"
+  assert_success
 }
 
 @test "project-only gating: tf-init-main fails in module repo" {
@@ -211,11 +210,10 @@ setup_module_fixture() {
   assert_clean_output_contains "only available in Terraform project repos"
 }
 
-@test "project-only gating: tf-upgrade-all fails in module repo" {
+@test "tf-upgrade-all succeeds in module repo (ungated)" {
   setup_module_fixture
   run tf-upgrade-all
-  assert_failure
-  assert_clean_output_contains "only available in Terraform project repos"
+  assert_success
 }
 
 @test "project-only gating: tf-bump-env fails in module repo" {
@@ -225,11 +223,10 @@ setup_module_fixture() {
   assert_clean_output_contains "only available in Terraform project repos"
 }
 
-@test "project-only gating: tf-bump-all fails in module repo" {
+@test "tf-bump-all succeeds in module repo (ungated)" {
   setup_module_fixture
   run tf-bump-all
-  assert_failure
-  assert_clean_output_contains "only available in Terraform project repos"
+  assert_success
 }
 
 @test "project-only gating: tf-show-all-provider-upgrades fails in module repo" {

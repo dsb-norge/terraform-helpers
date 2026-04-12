@@ -215,7 +215,7 @@ teardown() {
   mock_standard_tools
   source "${SUT}"
 
-  for cmd in tf-init-examples tf-validate-examples tf-lint-examples tf-test-examples; do
+  for cmd in tf-init-all-examples tf-validate-all-examples tf-lint-all-examples tf-test-all-examples; do
     run complete -p "${cmd}"
     assert_success
     assert_output --partial "_dsb_tf_completions_for_example_names"

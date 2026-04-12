@@ -224,9 +224,9 @@ setup_module_fixture() {
   setup_module_fixture
   _dsbTfLogInfo=1
   run tf-help examples
-  assert_clean_output_contains "tf-init-examples"
-  assert_clean_output_contains "tf-validate-examples"
-  assert_clean_output_contains "tf-lint-examples"
+  assert_clean_output_contains "tf-init-all-examples"
+  assert_clean_output_contains "tf-validate-all-examples"
+  assert_clean_output_contains "tf-lint-all-examples"
 }
 
 @test "tf-help testing shows testing commands" {
@@ -236,7 +236,7 @@ setup_module_fixture() {
   assert_clean_output_contains "tf-test"
   assert_clean_output_contains "tf-test-unit"
   assert_clean_output_contains "tf-test-integration"
-  assert_clean_output_contains "tf-test-examples"
+  assert_clean_output_contains "tf-test-all-examples"
 }
 
 @test "tf-help docs shows docs commands" {
@@ -244,14 +244,14 @@ setup_module_fixture() {
   _dsbTfLogInfo=1
   run tf-help docs
   assert_clean_output_contains "tf-docs"
-  assert_clean_output_contains "tf-docs-examples"
+  assert_clean_output_contains "tf-docs-all-examples"
   assert_clean_output_contains "tf-docs-all"
 }
 
-@test "tf-help tf-init-examples shows help" {
+@test "tf-help tf-init-all-examples shows help" {
   setup_module_fixture
   _dsbTfLogInfo=1
-  run tf-help tf-init-examples
+  run tf-help tf-init-all-examples
   assert_clean_output_contains "Initialize all or a specific example"
 }
 
@@ -273,7 +273,7 @@ setup_module_fixture() {
   setup_module_fixture
   _dsbTfLogInfo=1
   run tf-help commands
-  assert_clean_output_contains "tf-init-examples"
+  assert_clean_output_contains "tf-init-all-examples"
   assert_clean_output_contains "tf-test"
   assert_clean_output_contains "tf-docs"
 }

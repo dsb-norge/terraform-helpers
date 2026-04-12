@@ -212,9 +212,9 @@ setup_module_fixture() {
   assert_success
 }
 
-# -- Phase 5: tf-test-examples --
+# -- Phase 5: tf-test-all-examples --
 
-@test "tf-test-examples fails in project repo" {
+@test "tf-test-all-examples fails in project repo" {
   local project_dir
   project_dir="$(create_standard_project)"
   cd "${project_dir}"
@@ -222,12 +222,12 @@ setup_module_fixture() {
   source "${SUT}"
   default_test_setup
 
-  run tf-test-examples
+  run tf-test-all-examples
   assert_failure
   assert_clean_output_contains "only available in Terraform module repos"
 }
 
-@test "tf-test-examples requires subscription confirmation" {
+@test "tf-test-all-examples requires subscription confirmation" {
   setup_module_fixture
   run bash -c '
     source "'"${HELPERS_DIR}/mock_helper.bash"'"
@@ -238,12 +238,12 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "wrong-name" | tf-test-examples
+    echo "wrong-name" | tf-test-all-examples
   '
   assert_failure
 }
 
-@test "tf-test-examples with subscription runs init+apply+destroy" {
+@test "tf-test-all-examples with subscription runs init+apply+destroy" {
   setup_module_fixture
   run bash -c '
     source "'"${HELPERS_DIR}/mock_helper.bash"'"
@@ -254,7 +254,7 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "mock-sub-dev" | tf-test-examples
+    echo "mock-sub-dev" | tf-test-all-examples
   '
   assert_success
   assert_clean_output_contains "terraform init"
@@ -262,7 +262,7 @@ setup_module_fixture() {
   assert_clean_output_contains "terraform destroy"
 }
 
-@test "tf-test-examples shows per-example summary" {
+@test "tf-test-all-examples shows per-example summary" {
   setup_module_fixture
   run bash -c '
     source "'"${HELPERS_DIR}/mock_helper.bash"'"
@@ -273,7 +273,7 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "mock-sub-dev" | tf-test-examples
+    echo "mock-sub-dev" | tf-test-all-examples
   '
   assert_success
   assert_clean_output_contains "succeeded"
