@@ -150,3 +150,44 @@ teardown() {
   [[ "${reply_str}" == *"--help"* ]]
   [[ "${reply_str}" == *"--use-version"* ]]
 }
+
+# -- Example name completion (module repo) --
+
+@test "example name completion returns examples in module repo" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate completion
+  COMP_WORDS=("tf-init-example" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_example_names
+  [[ "${#COMPREPLY[@]}" -gt 0 ]]
+  # Should contain example names from fixture
+  local joined="${COMPREPLY[*]}"
+  [[ "${joined}" == *"01-basic"* ]]
+}
+
+@test "example name completion filters by prefix" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-init-example" "01")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_example_names
+  [[ "${#COMPREPLY[@]}" -eq 1 ]]
+  [[ "${COMPREPLY[0]}" == "01-basic" ]]
+}
+
+@test "example name completion returns empty in project repo" {
+  # project repo has no examples
+  COMP_WORDS=("tf-init-example" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_example_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
