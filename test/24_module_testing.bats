@@ -42,7 +42,7 @@ setup_module_fixture() {
     _dsbTfLogWarnings=1
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "n" | _dsb_tf_require_azure_subscription
+    echo "wrong-name" | _dsb_tf_require_azure_subscription
   '
   assert_failure
 }
@@ -60,7 +60,7 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    _dsb_tf_require_azure_subscription <<< "y"
+    _dsb_tf_require_azure_subscription <<< "mock-sub-dev"
     echo "ARM_SUBSCRIPTION_ID=${ARM_SUBSCRIPTION_ID}"
   '
   assert_success
@@ -143,7 +143,7 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "n" | tf-test-integration
+    echo "wrong-name" | tf-test-integration
   '
   assert_failure
 }
@@ -159,7 +159,7 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "y" | tf-test-integration
+    echo "mock-sub-dev" | tf-test-integration
   '
   assert_success
 }
@@ -199,7 +199,7 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "n" | tf-test
+    echo "wrong-name" | tf-test
   '
   assert_failure
 }
@@ -238,7 +238,7 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "n" | tf-test-examples
+    echo "wrong-name" | tf-test-examples
   '
   assert_failure
 }
@@ -254,7 +254,7 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "y" | tf-test-examples
+    echo "mock-sub-dev" | tf-test-examples
   '
   assert_success
   assert_clean_output_contains "terraform init"
@@ -273,7 +273,7 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "y" | tf-test-examples
+    echo "mock-sub-dev" | tf-test-examples
   '
   assert_success
   assert_clean_output_contains "succeeded"

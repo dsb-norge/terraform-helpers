@@ -7613,11 +7613,13 @@ _dsb_tf_require_azure_subscription() {
   _dsb_w "  Current subscription: ${subName} (${subId})"
   _dsb_w ""
 
-  # prompt for confirmation
+  # prompt for confirmation -- user must type the subscription name to confirm
+  _dsb_i "To confirm, type the subscription name exactly as shown above:"
   local answer
-  read -r -p "Proceed? [y/n]: " answer
-  if [ "${answer}" != "y" ] && [ "${answer}" != "Y" ]; then
-    _dsb_i "Aborted by user."
+  read -r -p "> " answer
+  # case-insensitive comparison
+  if [[ "${answer,,}" != "${subName,,}" ]]; then
+    _dsb_i "Subscription name did not match. Aborted."
     return 1
   fi
 
@@ -8724,19 +8726,29 @@ tf-test() {
 
   _dsb_tf_enumerate_directories
 
+  # determine if we need subscription confirmation
+  local needsSubscription=0
   if [ -n "${testFilter}" ]; then
-    # specific test file requested
-    _dsb_tf_run_terraform_test "${testFilter}"
+    # specific test file -- check if it's an integration test
+    if [[ "${testFilter}" == integration-* ]]; then
+      needsSubscription=1
+    fi
   elif [ "${#_dsbTfIntegrationTestFilesList[@]}" -gt 0 ]; then
-    # integration tests exist, check subscription
+    # no filter and integration tests exist -- will run them
+    needsSubscription=1
+  fi
+
+  if [ "${needsSubscription}" -eq 1 ]; then
     if ! _dsb_tf_require_azure_subscription; then
       _dsb_tf_error_dump
       _dsb_tf_restore_shell
       return 1
     fi
-    _dsb_tf_run_terraform_test
+  fi
+
+  if [ -n "${testFilter}" ]; then
+    _dsb_tf_run_terraform_test "${testFilter}"
   else
-    # only unit tests (or no tests)
     _dsb_tf_run_terraform_test
   fi
   local returnCode=$?
