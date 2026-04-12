@@ -2398,6 +2398,9 @@ _dsb_tf_check_curl() {
 #   exit code directly
 _dsb_tf_check_tools() {
 
+  # Required tools -- failure here means tf-check-tools returns non-zero
+  _dsb_i "Checking required tools ..."
+
   _dsb_i "Checking Azure CLI ..."
   _dsb_tf_check_az_cli
   local azCliStatus=$?
@@ -2414,29 +2417,6 @@ _dsb_tf_check_tools() {
   _dsb_tf_check_jq
   local jqStatus=$?
 
-  _dsb_i "Checking yq ..."
-  _dsb_tf_check_yq
-  local yqStatus=$?
-
-  _dsb_i "Checking Go ..."
-  _dsb_tf_check_golang
-  local golangStatus=$?
-
-  _dsb_i "Checking hcledit ..."
-  _dsb_tf_check_hcledit
-  local hcleditStatus=$?
-
-  local terraformDocsStatus=0
-  if [ "${_dsbTfRepoType:-}" == "module" ]; then
-    _dsb_i "Checking terraform-docs ..."
-    _dsb_tf_check_terraform_docs
-    terraformDocsStatus=$?
-  fi
-
-  _dsb_i "Checking terraform-config-inspect ..."
-  _dsb_tf_check_terraform_config_inspect
-  local terraformConfigInspectStatus=$?
-
   _dsb_i "Checking realpath ..."
   _dsb_tf_check_realpath
   local realpathStatus=$?
@@ -2445,67 +2425,104 @@ _dsb_tf_check_tools() {
   _dsb_tf_check_curl
   local curlStatus=$?
 
-  # Note: terraformDocsStatus is excluded -- terraform-docs is optional (warn only, don't fail)
-  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + yqStatus + golangStatus + hcleditStatus + terraformConfigInspectStatus + realpathStatus + curlStatus))
+  # On-demand tools -- only needed by specific commands (bump, provider upgrades)
+  # Checked here for visibility, but missing ones don't fail the overall check
+  _dsb_i ""
+  _dsb_i "Checking on-demand tools (needed by bump/upgrade commands) ..."
+
+  _dsb_i "Checking yq ..."
+  _dsb_tf_check_yq
+  local yqStatus=$?
+
+  _dsb_i "Checking hcledit ..."
+  _dsb_tf_check_hcledit
+  local hcleditStatus=$?
+
+  _dsb_i "Checking terraform-config-inspect ..."
+  _dsb_tf_check_terraform_config_inspect
+  local terraformConfigInspectStatus=$?
+
+  _dsb_i "Checking Go ..."
+  _dsb_tf_check_golang
+  local golangStatus=$?
+
+  # Module-repo-only tools
+  local terraformDocsStatus=0
+  if [ "${_dsbTfRepoType:-}" == "module" ]; then
+    _dsb_i ""
+    _dsb_i "Checking module-specific tools ..."
+    _dsb_i "Checking terraform-docs ..."
+    _dsb_tf_check_terraform_docs
+    terraformDocsStatus=$?
+  fi
+
+  # Only required tools affect the return code
+  local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + realpathStatus + curlStatus))
 
   _dsb_i ""
   _dsb_i "Tools check summary:"
+  _dsb_i ""
+  _dsb_i "  Required:"
   if [ ${azCliStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Azure CLI check                : passed."
+    _dsb_i "  \e[32m☑\e[0m  Azure CLI                      : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Azure CLI check                : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  Azure CLI                      : MISSING, see above."
   fi
   if [ ${ghCliStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  GitHub CLI check               : passed."
+    _dsb_i "  \e[32m☑\e[0m  GitHub CLI                     : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  GitHub CLI check               : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  GitHub CLI                     : MISSING, see above."
   fi
   if [ ${terraformStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Terraform check                : passed."
+    _dsb_i "  \e[32m☑\e[0m  Terraform                      : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  Terraform check                : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  Terraform                      : MISSING, see above."
   fi
   if [ ${jqStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  jq check                       : passed."
+    _dsb_i "  \e[32m☑\e[0m  jq                             : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  jq check                       : fails, see above for more information."
-  fi
-  if [ ${yqStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  yq check                       : passed."
-  else
-    _dsb_i "  \e[31m☒\e[0m  yq check                       : fails, see above for more information."
-  fi
-  if [ ${golangStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  Go check                       : passed."
-  else
-    _dsb_i "  \e[31m☒\e[0m  Go check                       : fails, see above for more information."
-  fi
-  if [ ${hcleditStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  hcledit check                  : passed."
-  else
-    _dsb_i "  \e[31m☒\e[0m  hcledit check                  : fails, see above for more information."
-  fi
-  if [ "${_dsbTfRepoType:-}" == "module" ]; then
-    if [ ${terraformDocsStatus} -eq 0 ]; then
-      _dsb_i "  \e[32m☑\e[0m  terraform-docs check           : passed."
-    else
-      _dsb_i "  \e[31m☒\e[0m  terraform-docs check           : warns, see above for more information."
-    fi
-  fi
-  if [ ${terraformConfigInspectStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  terraform-config-inspect check : passed."
-  else
-    _dsb_i "  \e[31m☒\e[0m  terraform-config-inspect check : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  jq                             : MISSING, see above."
   fi
   if [ ${realpathStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  realpath check                 : passed."
+    _dsb_i "  \e[32m☑\e[0m  realpath                       : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  realpath check                 : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  realpath                       : MISSING, see above."
   fi
   if [ ${curlStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  curl check                     : passed."
+    _dsb_i "  \e[32m☑\e[0m  curl                           : passed."
   else
-    _dsb_i "  \e[31m☒\e[0m  curl check                     : fails, see above for more information."
+    _dsb_i "  \e[31m☒\e[0m  curl                           : MISSING, see above."
+  fi
+  _dsb_i ""
+  _dsb_i "  On-demand (for bump/upgrade commands):"
+  if [ ${yqStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  yq                             : passed."
+  else
+    _dsb_i "  \e[33m☐\e[0m  yq                             : not found (needed by tf-bump-cicd)"
+  fi
+  if [ ${hcleditStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  hcledit                        : passed."
+  else
+    _dsb_i "  \e[33m☐\e[0m  hcledit                        : not found (needed by tf-bump-modules, tf-bump-tflint-plugins, tf-show-provider-upgrades)"
+  fi
+  if [ ${terraformConfigInspectStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  terraform-config-inspect        : passed."
+  else
+    _dsb_i "  \e[33m☐\e[0m  terraform-config-inspect        : not found (needed by tf-show-provider-upgrades)"
+  fi
+  if [ ${golangStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  Go                             : passed."
+  else
+    _dsb_i "  \e[33m☐\e[0m  Go                             : not found (needed to install hcledit, terraform-config-inspect)"
+  fi
+  if [ "${_dsbTfRepoType:-}" == "module" ]; then
+    _dsb_i ""
+    _dsb_i "  Module-specific:"
+    if [ ${terraformDocsStatus} -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  terraform-docs                 : passed."
+    else
+      _dsb_i "  \e[33m☐\e[0m  terraform-docs                 : not found (needed by tf-docs)"
+    fi
   fi
 
   return $returnCode
@@ -6065,10 +6082,12 @@ _dsb_tf_bump_registry_module_versions() {
     return 1
   fi
 
-  # we need several tools to be available: curl, jq, hcledit
-  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_tools; then
-    _dsb_e "Tools check failed, please run 'tf-check-tools'"
-    return 1 # caller reads returnCode
+  # we need these specific tools (on-demand, not required globally)
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_curl ||
+    ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_jq ||
+    ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_hcledit; then
+    _dsb_e "Required tools missing for module version bumping, please run 'tf-check-tools'"
+    return 1
   fi
 
   _dsb_i "Bump versions of registry modules in all tf files in the project:"

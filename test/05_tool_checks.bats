@@ -164,7 +164,7 @@ teardown() {
   run _dsb_tf_check_tools
   assert_failure
   assert_clean_output_contains "Terraform"
-  assert_clean_output_contains "fails"
+  assert_clean_output_contains "MISSING"
 }
 
 # -- _dsb_tf_check_gh_auth --
