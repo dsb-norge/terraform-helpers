@@ -294,3 +294,83 @@ setup_module_fixture() {
   assert_success
   assert_clean_output_contains "unit-tests.tftest.hcl"
 }
+
+# -- tf-test-example (singular) --
+
+@test "tf-test-example requires example name" {
+  setup_module_fixture
+  run tf-test-example
+  assert_failure
+  assert_clean_output_contains "No example specified"
+  assert_clean_output_contains "usage"
+}
+
+@test "tf-test-example fails for nonexistent example" {
+  setup_module_fixture
+  run bash -c '
+    source "'"${HELPERS_DIR}/mock_helper.bash"'"
+    mock_standard_tools
+    cd "'"${_MODULE_DIR}"'"
+    source "'"${SUT}"'"
+    _dsbTfLogInfo=0
+    _dsbTfLogWarnings=0
+    _dsbTfLogErrors=1
+    _dsbTfLogDebug=0
+    echo "mock-sub-dev" | tf-test-example "nonexistent"
+  '
+  assert_failure
+  assert_clean_output_contains "not found"
+}
+
+@test "tf-test-example requires subscription confirmation" {
+  setup_module_fixture
+  run bash -c '
+    source "'"${HELPERS_DIR}/mock_helper.bash"'"
+    mock_standard_tools
+    cd "'"${_MODULE_DIR}"'"
+    source "'"${SUT}"'"
+    _dsbTfLogInfo=0
+    _dsbTfLogWarnings=0
+    _dsbTfLogErrors=0
+    _dsbTfLogDebug=0
+    echo "wrong-name" | tf-test-example "01-basic"
+  '
+  assert_failure
+}
+
+@test "tf-test-example succeeds with correct subscription name" {
+  setup_module_fixture
+  run bash -c '
+    source "'"${HELPERS_DIR}/mock_helper.bash"'"
+    mock_standard_tools
+    cd "'"${_MODULE_DIR}"'"
+    source "'"${SUT}"'"
+    _dsbTfLogInfo=1
+    _dsbTfLogWarnings=0
+    _dsbTfLogErrors=0
+    _dsbTfLogDebug=0
+    echo "mock-sub-dev" | tf-test-example "01-basic"
+  '
+  assert_success
+  assert_clean_output_contains "01-basic"
+}
+
+@test "tf-test-example is module-only" {
+  # Source in a project repo context, not module
+  local project_dir
+  project_dir="$(create_standard_project)"
+  cd "${project_dir}"
+  mock_standard_tools
+  source "${SUT}"
+  default_test_setup
+  run tf-test-example "01-basic"
+  assert_failure
+  assert_clean_output_contains "only available in Terraform module repos"
+}
+
+@test "tf-test-example lists available examples when none specified" {
+  setup_module_fixture
+  run tf-test-example
+  assert_failure
+  assert_clean_output_contains "available examples"
+}
