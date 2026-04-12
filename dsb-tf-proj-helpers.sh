@@ -2446,15 +2446,9 @@ _dsb_tf_check_tools() {
   _dsb_tf_check_golang
   local golangStatus=$?
 
-  # Module-repo-only tools
-  local terraformDocsStatus=0
-  if [ "${_dsbTfRepoType:-}" == "module" ]; then
-    _dsb_i ""
-    _dsb_i "Checking module-specific tools ..."
-    _dsb_i "Checking terraform-docs ..."
-    _dsb_tf_check_terraform_docs
-    terraformDocsStatus=$?
-  fi
+  _dsb_i "Checking terraform-docs ..."
+  _dsb_tf_check_terraform_docs
+  local terraformDocsStatus=$?
 
   # Only required tools affect the return code
   local returnCode=$((azCliStatus + ghCliStatus + terraformStatus + jqStatus + realpathStatus + curlStatus))
@@ -2515,14 +2509,10 @@ _dsb_tf_check_tools() {
   else
     _dsb_i "  \e[33m☐\e[0m  Go                             : not found (needed to install hcledit, terraform-config-inspect)"
   fi
-  if [ "${_dsbTfRepoType:-}" == "module" ]; then
-    _dsb_i ""
-    _dsb_i "  Module-specific:"
-    if [ ${terraformDocsStatus} -eq 0 ]; then
-      _dsb_i "  \e[32m☑\e[0m  terraform-docs                 : passed."
-    else
-      _dsb_i "  \e[33m☐\e[0m  terraform-docs                 : not found (needed by tf-docs)"
-    fi
+  if [ ${terraformDocsStatus} -eq 0 ]; then
+    _dsb_i "  \e[32m☑\e[0m  terraform-docs                 : passed."
+  else
+    _dsb_i "  \e[33m☐\e[0m  terraform-docs                 : not found (needed by tf-docs in module repos)"
   fi
 
   return $returnCode
