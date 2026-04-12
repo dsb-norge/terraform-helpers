@@ -66,24 +66,24 @@ setup_module_fixture() {
   assert_clean_output_contains "terraform-docs not found"
 }
 
-# -- Phase 6: tf-docs-examples --
+# -- Phase 6: tf-docs-all-examples --
 
-@test "tf-docs-examples succeeds in module repo" {
+@test "tf-docs-all-examples succeeds in module repo" {
   setup_module_fixture
-  run tf-docs-examples
+  run tf-docs-all-examples
   assert_success
 }
 
-@test "tf-docs-examples outputs per-example info" {
+@test "tf-docs-all-examples outputs per-example info" {
   setup_module_fixture
   _dsbTfLogInfo=1
-  run tf-docs-examples
+  run tf-docs-all-examples
   assert_success
   assert_clean_output_contains "01-basic"
   assert_clean_output_contains "02-advanced"
 }
 
-@test "tf-docs-examples fails in project repo" {
+@test "tf-docs-all-examples fails in project repo" {
   local project_dir
   project_dir="$(create_standard_project)"
   cd "${project_dir}"
@@ -91,25 +91,25 @@ setup_module_fixture() {
   source "${SUT}"
   default_test_setup
 
-  run tf-docs-examples
+  run tf-docs-all-examples
   assert_failure
   assert_clean_output_contains "only available in Terraform module repos"
 }
 
-@test "tf-docs-examples fails when examples docs config missing" {
+@test "tf-docs-all-examples fails when examples docs config missing" {
   setup_module_fixture
   rm -f "${_MODULE_DIR}/examples/.terraform-docs.yml"
   _dsbTfLogErrors=1
-  run tf-docs-examples
+  run tf-docs-all-examples
   assert_failure
   assert_clean_output_contains "config not found"
 }
 
-@test "tf-docs-examples fails when terraform-docs not installed" {
+@test "tf-docs-all-examples fails when terraform-docs not installed" {
   setup_module_fixture
   mock_terraform_docs_not_installed
   _dsbTfLogErrors=1
-  run tf-docs-examples
+  run tf-docs-all-examples
   assert_failure
   assert_clean_output_contains "terraform-docs not found"
 }

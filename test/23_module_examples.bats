@@ -11,18 +11,18 @@ setup_module_fixture() {
   default_test_setup
 }
 
-# -- Phase 4: tf-init-examples --
+# -- Phase 4: tf-init-all-examples --
 
-@test "tf-init-examples succeeds in module repo" {
+@test "tf-init-all-examples succeeds in module repo" {
   setup_module_fixture
-  run tf-init-examples
+  run tf-init-all-examples
   assert_success
 }
 
-@test "tf-init-examples outputs per-example status" {
+@test "tf-init-all-examples outputs per-example status" {
   setup_module_fixture
   _dsbTfLogInfo=1
-  run tf-init-examples
+  run tf-init-all-examples
   assert_success
   assert_clean_output_contains "Initializing examples"
   assert_clean_output_contains "01-basic"
@@ -30,24 +30,24 @@ setup_module_fixture() {
   assert_clean_output_contains "succeeded"
 }
 
-@test "tf-init-examples with specific example initializes only that example" {
+@test "tf-init-all-examples with specific example initializes only that example" {
   setup_module_fixture
   _dsbTfLogInfo=1
-  run tf-init-examples "01-basic"
+  run tf-init-all-examples "01-basic"
   assert_success
   assert_clean_output_contains "01-basic"
   assert_clean_output_not_contains "02-advanced"
 }
 
-@test "tf-init-examples with nonexistent example fails" {
+@test "tf-init-all-examples with nonexistent example fails" {
   setup_module_fixture
   _dsbTfLogErrors=1
-  run tf-init-examples "nonexistent"
+  run tf-init-all-examples "nonexistent"
   assert_failure
   assert_clean_output_contains "not found"
 }
 
-@test "tf-init-examples fails in project repo" {
+@test "tf-init-all-examples fails in project repo" {
   local project_dir
   project_dir="$(create_standard_project)"
   cd "${project_dir}"
@@ -55,49 +55,49 @@ setup_module_fixture() {
   source "${SUT}"
   default_test_setup
 
-  run tf-init-examples
+  run tf-init-all-examples
   assert_failure
   assert_clean_output_contains "only available in Terraform module repos"
 }
 
-@test "tf-init-examples shows summary with count" {
+@test "tf-init-all-examples shows summary with count" {
   setup_module_fixture
   _dsbTfLogInfo=1
-  run tf-init-examples
+  run tf-init-all-examples
   assert_success
   assert_clean_output_contains "2 succeeded, 0 failed out of 2"
 }
 
-# -- Phase 4: tf-validate-examples --
+# -- Phase 4: tf-validate-all-examples --
 
-@test "tf-validate-examples succeeds after init in module repo" {
+@test "tf-validate-all-examples succeeds after init in module repo" {
   setup_module_fixture
   # Simulate init for both examples
   mkdir -p "${_MODULE_DIR}/examples/01-basic/.terraform"
   mkdir -p "${_MODULE_DIR}/examples/02-advanced/.terraform"
-  run tf-validate-examples
+  run tf-validate-all-examples
   assert_success
 }
 
-@test "tf-validate-examples fails when examples not initialized" {
+@test "tf-validate-all-examples fails when examples not initialized" {
   setup_module_fixture
   _dsbTfLogErrors=1
-  run tf-validate-examples
+  run tf-validate-all-examples
   assert_failure
   assert_clean_output_contains "not been initialized"
 }
 
-@test "tf-validate-examples with specific example works" {
+@test "tf-validate-all-examples with specific example works" {
   setup_module_fixture
   mkdir -p "${_MODULE_DIR}/examples/01-basic/.terraform"
   _dsbTfLogInfo=1
-  run tf-validate-examples "01-basic"
+  run tf-validate-all-examples "01-basic"
   assert_success
   assert_clean_output_contains "01-basic"
   assert_clean_output_not_contains "02-advanced"
 }
 
-@test "tf-validate-examples fails in project repo" {
+@test "tf-validate-all-examples fails in project repo" {
   local project_dir
   project_dir="$(create_standard_project)"
   cd "${project_dir}"
@@ -105,35 +105,35 @@ setup_module_fixture() {
   source "${SUT}"
   default_test_setup
 
-  run tf-validate-examples
+  run tf-validate-all-examples
   assert_failure
   assert_clean_output_contains "only available in Terraform module repos"
 }
 
-# -- Phase 4: tf-lint-examples --
+# -- Phase 4: tf-lint-all-examples --
 
-@test "tf-lint-examples succeeds with pre-installed wrapper" {
+@test "tf-lint-all-examples succeeds with pre-installed wrapper" {
   setup_module_fixture
   # Pre-install the tflint wrapper
   mkdir -p "${_MODULE_DIR}/.tflint"
   echo '#!/usr/bin/env bash' > "${_MODULE_DIR}/.tflint/tflint.sh"
   echo 'echo "mock tflint"' >> "${_MODULE_DIR}/.tflint/tflint.sh"
-  run tf-lint-examples
+  run tf-lint-all-examples
   assert_success
 }
 
-@test "tf-lint-examples with specific example" {
+@test "tf-lint-all-examples with specific example" {
   setup_module_fixture
   mkdir -p "${_MODULE_DIR}/.tflint"
   echo '#!/usr/bin/env bash' > "${_MODULE_DIR}/.tflint/tflint.sh"
   echo 'echo "mock tflint"' >> "${_MODULE_DIR}/.tflint/tflint.sh"
   _dsbTfLogInfo=1
-  run tf-lint-examples "01-basic"
+  run tf-lint-all-examples "01-basic"
   assert_success
   assert_clean_output_contains "01-basic"
 }
 
-@test "tf-lint-examples fails in project repo" {
+@test "tf-lint-all-examples fails in project repo" {
   local project_dir
   project_dir="$(create_standard_project)"
   cd "${project_dir}"
@@ -141,7 +141,7 @@ setup_module_fixture() {
   source "${SUT}"
   default_test_setup
 
-  run tf-lint-examples
+  run tf-lint-all-examples
   assert_failure
   assert_clean_output_contains "only available in Terraform module repos"
 }
