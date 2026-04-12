@@ -112,6 +112,30 @@ teardown() {
   [[ "${count}" -ge 2 ]]
 }
 
+@test "no unused global variables declared" {
+  # Extract all 'declare -g[aA] _dsbTf*' variable names from the script
+  local -a declared=()
+  mapfile -t declared < <(grep -oP 'declare -g[aA]? \K(_dsbTf\w+)' "${SUT}" | sort -u)
+
+  local unused=()
+  for var in "${declared[@]}"; do
+    # Count references beyond the declare line itself
+    local refs
+    refs=$(grep -c "${var}" "${SUT}")
+    if [ "${refs}" -le 1 ]; then
+      unused+=("${var}")
+    fi
+  done
+
+  if [ ${#unused[@]} -gt 0 ]; then
+    echo "Unused global variables found:" >&2
+    for var in "${unused[@]}"; do
+      echo "  ${var}" >&2
+    done
+    return 1
+  fi
+}
+
 @test "sourcing succeeds even when caller has set -e active" {
   local project_dir
   project_dir="$(create_standard_project)"

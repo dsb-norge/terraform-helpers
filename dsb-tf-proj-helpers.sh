@@ -172,8 +172,8 @@ declare -gA _dsbTfEnvsDirList    # Associative array, key is environment name, v
 declare -ga _dsbTfAvailableEnvs  # Indexed array, list of available environment names in the project
 declare -gA _dsbTfModulesDirList # Associative array, key is module name, value is directory
 
-declare -g _dsbTfTflintWrapperDir=""    # directory where the tflint wrapper script will be placed
-declare -g _dsbTfTflintWrapperScript="" # full path to the tflint wrapper script
+declare -g _dsbTfTflintWrapperDir=""  # directory where the tflint wrapper script will be placed
+declare -g _dsbTfTflintWrapperPath="" # full path to the tflint wrapper script
 
 declare -g _dsbTfRealpathCmd="" # the command to use for realpath
 declare -g _dsbTfCutCmd=""      # the command to use for cut
@@ -344,7 +344,7 @@ _dsb_tf_get_github_cli_account() {
 # input:
 #   none
 # returns:
-#   exit code in returnCode
+#   exit code directly
 #   internal errors return 1 directly
 _dsb_tf_report_status() {
   _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_prereqs
@@ -2543,7 +2543,7 @@ _dsb_tf_check_gh_auth() {
 # on info:
 #   continuous output with summary of the check results
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_check_current_dir() {
   _dsb_d "checking current directory: ${PWD:-}"
 
@@ -3633,7 +3633,7 @@ _dsb_tf_clear_env() {
 #   lists out the available environments
 #   or when none are found, it informs the user
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_list_envs() {
   local returnCode=0
   # enumerate directories with current directory as root and
@@ -3703,7 +3703,7 @@ _dsb_tf_list_envs() {
 # on info:
 #   selected environment and if Azure subscription is successfully set, subscription ID and name are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 #   several global variables are updated:
 #     - _dsbTfSelectedEnv
 #     - _dsbTfSelectedEnvDir
@@ -3807,7 +3807,7 @@ _dsb_tf_set_env() {
 #   available environment names (implicitly by _dsb_tf_list_envs)
 #   selected environment name and possibly azure subscription details (implicitly by _dsb_tf_set_env)
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_select_env() {
   local returnCode=0
   _dsbTfLogInfo=1 _dsbTfLogErrors=1 _dsb_tf_list_envs
@@ -3935,7 +3935,7 @@ _dsb_tf_az_enumerate_account() {
 # on info:
 #   account subscription details are printed (implicitly by _dsb_tf_az_enumerate_account)
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_az_whoami() {
   local returnCode=0
   returnCode=0
@@ -3954,7 +3954,7 @@ _dsb_tf_az_whoami() {
 # on info:
 #   status of operation is printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_az_logout() {
   local returnCode=0
   local azCliStatus=0
@@ -3997,7 +3997,7 @@ _dsb_tf_az_logout() {
 #   status of operation is printed
 #   account subscription details are printed (implicitly by _dsb_tf_az_enumerate_account)
 # returns:
-#   exit code in returnCode
+#   exit code directly
 #   several global variables are updated (implicitly by _dsb_tf_az_enumerate_account)
 #     - _dsbTfAzureUpn
 #     - _dsbTfSubscriptionId
@@ -4096,7 +4096,7 @@ _dsb_tf_az_login() {
 #   status of operation is printed (implicitly by _dsb_tf_az_logout and _dsb_tf_az_login)
 #   account subscription details are printed (implicitly by _dsb_tf_az_login -> _dsb_tf_az_enumerate_account)
 # returns:
-#   exit code in returnCode
+#   exit code directly
 #   several global variables are updated (implicitly by _dsb_tf_az_login -> _dsb_tf_az_enumerate_account)
 #     - _dsbTfAzureUpn
 #     - _dsbTfSubscriptionId
@@ -4119,7 +4119,7 @@ _dsb_tf_az_re_login() {
 # on info:
 #   subscription ID and name are printed (implicitly by _dsb_tf_az_enumerate_account)
 # returns:
-#   exit code in returnCode
+#   exit code directly
 #   several global variables are updated (implicitly by _dsb_tf_az_enumerate_account):
 #     - _dsbTfAzureUpn
 #     - _dsbTfSubscriptionId
@@ -4193,7 +4193,7 @@ _dsb_tf_az_set_sub() {
 # on info:
 #   subscription ID and name are printed (implicitly by _dsb_tf_az_enumerate_account)
 # returns:
-#   exit code in returnCode
+#   exit code directly
 #   several global variables are updated (implicitly by _dsb_tf_az_enumerate_account):
 #     - _dsbTfAzureUpn
 #     - _dsbTfSubscriptionId
@@ -4344,7 +4344,7 @@ _dsb_tf_az_select_sub() {
 # on info:
 #   nothing
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_terraform_preflight() {
   local returnCode=0
   local selectedEnv="${1}"
@@ -4502,7 +4502,7 @@ _dsb_tf_init_env_actual() {
 # on info:
 #   nothing
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_init_env() {
   local returnCode=0
   local doUpgrade="${1}"
@@ -4533,17 +4533,16 @@ _dsb_tf_init_env() {
 }
 
 # what:
-#   runs terraform init in the given directory
-#   uses lock file from the selected environment
-#   uses .terraform/providers from the selected environment from plugin cache
-#   NOTE:
-#   ALSO NOTE:
+#   runs terraform init in the given directory (main or module)
+#   copies the lock file from the selected environment to the target directory
+#   uses .terraform/providers from the selected environment as plugin cache
+#   removes the copied lock file after init
 # input:
 #   $1: directory path
 # on info:
-#   nothing
+#   terraform init output
 # returns:
-#   no explicit return
+#   exit code directly
 _dsb_tf_init_dir() {
   local dirPath="${1}"
   local envDir="${_dsbTfSelectedEnvDir}"
@@ -4585,7 +4584,7 @@ _dsb_tf_init_dir() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_init_modules() {
   local returnCode=0
   local skipPreflight="${1:-0}"
@@ -4649,7 +4648,7 @@ _dsb_tf_init_modules() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_init_main() {
   local returnCode=0
   local skipPreflight="${1:-0}"
@@ -4704,7 +4703,7 @@ _dsb_tf_init_main() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_init() {
   local doUpgrade="${1}"
   local clearSelectedEnvAfter="${2:-1}" # defaults to 1
@@ -4828,7 +4827,7 @@ _dsb_tf_init() {
 # on info:
 #   nothing, status messages indirectly from _dsb_tf_init
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_init_full_single_env() {
   local returnCode=0
   local doUpgrade="${1}"
@@ -4867,7 +4866,7 @@ _dsb_tf_init_full_single_env() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_fmt() {
   local returnCode=0
   local performFix="${1:-0}"
@@ -4925,7 +4924,7 @@ _dsb_tf_fmt() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_validate_env() {
   local returnCode=0
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
@@ -4965,7 +4964,7 @@ _dsb_tf_validate_env() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_plan_env() {
   local returnCode=0
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
@@ -5008,7 +5007,7 @@ _dsb_tf_plan_env() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_apply_env() {
   local returnCode=0
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
@@ -5049,7 +5048,7 @@ _dsb_tf_apply_env() {
 # on info:
 #   the information is printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_destroy_env() {
   local returnCode=0
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
@@ -5146,7 +5145,7 @@ _dsb_tf_install_tflint_wrapper() {
 # on info:
 #   status messages and linting results are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_run_tflint() {
   local returnCode=0
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
@@ -5324,7 +5323,7 @@ _dsb_tf_get_dot_dirs() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_clean_dot_directories() {
   local returnCode=0
   local searchForType="${1}"
@@ -5602,7 +5601,7 @@ _dsb_tf_resolve_tflint_bump_version() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_bump_tool_in_github_workflow_file() {
   local returnCode=0
   local tool="${1}"
@@ -5716,7 +5715,7 @@ _dsb_tf_bump_tool_in_github_workflow_file() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_bump_github() {
 
   # we need yq to read and modify yml files
@@ -6051,7 +6050,7 @@ _dsb_tf_get_latest_registry_module_version() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_bump_registry_module_versions() {
   local returnCode=0
 
@@ -6239,7 +6238,7 @@ _dsb_tf_get_latest_tflint_plugin_version() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_bump_tflint_plugin_versions() {
   local returnCode=0
 
@@ -6538,7 +6537,7 @@ _dsb_tf_get_lockfile_provider_version() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_list_available_terraform_provider_upgrades() {
   local returnCode=0
   local envToCheck="${1:-}"
@@ -6660,7 +6659,7 @@ _dsb_tf_list_available_terraform_provider_upgrades() {
 # on info:
 #   nothing, status messages indirectly from _dsb_tf_list_available_terraform_provider_upgrades
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_list_available_terraform_provider_upgrades_for_env() {
   local returnCode=0
   local envToCheck="${1:-}"
@@ -6693,7 +6692,7 @@ _dsb_tf_list_available_terraform_provider_upgrades_for_env() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_bump_an_env() {
   local returnCode=0
   local givenEnv="${1}"       # used when calling terraform init -upgrade
@@ -6763,7 +6762,7 @@ _dsb_tf_bump_an_env() {
 # on info:
 #   status messages are printed
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_bump_the_project() {
   local offlineInit="${1:-0}" # defaults to 0
   local givenEnv="${2:-}"     # defaults to empty string
@@ -6934,7 +6933,7 @@ _dsb_tf_bump_the_project() {
 # on info:
 #   nothing, status messages indirectly from _dsb_tf_bump_the_project
 # returns:
-#   exit code in returnCode
+#   exit code directly
 _dsb_tf_bump_the_project_single_env() {
   local returnCode=0
   local offlineInit="${1:-0}" # defaults to 0
