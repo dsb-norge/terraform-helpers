@@ -881,8 +881,11 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-bump-all-offline"
     # examples (module only)
     "tf-init-examples"
+    "tf-init-example"
     "tf-validate-examples"
+    "tf-validate-example"
     "tf-lint-examples"
+    "tf-lint-example"
     # testing (module only)
     "tf-test"
     "tf-test-unit"
@@ -892,6 +895,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     # docs (module only)
     "tf-docs"
     "tf-docs-examples"
+    "tf-docs-example"
     "tf-docs-all"
   )
   echo "${commands[@]}"
@@ -1150,8 +1154,11 @@ _dsb_tf_help_group_upgrading() {
 _dsb_tf_help_group_examples() {
   _dsb_i "  Example Commands (module repo only):"
   _dsb_i "    tf-init-examples [example]     -> Initialize all or a specific example directory"
+  _dsb_i "    tf-init-example <example>      -> Initialize a specific example directory"
   _dsb_i "    tf-validate-examples [example] -> Validate all or a specific example directory"
+  _dsb_i "    tf-validate-example <example>  -> Validate a specific example directory"
   _dsb_i "    tf-lint-examples [example]     -> Run tflint on all or a specific example directory"
+  _dsb_i "    tf-lint-example <example>      -> Run tflint on a specific example directory"
 }
 
 _dsb_tf_help_group_testing() {
@@ -1167,6 +1174,7 @@ _dsb_tf_help_group_docs() {
   _dsb_i "  Documentation Commands (module repo only):"
   _dsb_i "    tf-docs                        -> Generate terraform-docs for module root"
   _dsb_i "    tf-docs-examples               -> Generate terraform-docs for all examples"
+  _dsb_i "    tf-docs-example <example>     -> Generate terraform-docs for a specific example"
   _dsb_i "    tf-docs-all                    -> Generate terraform-docs for root and all examples"
 }
 
@@ -1717,7 +1725,15 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Supports tab completion for example names."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-validate-examples, tf-lint-examples."
+    _dsb_i "  Related commands: tf-init-example, tf-validate-examples, tf-lint-examples."
+    ;;
+  tf-init-example)
+    _dsb_i "tf-init-example <example>:"
+    _dsb_i "  Initialize a specific example directory (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Requires an example name. Supports tab completion."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-init-examples, tf-validate-example."
     ;;
   tf-validate-examples)
     _dsb_i "tf-validate-examples [example]:"
@@ -1728,7 +1744,16 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Supports tab completion for example names."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init-examples, tf-lint-examples."
+    _dsb_i "  Related commands: tf-validate-example, tf-init-examples, tf-lint-examples."
+    ;;
+  tf-validate-example)
+    _dsb_i "tf-validate-example <example>:"
+    _dsb_i "  Validate a specific example directory (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Example must be initialized first (run tf-init-example)."
+    _dsb_i "  Requires an example name. Supports tab completion."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-validate-examples, tf-init-example."
     ;;
   tf-lint-examples)
     _dsb_i "tf-lint-examples [example]:"
@@ -1738,7 +1763,16 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Supports tab completion for example names."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init-examples, tf-validate-examples."
+    _dsb_i "  Related commands: tf-lint-example, tf-init-examples, tf-validate-examples."
+    ;;
+  tf-lint-example)
+    _dsb_i "tf-lint-example <example>:"
+    _dsb_i "  Run tflint on a specific example directory (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Uses the root .tflint.hcl configuration."
+    _dsb_i "  Requires an example name. Supports tab completion."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-lint-examples, tf-init-example."
     ;;
   # testing (module only)
   tf-test)
@@ -1813,7 +1847,17 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Uses the examples/.terraform-docs.yml configuration."
     _dsb_i "  Requires terraform-docs to be installed."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-docs, tf-docs-all."
+    _dsb_i "  Related commands: tf-docs-example, tf-docs, tf-docs-all."
+    ;;
+  tf-docs-example)
+    _dsb_i "tf-docs-example <example>:"
+    _dsb_i "  Generate terraform-docs for a specific example directory (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Uses the examples/.terraform-docs.yml configuration."
+    _dsb_i "  Requires terraform-docs to be installed."
+    _dsb_i "  Requires an example name. Supports tab completion."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-docs-examples, tf-docs."
     ;;
   tf-docs-all)
     _dsb_i "tf-docs-all:"
@@ -1952,10 +1996,14 @@ _dsb_tf_completions_for_example_names() {
 
 _dsb_tf_register_completions_for_example_names() {
   complete -F _dsb_tf_completions_for_example_names tf-init-examples
+  complete -F _dsb_tf_completions_for_example_names tf-init-example
   complete -F _dsb_tf_completions_for_example_names tf-validate-examples
+  complete -F _dsb_tf_completions_for_example_names tf-validate-example
   complete -F _dsb_tf_completions_for_example_names tf-lint-examples
+  complete -F _dsb_tf_completions_for_example_names tf-lint-example
   complete -F _dsb_tf_completions_for_example_names tf-test-examples
   complete -F _dsb_tf_completions_for_example_names tf-test-example
+  complete -F _dsb_tf_completions_for_example_names tf-docs-example
 }
 
 # for module repo test file names
@@ -7854,6 +7902,8 @@ _dsb_tf_docs_root() {
 # returns:
 #   exit code directly
 _dsb_tf_docs_examples() {
+  local exampleFilter="${1:-}"
+
   if ! _dsb_tf_check_terraform_docs; then
     return 1
   fi
@@ -7874,10 +7924,20 @@ _dsb_tf_docs_examples() {
   fi
 
   local -a exampleNames=()
-  local _exKey
-  for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
-    exampleNames+=("${_exKey}")
-  done
+  if [ -n "${exampleFilter}" ]; then
+    if [ -z "${_dsbTfExamplesDirList[${exampleFilter}]:-}" ]; then
+      _dsb_e "Example '${exampleFilter}' not found."
+      _dsb_e "  available examples: $(IFS=', '; echo "${!_dsbTfExamplesDirList[*]}")"
+      _dsb_tf_error_push "example '${exampleFilter}' not found"
+      return 1
+    fi
+    exampleNames=("${exampleFilter}")
+  else
+    local _exKey
+    for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
+      exampleNames+=("${_exKey}")
+    done
+  fi
 
   if [ "${#exampleNames[@]}" -eq 0 ]; then
     _dsb_w "No examples found."
@@ -8702,6 +8762,25 @@ tf-init-examples() {
   return "${returnCode}"
 }
 
+tf-init-example() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-init-example "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local exampleName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  if [ -z "${exampleName}" ]; then
+    _dsb_e "No example specified."
+    _dsb_e "  usage: tf-init-example <example-name>"
+    _dsb_e "  available examples: $(printf '%s\n' "${!_dsbTfExamplesDirList[@]}" | sort | paste -sd', ')"
+    _dsb_tf_error_push "no example name provided"
+    _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1
+  fi
+  _dsb_tf_init_examples "${exampleName}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then _dsb_tf_error_dump; fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
 tf-validate-examples() {
   if [[ "${-}" == *e* ]]; then set +e; tf-validate-examples "$@"; local rc=$?; set -e; return "${rc}"; fi
   local exampleName="${1:-}"
@@ -8716,6 +8795,25 @@ tf-validate-examples() {
   return "${returnCode}"
 }
 
+tf-validate-example() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-validate-example "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local exampleName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  if [ -z "${exampleName}" ]; then
+    _dsb_e "No example specified."
+    _dsb_e "  usage: tf-validate-example <example-name>"
+    _dsb_e "  available examples: $(printf '%s\n' "${!_dsbTfExamplesDirList[@]}" | sort | paste -sd', ')"
+    _dsb_tf_error_push "no example name provided"
+    _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1
+  fi
+  _dsb_tf_validate_examples "${exampleName}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then _dsb_tf_error_dump; fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
 tf-lint-examples() {
   if [[ "${-}" == *e* ]]; then set +e; tf-lint-examples "$@"; local rc=$?; set -e; return "${rc}"; fi
   local exampleName="${1:-}"
@@ -8726,6 +8824,25 @@ tf-lint-examples() {
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
   fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-lint-example() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-lint-example "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local exampleName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  if [ -z "${exampleName}" ]; then
+    _dsb_e "No example specified."
+    _dsb_e "  usage: tf-lint-example <example-name>"
+    _dsb_e "  available examples: $(printf '%s\n' "${!_dsbTfExamplesDirList[@]}" | sort | paste -sd', ')"
+    _dsb_tf_error_push "no example name provided"
+    _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1
+  fi
+  _dsb_tf_lint_examples "${exampleName}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then _dsb_tf_error_dump; fi
   _dsb_tf_restore_shell
   return "${returnCode}"
 }
@@ -8906,13 +9023,33 @@ tf-docs() {
 
 tf-docs-examples() {
   if [[ "${-}" == *e* ]]; then set +e; tf-docs-examples "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local exampleName="${1:-}"
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
-  _dsb_tf_docs_examples
+  _dsb_tf_docs_examples "${exampleName}"
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
   fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-docs-example() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-docs-example "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local exampleName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  if [ -z "${exampleName}" ]; then
+    _dsb_e "No example specified."
+    _dsb_e "  usage: tf-docs-example <example-name>"
+    _dsb_e "  available examples: $(printf '%s\n' "${!_dsbTfExamplesDirList[@]}" | sort | paste -sd', ')"
+    _dsb_tf_error_push "no example name provided"
+    _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1
+  fi
+  _dsb_tf_docs_examples "${exampleName}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then _dsb_tf_error_dump; fi
   _dsb_tf_restore_shell
   return "${returnCode}"
 }

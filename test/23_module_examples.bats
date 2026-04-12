@@ -178,3 +178,39 @@ setup_module_fixture() {
   [[ -n "${_dsbTfExamplesDirList[01-basic]:-}" ]]
   [[ -n "${_dsbTfExamplesDirList[02-advanced]:-}" ]]
 }
+
+# -- Singular example commands --
+
+@test "tf-init-example requires example name" {
+  setup_module_fixture
+  run tf-init-example
+  assert_failure
+  assert_clean_output_contains "No example specified"
+}
+
+@test "tf-init-example succeeds with valid example" {
+  setup_module_fixture
+  run tf-init-example "01-basic"
+  assert_success
+}
+
+@test "tf-validate-example requires example name" {
+  setup_module_fixture
+  run tf-validate-example
+  assert_failure
+  assert_clean_output_contains "No example specified"
+}
+
+@test "tf-lint-example requires example name" {
+  setup_module_fixture
+  run tf-lint-example
+  assert_failure
+  assert_clean_output_contains "No example specified"
+}
+
+@test "tf-init-example fails for nonexistent example" {
+  setup_module_fixture
+  run tf-init-example "nonexistent"
+  assert_failure
+  assert_clean_output_contains "not found"
+}

@@ -143,3 +143,25 @@ setup_module_fixture() {
   assert_failure
   assert_clean_output_contains "only available in Terraform module repos"
 }
+
+# -- Singular docs-example command --
+
+@test "tf-docs-example requires example name" {
+  setup_module_fixture
+  run tf-docs-example
+  assert_failure
+  assert_clean_output_contains "No example specified"
+}
+
+@test "tf-docs-example succeeds with valid example" {
+  setup_module_fixture
+  run tf-docs-example "01-basic"
+  assert_success
+}
+
+@test "tf-docs-example fails for nonexistent example" {
+  setup_module_fixture
+  run tf-docs-example "nonexistent"
+  assert_failure
+  assert_clean_output_contains "not found"
+}
