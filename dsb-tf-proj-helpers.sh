@@ -9,7 +9,7 @@ if [ -z "${BASH_VERSION:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ] || \
   return 1 2>/dev/null || exit 1
 fi
 
-# cSpell: ignore dsb, tflint, azurerm, az, tf, gh, cpanm, realpath, tfupdate, coreutils, grealpath, nonewline, prereq, prereqs, commaseparated, graphviz, libexpat, mktemp, wedi, relog, cicd, hcledit, CWORD, GOPATH, minamijoyo, reqs, chdir, alnum, ruleset, xclip, xsel, gcut, tfstate
+# cSpell: ignore dsb, tflint, azurerm, az, tf, gh, cpanm, realpath, tfupdate, coreutils, grealpath, nonewline, prereq, prereqs, commaseparated, graphviz, libexpat, mktemp, wedi, relog, cicd, hcledit, CWORD, GOPATH, minamijoyo, reqs, chdir, alnum, ruleset, xclip, xsel, gcut, tfstate, tftest, namerefs
 #
 # Developer notes
 #
@@ -433,7 +433,7 @@ _dsb_tf_report_status() {
   _dsb_i ""
   _dsb_i "File system:"
   _dsb_i "  Repo type               : ${_dsbTfRepoType:-unknown}"
-  _dsb_i "  Root directory          : ${_dsbTfRootDir}"
+  _dsb_i "  Root directory          : . (${_dsbTfRootDir})"
   if [ "${_dsbTfRepoType}" == "module" ]; then
     # Root .tf files count
     local -a _rootTfFiles=()
@@ -447,7 +447,7 @@ _dsb_tf_report_status() {
 
     # TFLint config
     if [ -f "${_dsbTfRootDir}/.tflint.hcl" ]; then
-      _dsb_i "  TFLint config           : found (${_dsbTfRootDir}/.tflint.hcl)"
+      _dsb_i "  TFLint config           : found (.tflint.hcl)"
     else
       _dsb_i "  TFLint config           : not found"
     fi
@@ -467,7 +467,7 @@ _dsb_tf_report_status() {
     fi
 
     # Examples
-    _dsb_i "  Examples directory      : ${_dsbTfExamplesDir:-}"
+    _dsb_i "  Examples directory      : examples/"
     local -a _exNames=()
     if declare -p _dsbTfExamplesDirList &>/dev/null; then
       local _exKey
@@ -482,13 +482,13 @@ _dsb_tf_report_status() {
     _dsb_i "  Available examples      : ${_exCommaSep:-none} (${#_exNames[@]})"
 
     # Tests
-    _dsb_i "  Tests directory         : ${_dsbTfTestsDir:-}"
+    _dsb_i "  Tests directory         : tests/"
     _dsb_i "  Test files              : ${#_dsbTfTestFilesList[@]}"
     _dsb_i "  Unit test files         : ${#_dsbTfUnitTestFilesList[@]}"
     _dsb_i "  Integration test files  : ${#_dsbTfIntegrationTestFilesList[@]}"
   else
-    _dsb_i "  Environments directory  : ${envsDir}"
-    _dsb_i "  Modules directory       : ${modulesDir}"
+    _dsb_i "  Environments directory  : $(_dsb_tf_get_rel_dir "${envsDir}")/"
+    _dsb_i "  Modules directory       : $(_dsb_tf_get_rel_dir "${modulesDir}")/"
     _dsb_i "  Available modules       : ${availableModulesCommaSeparated}"
   fi
   _dsb_i ""
@@ -506,14 +506,14 @@ _dsb_tf_report_status() {
   else
     if [ ${envStatus} -eq 0 ]; then
       _dsb_i "  \e[32m☑\e[0m  Selected environment     : ${selectedEnv}"
-      _dsb_i "  \e[32m☑\e[0m  Environment directory    : ${selectedEnvDir}"
+      _dsb_i "  \e[32m☑\e[0m  Environment directory    : $(_dsb_tf_get_rel_dir "${selectedEnvDir}")/"
       if [ ${lockFileStatus} -eq 0 ]; then
-        _dsb_i "  \e[32m☑\e[0m  Lock file                : ${_dsbTfSelectedEnvLockFile}"
+        _dsb_i "  \e[32m☑\e[0m  Lock file                : $(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvLockFile}")"
       else
         _dsb_i "  \e[31m☒\e[0m  Lock file                : not found, please run 'tf-check-env ${selectedEnv}'"
       fi
       if [ ${subHintFileStatus} -eq 0 ]; then
-        _dsb_i "  \e[32m☑\e[0m  Subscription hint file   : ${_dsbTfSelectedEnvSubscriptionHintFile}"
+        _dsb_i "  \e[32m☑\e[0m  Subscription hint file   : $(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvSubscriptionHintFile}")"
         _dsb_i "  \e[32m☑\e[0m  Subscription hint        : ${_dsbTfSelectedEnvSubscriptionHintContent:-}"
         _dsb_i "  \e[32m☑\e[0m  Az CLI subscription name : ${azSubName:-}"
         _dsb_i "  \e[32m☑\e[0m  Az CLI subscription id   : ${azSubId:-}"
