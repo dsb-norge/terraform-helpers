@@ -191,3 +191,123 @@ teardown() {
   _dsb_tf_completions_for_example_names
   [[ "${#COMPREPLY[@]}" -eq 0 ]]
 }
+
+# -- Example command completion registration --
+
+@test "completion registered for all singular example commands" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  for cmd in tf-init-example tf-validate-example tf-lint-example tf-test-example tf-docs-example; do
+    run complete -p "${cmd}"
+    assert_success
+    assert_output --partial "_dsb_tf_completions_for_example_names"
+  done
+}
+
+@test "completion registered for all plural example commands" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  for cmd in tf-init-examples tf-validate-examples tf-lint-examples tf-test-examples; do
+    run complete -p "${cmd}"
+    assert_success
+    assert_output --partial "_dsb_tf_completions_for_example_names"
+  done
+}
+
+@test "example completion does not complete second argument" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-init-example" "01-basic" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_example_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+# -- Test name completion --
+
+@test "completion registered for tf-test" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  run complete -p tf-test
+  assert_success
+  assert_output --partial "_dsb_tf_completions_for_test_names"
+}
+
+@test "test name completion returns test files in module repo" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_test_names
+  [[ "${#COMPREPLY[@]}" -gt 0 ]]
+  local joined="${COMPREPLY[*]}"
+  [[ "${joined}" == *"unit-tests.tftest.hcl"* ]]
+  [[ "${joined}" == *"integration-test-01-basic.tftest.hcl"* ]]
+}
+
+@test "test name completion filters by prefix" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test" "unit")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_test_names
+  [[ "${#COMPREPLY[@]}" -eq 1 ]]
+  [[ "${COMPREPLY[0]}" == "unit-tests.tftest.hcl" ]]
+}
+
+@test "test name completion returns empty in project repo" {
+  COMP_WORDS=("tf-test" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_test_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+@test "test name completion does not complete second argument" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test" "unit-tests.tftest.hcl" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+# -- All env completions registered --
+
+@test "completion registered for all environment-accepting commands" {
+  for cmd in tf-set-env tf-check-env tf-select-env tf-init-env tf-init-env-offline \
+    tf-init tf-init-offline tf-upgrade-env tf-upgrade-env-offline tf-upgrade tf-upgrade-offline \
+    tf-validate tf-plan tf-apply tf-destroy tf-show-provider-upgrades \
+    tf-bump tf-bump-offline tf-bump-env tf-bump-env-offline; do
+    run complete -p "${cmd}"
+    assert_success
+    assert_output --partial "_dsb_tf_completions_for_available_envs"
+  done
+}
