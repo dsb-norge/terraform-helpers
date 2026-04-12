@@ -1044,17 +1044,25 @@ _dsb_tf_help_help() {
 
 _dsb_tf_help_groups() {
   _dsb_i "Help Groups:"
-  _dsb_i "  environments  -> Environment related commands"
-  _dsb_i "  terraform     -> Terraform related commands"
-  _dsb_i "  upgrading     -> Upgrade related commands"
-  _dsb_i "  checks        -> Check related commands"
-  _dsb_i "  general       -> General help"
-  _dsb_i "  azure         -> Azure related commands"
-  _dsb_i "  offline       -> Commands for working without access to remote state"
   if [ "${_dsbTfRepoType:-}" == "module" ]; then
+    # Module repos: no environments or offline groups
+    _dsb_i "  terraform     -> Terraform related commands"
+    _dsb_i "  upgrading     -> Upgrade related commands"
+    _dsb_i "  checks        -> Check related commands"
+    _dsb_i "  general       -> General help"
+    _dsb_i "  azure         -> Azure related commands"
     _dsb_i "  examples      -> Example directory commands (module repo)"
     _dsb_i "  testing       -> Terraform test commands (module repo)"
     _dsb_i "  docs          -> Documentation generation commands (module repo)"
+  else
+    # Project repos: no examples, testing, or docs groups
+    _dsb_i "  environments  -> Environment related commands"
+    _dsb_i "  terraform     -> Terraform related commands"
+    _dsb_i "  upgrading     -> Upgrade related commands"
+    _dsb_i "  checks        -> Check related commands"
+    _dsb_i "  general       -> General help"
+    _dsb_i "  azure         -> Azure related commands"
+    _dsb_i "  offline       -> Commands for working without access to remote state"
   fi
   _dsb_i "  all           -> All help"
   _dsb_i ""
@@ -1568,9 +1576,11 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Show comprehensive version information."
     _dsb_i ""
     _dsb_i "  Shows tool versions (Terraform CLI, TFLint), required terraform versions,"
-    _dsb_i "  provider constraints and locked versions, tflint plugin versions."
+    _dsb_i "  provider constraints and locked versions, tflint plugin versions,"
+    _dsb_i "  and GitHub workflow terraform/tflint versions."
     _dsb_i ""
-    _dsb_i "  In module repos, also shows GitHub workflow terraform/tflint versions."
+    _dsb_i "  In project repos, shows per-environment details plus project-wide workflow versions."
+    _dsb_i "  In module repos, shows module root details and workflow versions."
     _dsb_i ""
     _dsb_i "  Related commands: tf-status, tf-check-tools."
     ;;
@@ -5119,6 +5129,7 @@ _dsb_tf_validate_env() {
 # returns:
 #   exit code directly
 _dsb_tf_validate_all_project() {
+  _dsb_d "called"
   _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
   local dirCheckStatus=$?
   if [ "${dirCheckStatus}" -ne 0 ]; then
@@ -5143,6 +5154,7 @@ _dsb_tf_validate_all_project() {
   for envName in "${availableEnvs[@]}"; do
     _dsb_i ""
     _dsb_i "Validating environment: ${envName}"
+    _dsb_d "validating environment: ${envName}"
     if ! _dsb_tf_validate_env "${envName}"; then
       _dsb_tf_error_push "validate failed for environment: ${envName}"
       returnCode=1
@@ -5171,6 +5183,7 @@ _dsb_tf_validate_all_project() {
 # returns:
 #   exit code directly
 _dsb_tf_validate_all_module() {
+  _dsb_d "called"
   local returnCode=0
 
   _dsb_i "Validating module root and all examples ..."
@@ -5205,6 +5218,7 @@ _dsb_tf_validate_all_module() {
 # returns:
 #   exit code directly
 _dsb_tf_outputs_env() {
+  _dsb_d "called with: env=${1:-<not specified>}"
   local returnCode=0
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
 
@@ -5239,6 +5253,7 @@ _dsb_tf_outputs_env() {
 # returns:
 #   exit code directly
 _dsb_tf_outputs_module_root() {
+  _dsb_d "called"
   if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_terraform; then
     _dsb_e "Terraform check failed, please run 'tf-check-tools'"
     return 1
@@ -5552,6 +5567,7 @@ _dsb_tf_run_tflint() {
 # returns:
 #   exit code directly
 _dsb_tf_lint_all_project() {
+  _dsb_d "called"
   _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
   local dirCheckStatus=$?
   if [ "${dirCheckStatus}" -ne 0 ]; then
@@ -5576,6 +5592,7 @@ _dsb_tf_lint_all_project() {
   for envName in "${availableEnvs[@]}"; do
     _dsb_i ""
     _dsb_i "Linting environment: ${envName}"
+    _dsb_d "linting environment: ${envName}"
     if ! _dsb_tf_run_tflint "${envName}"; then
       _dsb_tf_error_push "tflint failed for environment: ${envName}"
       returnCode=1
@@ -5604,6 +5621,7 @@ _dsb_tf_lint_all_project() {
 # returns:
 #   exit code directly
 _dsb_tf_lint_all_module() {
+  _dsb_d "called"
   local returnCode=0
 
   _dsb_i "Linting module root and all examples ..."
@@ -6049,11 +6067,24 @@ _dsb_tf_bump_tool_in_github_workflow_file() {
 
     _dsb_d "checking fieldPath: ${fieldPath}"
 
+    # Skip workflow_call input definitions (these define parameter types, not actual versions)
+    if [[ "${fieldPath}" == *"workflow_call.inputs"* ]]; then
+      _dsb_d "skipping workflow_call input definition at: ${fieldPath}"
+      continue
+    fi
+
     # read the current version from the workflow file
     local currentVersion
     currentVersion=$(FIELD_NAME="${fieldName}" yq eval ".${fieldPath}.[env(FIELD_NAME)]" "${workflowFile}")
 
     _dsb_d "currentVersion: ${currentVersion}"
+
+    # Skip template references (e.g. ${{ inputs.terraform-version }})
+    # shellcheck disable=SC2016 # intentionally matching literal ${{ string
+    if [[ "${currentVersion}" == *'${{'* ]]; then
+      _dsb_d "skipping template reference at: ${fieldPath}"
+      continue
+    fi
 
     # test if the current version is a valid semver
     local currentVersionIsSemver=0
@@ -7705,6 +7736,7 @@ _dsb_tf_list_available_terraform_provider_upgrades_module() {
 # returns:
 #   exit code directly
 _dsb_tf_init_all_module() {
+  _dsb_d "called"
   local returnCode=0
 
   _dsb_i "Initializing module root and all examples ..."
@@ -8358,6 +8390,7 @@ _dsb_tf_docs_examples() {
 # returns:
 #   exit code directly
 _dsb_tf_versions() {
+  _dsb_d "called"
   local returnCode=0
 
   _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
@@ -8380,6 +8413,7 @@ _dsb_tf_versions() {
     tfVersion=$(terraform -version 2>/dev/null | head -1) || tfVersion="unknown"
     _dsb_i "  Terraform CLI:  ${tfVersion}"
   else
+    _dsb_d "terraform not installed"
     _dsb_i "  Terraform CLI:  not installed"
   fi
 
@@ -8398,15 +8432,18 @@ _dsb_tf_versions() {
   _dsb_i ""
 
   if [ "${_dsbTfRepoType}" == "module" ]; then
+    _dsb_d "repo type is module, calling _dsb_tf_versions_module_root"
     _dsb_tf_versions_module_root
     local modRC=$?
     if [ "${modRC}" -ne 0 ]; then returnCode=1; fi
   else
+    _dsb_d "repo type is project, calling _dsb_tf_versions_project"
     _dsb_tf_versions_project
     local projRC=$?
     if [ "${projRC}" -ne 0 ]; then returnCode=1; fi
   fi
 
+  _dsb_d "returning exit code: ${returnCode}"
   return "${returnCode}"
 }
 
@@ -8419,6 +8456,7 @@ _dsb_tf_versions() {
 # returns:
 #   exit code directly
 _dsb_tf_versions_module_root() {
+  _dsb_d "called"
   local returnCode=0
 
   _dsb_i "Module Root Versions:"
@@ -8472,7 +8510,13 @@ _dsb_tf_versions_module_root() {
         if [ -n "${lockLine}" ]; then
           local lockVersion
           lockVersion=$(hcledit attribute get "${lockLine}.version" --file "${lockFile}" 2>/dev/null) || lockVersion=""
-          _dsb_i "    ${lockLine}: ${lockVersion:-unknown}"
+          # Convert: provider.registry\.terraform\.io/hashicorp/azurerm -> hashicorp/azurerm
+          local displayName
+          # shellcheck disable=SC2001 # bash substitution doesn't handle hcledit's escaped dots
+          displayName=$(echo "${lockLine}" | sed 's|^provider\.registry\\\.terraform\\\.io/||')
+          # Strip quotes from version
+          lockVersion="${lockVersion//\"/}"
+          _dsb_i "    ${displayName}: ${lockVersion:-unknown}"
         fi
       done <<< "${lockProviders}"
     else
@@ -8509,14 +8553,36 @@ _dsb_tf_versions_module_root() {
   if [ -d "${workflowDir}" ]; then
     if _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_yq; then
       local ymlFile
+      local workflowVersionFound=0
       for ymlFile in "${workflowDir}"/*.yml "${workflowDir}"/*.yaml; do
         [ -f "${ymlFile}" ] || continue
         local baseName
         baseName=$(basename "${ymlFile}")
-        local tfWorkflowVer tflintWorkflowVer
-        tfWorkflowVer=$(yq '.env.terraform-version // ""' "${ymlFile}" 2>/dev/null) || tfWorkflowVer=""
-        tflintWorkflowVer=$(yq '.env.tflint-version // ""' "${ymlFile}" 2>/dev/null) || tflintWorkflowVer=""
+        local tfWorkflowVer="" tflintWorkflowVer=""
+        # Find terraform-version anywhere in the YAML, filtering out non-version values
+        local _candidate
+        while IFS= read -r _candidate; do
+    # shellcheck disable=SC2016 # intentionally matching literal ${{ string
+          [[ -z "${_candidate}" ]] && continue
+          [[ "${_candidate}" == *'${{'* ]] && continue
+          [[ "${_candidate}" == *'type:'* ]] && continue
+          if _dsb_tf_semver_is_semver "${_candidate}" 1 1; then
+            tfWorkflowVer="${_candidate}"
+            break
+          fi
+        done < <(FIELD_NAME="terraform-version" yq eval '.. | select(has(env(FIELD_NAME))) | .[env(FIELD_NAME)]' "${ymlFile}" 2>/dev/null)
+    # shellcheck disable=SC2016 # intentionally matching literal ${{ string
+        while IFS= read -r _candidate; do
+          [[ -z "${_candidate}" ]] && continue
+          [[ "${_candidate}" == *'${{'* ]] && continue
+          [[ "${_candidate}" == *'type:'* ]] && continue
+          if _dsb_tf_semver_is_semver "${_candidate}" 1 1; then
+            tflintWorkflowVer="${_candidate}"
+            break
+          fi
+        done < <(FIELD_NAME="tflint-version" yq eval '.. | select(has(env(FIELD_NAME))) | .[env(FIELD_NAME)]' "${ymlFile}" 2>/dev/null)
         if [ -n "${tfWorkflowVer}" ] || [ -n "${tflintWorkflowVer}" ]; then
+          workflowVersionFound=1
           _dsb_i "    ${baseName}:"
           if [ -n "${tfWorkflowVer}" ]; then
             _dsb_i "      terraform-version: ${tfWorkflowVer}"
@@ -8526,6 +8592,9 @@ _dsb_tf_versions_module_root() {
           fi
         fi
       done
+      if [ "${workflowVersionFound}" -eq 0 ]; then
+        _dsb_i "    (no terraform-version/tflint-version found in workflow files)"
+      fi
     else
       _dsb_i "    (yq not available)"
     fi
@@ -8534,6 +8603,7 @@ _dsb_tf_versions_module_root() {
   fi
   _dsb_i ""
 
+  _dsb_d "returning exit code: ${returnCode}"
   return "${returnCode}"
 }
 
@@ -8546,6 +8616,7 @@ _dsb_tf_versions_module_root() {
 # returns:
 #   exit code directly
 _dsb_tf_versions_project() {
+  _dsb_d "called"
   local returnCode=0
 
   local -a availableEnvs=()
@@ -8609,7 +8680,13 @@ _dsb_tf_versions_project() {
           if [ -n "${lockLine}" ]; then
             local lockVersion
             lockVersion=$(hcledit attribute get "${lockLine}.version" --file "${lockFile}" 2>/dev/null) || lockVersion=""
-            _dsb_i "    ${lockLine}: ${lockVersion:-unknown}"
+            # Convert: provider.registry\.terraform\.io/hashicorp/azurerm -> hashicorp/azurerm
+          # shellcheck disable=SC2001 # bash substitution doesn't handle hcledit's escaped dots
+            local displayName
+            displayName=$(echo "${lockLine}" | sed 's|^provider\.registry\\\.terraform\\\.io/||')
+            # Strip quotes from version
+            lockVersion="${lockVersion//\"/}"
+            _dsb_i "    ${displayName}: ${lockVersion:-unknown}"
           fi
         done <<< "${lockProviders}"
       fi
@@ -8639,6 +8716,63 @@ _dsb_tf_versions_project() {
     _dsb_i ""
   done
 
+  # GitHub workflow versions (project-wide, not per-environment)
+  _dsb_i "GitHub Workflow Versions:"
+  local workflowDir="${_dsbTfRootDir}/.github/workflows"
+  if [ -d "${workflowDir}" ]; then
+    if _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_yq; then
+      local ymlFile
+      local workflowVersionFound=0
+      for ymlFile in "${workflowDir}"/*.yml "${workflowDir}"/*.yaml; do
+        [ -f "${ymlFile}" ] || continue
+        local baseName
+        baseName=$(basename "${ymlFile}")
+        local tfWorkflowVer="" tflintWorkflowVer=""
+        # Find terraform-version anywhere in the YAML, filtering out non-version values
+    # shellcheck disable=SC2016 # intentionally matching literal ${{ string
+        local _candidate
+        while IFS= read -r _candidate; do
+          [[ -z "${_candidate}" ]] && continue
+          [[ "${_candidate}" == *'${{'* ]] && continue
+          [[ "${_candidate}" == *'type:'* ]] && continue
+          if _dsb_tf_semver_is_semver "${_candidate}" 1 1; then
+            tfWorkflowVer="${_candidate}"
+            break
+          fi
+        done < <(FIELD_NAME="terraform-version" yq eval '.. | select(has(env(FIELD_NAME))) | .[env(FIELD_NAME)]' "${ymlFile}" 2>/dev/null)
+        while IFS= read -r _candidate; do
+          [[ -z "${_candidate}" ]] && continue
+          # shellcheck disable=SC2016 # intentionally matching literal ${{ string
+          [[ "${_candidate}" == *'${{'* ]] && continue
+          [[ "${_candidate}" == *'type:'* ]] && continue
+          if _dsb_tf_semver_is_semver "${_candidate}" 1 1; then
+            tflintWorkflowVer="${_candidate}"
+            break
+          fi
+        done < <(FIELD_NAME="tflint-version" yq eval '.. | select(has(env(FIELD_NAME))) | .[env(FIELD_NAME)]' "${ymlFile}" 2>/dev/null)
+        if [ -n "${tfWorkflowVer}" ] || [ -n "${tflintWorkflowVer}" ]; then
+          workflowVersionFound=1
+          _dsb_i "  ${baseName}:"
+          if [ -n "${tfWorkflowVer}" ]; then
+            _dsb_i "    terraform-version: ${tfWorkflowVer}"
+          fi
+          if [ -n "${tflintWorkflowVer}" ]; then
+            _dsb_i "    tflint-version: ${tflintWorkflowVer}"
+          fi
+        fi
+      done
+      if [ "${workflowVersionFound}" -eq 0 ]; then
+        _dsb_i "  (no terraform-version/tflint-version found in workflow files)"
+      fi
+    else
+      _dsb_i "  (yq not available)"
+    fi
+  else
+    _dsb_i "  (no .github/workflows directory)"
+  fi
+  _dsb_i ""
+
+  _dsb_d "returning exit code: ${returnCode}"
   return "${returnCode}"
 }
 
