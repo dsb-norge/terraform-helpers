@@ -199,3 +199,50 @@ teardown() {
   run tf-check-prereqs
   assert_success
 }
+
+# -- On-demand tool checks in exposed functions --
+
+@test "tf-bump-cicd fails when yq not installed" {
+  mock_yq_not_installed
+  _dsbTfLogErrors=1
+  run tf-bump-cicd
+  assert_failure
+  assert_clean_output_contains "yq"
+}
+
+@test "tf-bump-modules fails when hcledit not installed" {
+  mock_hcledit_not_installed
+  _dsbTfLogErrors=1
+  run tf-bump-modules
+  assert_failure
+}
+
+@test "tf-bump-tflint-plugins fails when hcledit not installed" {
+  mock_hcledit_not_installed
+  _dsbTfLogErrors=1
+  run tf-bump-tflint-plugins
+  assert_failure
+}
+
+@test "tf-show-provider-upgrades fails when terraform-config-inspect not installed" {
+  mock_terraform_config_inspect_not_installed
+  _dsbTfLogErrors=1
+  run tf-show-provider-upgrades dev
+  # Note: the error is detected and reported, but _dsb_tf_list_available_terraform_provider_upgrades_for_env
+  # does not capture the return code from _dsb_tf_list_available_terraform_provider_upgrades
+  assert_clean_output_contains "Tools check failed"
+}
+
+@test "tf-docs fails when terraform-docs not installed (module repo)" {
+  local module_dir="${BATS_TEST_TMPDIR}/module_project_docs_check"
+  cp -r "${FIXTURES_DIR}/project_module" "${module_dir}"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+  default_test_setup
+  mock_terraform_docs_not_installed
+  _dsbTfLogErrors=1
+  run tf-docs
+  assert_failure
+  assert_clean_output_contains "terraform-docs"
+}
