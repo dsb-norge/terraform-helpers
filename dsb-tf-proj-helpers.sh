@@ -9,7 +9,7 @@ if [ -z "${BASH_VERSION:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ] || \
   return 1 2>/dev/null || exit 1
 fi
 
-# cSpell: ignore dsb, tflint, azurerm, az, tf, gh, cpanm, realpath, tfupdate, coreutils, grealpath, nonewline, prereq, prereqs, commaseparated, graphviz, libexpat, mktemp, wedi, relog, cicd, hcledit, CWORD, GOPATH, minamijoyo, reqs, chdir, alnum, ruleset, xclip, xsel, gcut, tfstate, tftest, namerefs
+# cSpell: ignore dsb, tflint, azurerm, az, tf, gh, cpanm, realpath, tfupdate, coreutils, grealpath, nonewline, prereq, prereqs, commaseparated, graphviz, libexpat, mktemp, wedi, relog, cicd, hcledit, CWORD, GOPATH, minamijoyo, reqs, chdir, alnum, ruleset, xclip, xsel, gcut, tfstate, tftest, namerefs, Iseconds
 #
 # Developer notes
 #
@@ -1978,10 +1978,27 @@ _dsb_tf_completions_for_example_names() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=()
 
+  # re-enumerate to get fresh example list
   _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
 
+  # debug: write to file to avoid corrupting completion output on the terminal
+  # enable with: export _DSB_TF_COMPLETION_DEBUG=1
+  local _debugFile="/tmp/dsb-tf-completion-debug.log"
+  if [[ "${_DSB_TF_COMPLETION_DEBUG:-0}" == "1" ]]; then
+    {
+      echo "--- $(date -Iseconds) _dsb_tf_completions_for_example_names ---"
+      echo "  COMP_WORDS: ${COMP_WORDS[*]}"
+      echo "  COMP_CWORD: ${COMP_CWORD}"
+      echo "  cur: ${cur}"
+      echo "  _dsbTfRepoType: ${_dsbTfRepoType:-unset}"
+      echo "  _dsbTfExamplesDirList declared: $(declare -p _dsbTfExamplesDirList 2>&1 | head -1)"
+    } >> "${_debugFile}"
+  fi
+
+  # complete the first argument with example names
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    if [[ -v _dsbTfExamplesDirList ]]; then
+    # note: [[ -v ]] doesn't work for associative arrays in bash, use declare -p
+    if declare -p _dsbTfExamplesDirList &>/dev/null; then
       local -a exNames=()
       local _exKey
       for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
@@ -1989,6 +2006,14 @@ _dsb_tf_completions_for_example_names() {
       done
       if [[ -n "${exNames[*]}" ]]; then
         mapfile -t COMPREPLY < <(compgen -W "${exNames[*]}" -- "${cur}")
+      fi
+      if [[ "${_DSB_TF_COMPLETION_DEBUG:-0}" == "1" ]]; then
+        echo "  exNames: ${exNames[*]}" >> "${_debugFile}"
+        echo "  COMPREPLY: ${COMPREPLY[*]}" >> "${_debugFile}"
+      fi
+    else
+      if [[ "${_DSB_TF_COMPLETION_DEBUG:-0}" == "1" ]]; then
+        echo "  _dsbTfExamplesDirList not declared" >> "${_debugFile}"
       fi
     fi
   fi
