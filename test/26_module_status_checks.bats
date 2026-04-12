@@ -193,7 +193,7 @@ setup_module_fixture() {
   # terraform-docs is optional, so check-tools should still pass
   assert_success
   assert_clean_output_contains "terraform-docs"
-  assert_clean_output_contains "warns"
+  assert_clean_output_contains "not found"
 }
 
 # -- Help system includes new groups --
