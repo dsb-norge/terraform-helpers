@@ -4,7 +4,7 @@ Design and architecture reference. For the developer guide, see [CONTRIBUTING.md
 
 ## What This Script Is
 
-A collection of bash helper functions for working with DSB Terraform projects and module repos. It is **sourced** into the user's interactive shell (via `source <(curl ...)` or `eval "$(gh api ...)"`) and provides 63 user-facing commands prefixed with `tf-` and `az-`. The script is a single file (~8900 lines, 215 functions) and requires no installation beyond sourcing.
+A collection of bash helper functions for working with DSB Terraform projects and module repos. It is **sourced** into the user's interactive shell (via `source <(curl ...)` or `eval "$(gh api ...)"`) and provides 65 user-facing commands prefixed with `tf-` and `az-`. The script is a single file (~8900 lines, 217 functions) and requires no installation beyond sourcing.
 
 The script automatically detects whether it's running in a **project repo** (has `main/` + `envs/`) or a **module repo** (has root `.tf` files, no `main/` or `envs/`) and adapts its behavior accordingly.
 
@@ -78,7 +78,7 @@ User-facing commands. Every exposed function includes the `set -e` neutralizatio
 | Group | Commands |
 |---|---|
 | Examples | `tf-init-examples`, `tf-validate-examples`, `tf-lint-examples` |
-| Testing | `tf-test`, `tf-test-unit`, `tf-test-integration`, `tf-test-examples` |
+| Testing | `tf-test`, `tf-test-unit`, `tf-test-integration`, `tf-test-example`, `tf-test-examples` |
 | Documentation | `tf-docs`, `tf-docs-examples`, `tf-docs-all` |
 
 **Common commands** (available in both, may branch by repo type):
@@ -189,7 +189,7 @@ Bash 4.3+ required. Unsupported platforms or old bash versions abort sourcing wi
 See [TESTING.md](TESTING.md) for the full guide.
 
 - **Framework**: bats-core with bats-support, bats-assert, bats-file
-- **Tests**: 393 across 26 files
+- **Tests**: 409 across 26 files
 - **Mocking**: All external tools mocked via function overrides
 - **CI**: GitHub Actions on PRs, posts updatable comment with results
 
@@ -199,7 +199,7 @@ See [TESTING.md](TESTING.md) for the full guide.
 
 | File | Purpose |
 |---|---|
-| `dsb-tf-proj-helpers.sh` | The script (8883 lines, 215 functions) |
+| `dsb-tf-proj-helpers.sh` | The script (~8960 lines, 217 functions) |
 | [README.md](README.md) | User-facing: how to load and use |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | This document |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Developer guide: patterns, conventions, how to add features |

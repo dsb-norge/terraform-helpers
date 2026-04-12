@@ -888,6 +888,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-test-unit"
     "tf-test-integration"
     "tf-test-examples"
+    "tf-test-example"
     # docs (module only)
     "tf-docs"
     "tf-docs-examples"
@@ -1158,7 +1159,8 @@ _dsb_tf_help_group_testing() {
   _dsb_i "    tf-test [filter]               -> Run terraform test (all or specific test file)"
   _dsb_i "    tf-test-unit                   -> Run unit tests only (unit-*.tftest.hcl)"
   _dsb_i "    tf-test-integration            -> Run integration tests only (requires Azure subscription)"
-  _dsb_i "    tf-test-examples [example]     -> Test examples (init + apply + destroy, requires Azure subscription)"
+  _dsb_i "    tf-test-examples [example]     -> Test all examples (init + apply + destroy, requires Azure subscription)"
+  _dsb_i "    tf-test-example <example>      -> Test a specific example (init + apply + destroy, requires Azure subscription)"
 }
 
 _dsb_tf_help_group_docs() {
@@ -1771,16 +1773,28 @@ _dsb_tf_help_specific_command() {
     ;;
   tf-test-examples)
     _dsb_i "tf-test-examples [example]:"
-    _dsb_i "  Test examples by running init + apply + destroy (module repo only)."
+    _dsb_i "  Test all examples by running init + apply + destroy (module repo only)."
     _dsb_i ""
     _dsb_i "  For each example: initializes, applies, then destroys."
     _dsb_i "  WARNING: This deploys real Azure resources."
-    _dsb_i "  Requires Azure CLI login and subscription confirmation."
+    _dsb_i "  Requires Azure CLI login and subscription name confirmation."
     _dsb_i "  On failure, asks whether to continue with remaining examples."
     _dsb_i ""
     _dsb_i "  Supports tab completion for example names."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init-examples, tf-test-integration."
+    _dsb_i "  Related commands: tf-test-example, tf-init-examples, tf-test-integration."
+    ;;
+  tf-test-example)
+    _dsb_i "tf-test-example <example>:"
+    _dsb_i "  Test a specific example by running init + apply + destroy (module repo only)."
+    _dsb_i ""
+    _dsb_i "  For the specified example: initializes, applies, then destroys."
+    _dsb_i "  WARNING: This deploys real Azure resources."
+    _dsb_i "  Requires Azure CLI login and subscription name confirmation."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for example names."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-test-examples, tf-init-examples, tf-test-integration."
     ;;
   # docs (module only)
   tf-docs)
@@ -1941,6 +1955,7 @@ _dsb_tf_register_completions_for_example_names() {
   complete -F _dsb_tf_completions_for_example_names tf-validate-examples
   complete -F _dsb_tf_completions_for_example_names tf-lint-examples
   complete -F _dsb_tf_completions_for_example_names tf-test-examples
+  complete -F _dsb_tf_completions_for_example_names tf-test-example
 }
 
 # for module repo test file names
@@ -8826,6 +8841,37 @@ tf-test-examples() {
   local exampleName="${1:-}"
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+
+  if ! _dsb_tf_require_azure_subscription; then
+    _dsb_tf_error_dump
+    _dsb_tf_restore_shell
+    return 1
+  fi
+
+  _dsb_tf_test_examples "${exampleName}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-test-example() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-test-example "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local exampleName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+
+  if [ -z "${exampleName}" ]; then
+    _dsb_e "No example specified."
+    _dsb_e "  usage: tf-test-example <example-name>"
+    _dsb_e "  available examples: $(printf '%s\n' "${!_dsbTfExamplesDirList[@]}" | sort | paste -sd', ')"
+    _dsb_tf_error_push "no example name provided"
+    _dsb_tf_error_dump
+    _dsb_tf_restore_shell
+    return 1
+  fi
 
   if ! _dsb_tf_require_azure_subscription; then
     _dsb_tf_error_dump
