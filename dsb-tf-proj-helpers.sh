@@ -1310,7 +1310,8 @@ _dsb_tf_help_specific_command() {
     ;;
   tf-check-tools)
     _dsb_i "tf-check-tools:"
-    _dsb_i "  Check for required tools (az cli, gh cli, terraform, jq, yq, golang, hcledit, terraform-docs, realpath)."
+    _dsb_i "  Check for required tools (az cli, gh cli, terraform, jq, yq, golang, hcledit, realpath)."
+    _dsb_i "  In module repos, also checks for terraform-docs (optional)."
     ;;
   tf-check-gh-auth)
     _dsb_i "tf-check-gh-auth:"
@@ -2425,9 +2426,12 @@ _dsb_tf_check_tools() {
   _dsb_tf_check_hcledit
   local hcleditStatus=$?
 
-  _dsb_i "Checking terraform-docs ..."
-  _dsb_tf_check_terraform_docs
-  local terraformDocsStatus=$?
+  local terraformDocsStatus=0
+  if [ "${_dsbTfRepoType:-}" == "module" ]; then
+    _dsb_i "Checking terraform-docs ..."
+    _dsb_tf_check_terraform_docs
+    terraformDocsStatus=$?
+  fi
 
   _dsb_i "Checking terraform-config-inspect ..."
   _dsb_tf_check_terraform_config_inspect
@@ -2481,10 +2485,12 @@ _dsb_tf_check_tools() {
   else
     _dsb_i "  \e[31m☒\e[0m  hcledit check                  : fails, see above for more information."
   fi
-  if [ ${terraformDocsStatus} -eq 0 ]; then
-    _dsb_i "  \e[32m☑\e[0m  terraform-docs check           : passed."
-  else
-    _dsb_i "  \e[31m☒\e[0m  terraform-docs check           : warns, see above for more information."
+  if [ "${_dsbTfRepoType:-}" == "module" ]; then
+    if [ ${terraformDocsStatus} -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  terraform-docs check           : passed."
+    else
+      _dsb_i "  \e[31m☒\e[0m  terraform-docs check           : warns, see above for more information."
+    fi
   fi
   if [ ${terraformConfigInspectStatus} -eq 0 ]; then
     _dsb_i "  \e[32m☑\e[0m  terraform-config-inspect check : passed."
@@ -7296,7 +7302,7 @@ _dsb_tf_list_available_terraform_provider_upgrades_module() {
 
 ###################################################################################################
 #
-# Internal functions: Module examples support (Phase 4)
+# Internal functions: Module examples support
 #
 ###################################################################################################
 
@@ -7562,7 +7568,7 @@ _dsb_tf_lint_examples() {
 
 ###################################################################################################
 #
-# Internal functions: Terraform test support (Phase 5)
+# Internal functions: Terraform test support
 #
 ###################################################################################################
 
@@ -7785,7 +7791,7 @@ _dsb_tf_test_examples() {
 
 ###################################################################################################
 #
-# Internal functions: Documentation generation (Phase 6)
+# Internal functions: Documentation generation
 #
 ###################################################################################################
 
