@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2164,SC1090,SC1091,SC2030,SC2031,SC2034,SC2154,SC2317
 load 'helpers/test_helper'
 
 # Create the project fixture once for the file
