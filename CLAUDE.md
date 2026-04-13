@@ -11,7 +11,7 @@
 
 ## What this is
 
-A single bash script (`dsb-tf-proj-helpers.sh`, ~9000 lines) sourced into the user's interactive shell. It provides ~73 `tf-*` and `az-*` commands for Terraform project and module development. **It must never crash or corrupt the user's shell.**
+A single bash script (`dsb-tf-proj-helpers.sh`, ~10100 lines) sourced into the user's interactive shell. It provides ~75 `tf-*` and `az-*` commands for Terraform project and module development. **It must never crash or corrupt the user's shell.**
 
 ## Key documentation
 
@@ -39,7 +39,7 @@ The script detects project repos (`main/` + `envs/`) vs module repos (root `.tf`
 
 ```bash
 npm install    # install bats-core
-npm test       # run 494 tests with parallel execution
+npm test       # run 512 tests with parallel execution
 ```
 
 All external tools are mocked. Tests run without az, gh, terraform, etc. installed. Use TDD when possible — write failing test first, then implement. Run full suite after every change.

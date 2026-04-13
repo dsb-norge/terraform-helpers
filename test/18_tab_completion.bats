@@ -299,6 +299,69 @@ teardown() {
   [[ "${#COMPREPLY[@]}" -eq 0 ]]
 }
 
+# -- Integration test name completion --
+
+@test "completion registered for tf-test-integration" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  run complete -p tf-test-integration
+  assert_success
+  assert_output --partial "_dsb_tf_completions_for_integration_test_names"
+}
+
+@test "integration test name completion returns integration test files in module repo" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test-integration" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_integration_test_names
+  [[ "${#COMPREPLY[@]}" -gt 0 ]]
+  local joined="${COMPREPLY[*]}"
+  [[ "${joined}" == *"integration-test-01-basic.tftest.hcl"* ]]
+}
+
+@test "integration test name completion filters by prefix" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test-integration" "integ")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_integration_test_names
+  [[ "${#COMPREPLY[@]}" -eq 1 ]]
+  [[ "${COMPREPLY[0]}" == "integration-test-01-basic.tftest.hcl" ]]
+}
+
+@test "integration test name completion returns empty in project repo" {
+  COMP_WORDS=("tf-test-integration" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_integration_test_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+@test "integration test name completion does not complete second argument" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test-integration" "integration-test-01-basic.tftest.hcl" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_integration_test_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
 # -- All env completions registered --
 
 @test "completion registered for all environment-accepting commands" {

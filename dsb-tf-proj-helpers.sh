@@ -895,6 +895,7 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-test"
     "tf-test-unit"
     "tf-test-integration"
+    "tf-test-all-integrations"
     "tf-test-all-examples"
     "tf-test-example"
     # docs (module only)
@@ -902,6 +903,8 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-docs-all-examples"
     "tf-docs-example"
     "tf-docs-all"
+    # general
+    "tf-unload"
   )
   echo "${commands[@]}"
 }
@@ -1019,7 +1022,7 @@ _dsb_tf_help_help() {
     _dsb_i "  tf-init-all-examples      -> Initialize example directories"
     _dsb_i "  tf-validate-all-examples  -> Validate example directories"
     _dsb_i "  tf-test-unit          -> Run unit tests"
-    _dsb_i "  tf-test-integration   -> Run integration tests (requires Azure)"
+    _dsb_i "  tf-test-all-integrations -> Run all integration tests (requires Azure)"
     _dsb_i "  tf-docs-all           -> Generate documentation for root and examples"
     _dsb_i "  tf-versions           -> Show comprehensive version information"
   else
@@ -1095,6 +1098,7 @@ _dsb_tf_help_group_general() {
   _dsb_i "    tf-clean              -> Look for an delete '.terraform' directories"
   _dsb_i "    tf-clean-tflint       -> Look for and delete '.tflint' directories"
   _dsb_i "    tf-clean-all          -> Look for and delete both '.terraform' and '.tflint' directories"
+  _dsb_i "    tf-unload             -> Completely remove all helpers from the shell"
 }
 
 _dsb_tf_help_group_azure() {
@@ -1186,7 +1190,8 @@ _dsb_tf_help_group_testing() {
   _dsb_i "  Testing Commands (module repo only):"
   _dsb_i "    tf-test [filter]               -> Run terraform test (all or specific test file)"
   _dsb_i "    tf-test-unit                   -> Run unit tests only (unit-*.tftest.hcl)"
-  _dsb_i "    tf-test-integration            -> Run integration tests only (requires Azure subscription)"
+  _dsb_i "    tf-test-integration <name>     -> Run a specific integration test file (requires Azure subscription)"
+  _dsb_i "    tf-test-all-integrations       -> Run all integration tests (requires Azure subscription)"
   _dsb_i "    tf-test-all-examples [example] -> Test all examples (init + apply + destroy, requires Azure subscription)"
   _dsb_i "    tf-test-example <example>      -> Test a specific example (init + apply + destroy, requires Azure subscription)"
 }
@@ -1858,7 +1863,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Supports tab completion for test file names."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-test-unit, tf-test-integration."
+    _dsb_i "  Related commands: tf-test-unit, tf-test-integration, tf-test-all-integrations."
     ;;
   tf-test-unit)
     _dsb_i "tf-test-unit:"
@@ -1867,17 +1872,28 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Runs all test files matching unit-*.tftest.hcl."
     _dsb_i "  Unit tests use mocked providers and do not need Azure authentication."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-test, tf-test-integration."
+    _dsb_i "  Related commands: tf-test, tf-test-integration, tf-test-all-integrations."
     ;;
   tf-test-integration)
-    _dsb_i "tf-test-integration:"
-    _dsb_i "  Run integration tests only (module repo only)."
+    _dsb_i "tf-test-integration <name>:"
+    _dsb_i "  Run a specific integration test file (module repo only)."
+    _dsb_i ""
+    _dsb_i "  Requires an integration test file name (e.g., integration-test-01-basic.tftest.hcl)."
+    _dsb_i "  WARNING: Integration tests deploy real Azure resources."
+    _dsb_i "  Requires Azure CLI login and subscription confirmation."
+    _dsb_i "  Supports tab completion for integration test file names."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-test-all-integrations, tf-test, tf-test-unit."
+    ;;
+  tf-test-all-integrations)
+    _dsb_i "tf-test-all-integrations:"
+    _dsb_i "  Run all integration tests (module repo only)."
     _dsb_i ""
     _dsb_i "  Runs all test files matching integration-*.tftest.hcl."
     _dsb_i "  WARNING: Integration tests deploy real Azure resources."
     _dsb_i "  Requires Azure CLI login and subscription confirmation."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-test, tf-test-unit."
+    _dsb_i "  Related commands: tf-test-integration, tf-test, tf-test-unit."
     ;;
   tf-test-all-examples)
     _dsb_i "tf-test-all-examples [example]:"
@@ -1890,7 +1906,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Supports tab completion for example names."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-test-example, tf-init-all-examples, tf-test-integration."
+    _dsb_i "  Related commands: tf-test-example, tf-init-all-examples, tf-test-all-integrations."
     ;;
   tf-test-example)
     _dsb_i "tf-test-example <example>:"
@@ -1902,7 +1918,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Supports tab completion for example names."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-test-all-examples, tf-init-all-examples, tf-test-integration."
+    _dsb_i "  Related commands: tf-test-all-examples, tf-init-all-examples, tf-test-all-integrations."
     ;;
   # docs (module only)
   tf-docs)
@@ -1941,6 +1957,15 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Requires terraform-docs to be installed."
     _dsb_i ""
     _dsb_i "  Related commands: tf-docs, tf-docs-all-examples."
+    ;;
+  # general
+  tf-unload)
+    _dsb_i "tf-unload:"
+    _dsb_i "  Completely remove all DSB Terraform Helpers from the shell."
+    _dsb_i ""
+    _dsb_i "  Removes all functions (tf-*, az-*, _dsb_*), global variables (_dsbTf*),"
+    _dsb_i "  tab completions, and temporary files."
+    _dsb_i "  After running, the shell returns to its state before the helpers were loaded."
     ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
@@ -2132,6 +2157,32 @@ _dsb_tf_register_completions_for_test_names() {
   complete -F _dsb_tf_completions_for_test_names tf-test
 }
 
+# for module repo integration test file names
+# --------------------------------------------------
+_dsb_tf_completions_for_integration_test_names() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    if [[ -v _dsbTfIntegrationTestFilesList ]]; then
+      local -a testNames=()
+      local _tFile
+      for _tFile in "${_dsbTfIntegrationTestFilesList[@]}"; do
+        testNames+=("$(basename "${_tFile}")")
+      done
+      if [[ -n "${testNames[*]}" ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${testNames[*]}" -- "${cur}")
+      fi
+    fi
+  fi
+}
+
+_dsb_tf_register_completions_for_integration_test_names() {
+  complete -F _dsb_tf_completions_for_integration_test_names tf-test-integration
+}
+
 # make it easier to configure the shell
 _dsb_tf_register_all_completions() {
   _dsb_tf_register_completions_for_available_envs
@@ -2139,6 +2190,7 @@ _dsb_tf_register_all_completions() {
   _dsb_tf_register_completions_for_tf_help
   _dsb_tf_register_completions_for_example_names
   _dsb_tf_register_completions_for_test_names
+  _dsb_tf_register_completions_for_integration_test_names
 }
 
 ###################################################################################################
@@ -9801,6 +9853,67 @@ tf-test-unit() {
 
 tf-test-integration() {
   if [[ "${-}" == *e* ]]; then set +e; tf-test-integration "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local testName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+
+  _dsb_tf_enumerate_directories
+
+  if [ -z "${testName}" ]; then
+    _dsb_e "No integration test name specified."
+    _dsb_e "  usage: tf-test-integration <name>"
+    if [ "${#_dsbTfIntegrationTestFilesList[@]}" -gt 0 ]; then
+      local -a availNames=()
+      local _itf
+      for _itf in "${_dsbTfIntegrationTestFilesList[@]}"; do
+        availNames+=("$(basename "${_itf}")")
+      done
+      _dsb_e "  available integration tests: ${availNames[*]}"
+    fi
+    _dsb_tf_error_push "no integration test name provided"
+    _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1
+  fi
+
+  # validate the file exists in the integration test list
+  local _found=0
+  local _itFile
+  for _itFile in "${_dsbTfIntegrationTestFilesList[@]}"; do
+    if [ "$(basename "${_itFile}")" == "${testName}" ]; then
+      _found=1
+      break
+    fi
+  done
+  if [ "${_found}" -eq 0 ]; then
+    _dsb_e "Integration test '${testName}' not found in integration test files."
+    if [ "${#_dsbTfIntegrationTestFilesList[@]}" -gt 0 ]; then
+      local -a availNames2=()
+      local _itf2
+      for _itf2 in "${_dsbTfIntegrationTestFilesList[@]}"; do
+        availNames2+=("$(basename "${_itf2}")")
+      done
+      _dsb_e "  available integration tests: ${availNames2[*]}"
+    fi
+    _dsb_tf_error_push "integration test '${testName}' not found"
+    _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1
+  fi
+
+  if ! _dsb_tf_require_azure_subscription; then
+    _dsb_tf_error_dump
+    _dsb_tf_restore_shell
+    return 1
+  fi
+
+  _dsb_tf_run_terraform_test "${testName}"
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-test-all-integrations() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-test-all-integrations "$@"; local rc=$?; set -e; return "${rc}"; fi
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
 
@@ -9950,6 +10063,48 @@ tf-docs-all() {
   fi
   _dsb_tf_restore_shell
   return "${returnCode}"
+}
+
+# Unload function
+# ----------------
+tf-unload() {
+  # Remove all global variables with _dsbTf prefix
+  local _varNames
+  _varNames=$(typeset -p 2>/dev/null | awk '$3 ~ /^_dsbTf/ { sub(/=.*/, "", $3); print $3 }') || _varNames=''
+  local _varName
+  for _varName in ${_varNames}; do
+    unset -v "${_varName}" 2>/dev/null || :
+  done
+
+  # Remove tab completions for tf-* and az-*
+  local _completions
+  _completions=$(complete -p 2>/dev/null | grep -oE '(tf-|az-)[^ ]+') || _completions=''
+  local _comp
+  for _comp in ${_completions}; do
+    complete -r "${_comp}" 2>/dev/null || :
+  done
+
+  # Remove all functions with known prefixes
+  local _funcNames
+  _funcNames=$(declare -F | awk '{print $3}' | grep -E '^(_dsb_|tf-|az-)') || _funcNames=''
+  local _funcName
+  for _funcName in ${_funcNames}; do
+    unset -f "${_funcName}" 2>/dev/null || :
+  done
+
+  # Remove the error stack array
+  unset -v _dsbTfErrorStack 2>/dev/null || :
+
+  # Remove ARM_SUBSCRIPTION_ID if we set it
+  unset ARM_SUBSCRIPTION_ID 2>/dev/null || :
+
+  # Clean up temp files
+  rm -f "/tmp/dsb-tf-helpers-$$-"* 2>/dev/null || :
+
+  # Finally unset ourselves
+  unset -f tf-unload 2>/dev/null || :
+
+  echo "DSB Terraform Helpers unloaded."
 }
 
 # Help functions

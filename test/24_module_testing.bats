@@ -107,7 +107,7 @@ setup_module_fixture() {
   assert_clean_output_contains "No unit test files found"
 }
 
-# -- Phase 5: tf-test-integration --
+# -- Phase 5: tf-test-integration <name> (singular) --
 
 @test "tf-test-integration fails in project repo" {
   local project_dir
@@ -117,23 +117,23 @@ setup_module_fixture() {
   source "${SUT}"
   default_test_setup
 
-  run tf-test-integration
+  run tf-test-integration "integration-test-01-basic.tftest.hcl"
   assert_failure
   assert_clean_output_contains "only available in Terraform module repos"
 }
 
-@test "tf-test-integration with no integration tests reports nothing to do" {
+@test "tf-test-integration with no arg shows available tests" {
   setup_module_fixture
-  rm -f "${_MODULE_DIR}/tests/integration-"*.tftest.hcl
-  _dsbTfLogWarnings=1
+  _dsbTfLogErrors=1
   run tf-test-integration
-  assert_success
-  assert_clean_output_contains "No integration test files found"
+  assert_failure
+  assert_clean_output_contains "No integration test name specified"
+  assert_clean_output_contains "usage"
+  assert_clean_output_contains "integration-test-01-basic.tftest.hcl"
 }
 
-@test "tf-test-integration requires subscription confirmation" {
+@test "tf-test-integration with valid name requires subscription confirmation" {
   setup_module_fixture
-  # Pipe 'n' to decline
   run bash -c '
     source "'"${HELPERS_DIR}/mock_helper.bash"'"
     mock_standard_tools
@@ -143,12 +143,61 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "wrong-name" | tf-test-integration
+    echo "wrong-name" | tf-test-integration "integration-test-01-basic.tftest.hcl"
   '
   assert_failure
 }
 
-@test "tf-test-integration succeeds with subscription confirmation" {
+@test "tf-test-integration with valid name succeeds with subscription confirmation" {
+  setup_module_fixture
+  run bash -c '
+    source "'"${HELPERS_DIR}/mock_helper.bash"'"
+    mock_standard_tools
+    cd "'"${_MODULE_DIR}"'"
+    source "'"${SUT}"'"
+    _dsbTfLogInfo=1
+    _dsbTfLogWarnings=0
+    _dsbTfLogErrors=0
+    _dsbTfLogDebug=0
+    echo "mock-sub-dev" | tf-test-integration "integration-test-01-basic.tftest.hcl"
+  '
+  assert_success
+  assert_clean_output_contains "integration-test-01-basic.tftest.hcl"
+}
+
+@test "tf-test-integration with nonexistent name fails" {
+  setup_module_fixture
+  _dsbTfLogErrors=1
+  run tf-test-integration "nonexistent-test.tftest.hcl"
+  assert_failure
+  assert_clean_output_contains "not found in integration test files"
+}
+
+# -- Phase 5: tf-test-all-integrations --
+
+@test "tf-test-all-integrations fails in project repo" {
+  local project_dir
+  project_dir="$(create_standard_project)"
+  cd "${project_dir}"
+  mock_standard_tools
+  source "${SUT}"
+  default_test_setup
+
+  run tf-test-all-integrations
+  assert_failure
+  assert_clean_output_contains "only available in Terraform module repos"
+}
+
+@test "tf-test-all-integrations with no integration tests reports nothing to do" {
+  setup_module_fixture
+  rm -f "${_MODULE_DIR}/tests/integration-"*.tftest.hcl
+  _dsbTfLogWarnings=1
+  run tf-test-all-integrations
+  assert_success
+  assert_clean_output_contains "No integration test files found"
+}
+
+@test "tf-test-all-integrations requires subscription confirmation" {
   setup_module_fixture
   run bash -c '
     source "'"${HELPERS_DIR}/mock_helper.bash"'"
@@ -159,7 +208,23 @@ setup_module_fixture() {
     _dsbTfLogWarnings=0
     _dsbTfLogErrors=0
     _dsbTfLogDebug=0
-    echo "mock-sub-dev" | tf-test-integration
+    echo "wrong-name" | tf-test-all-integrations
+  '
+  assert_failure
+}
+
+@test "tf-test-all-integrations succeeds with subscription confirmation" {
+  setup_module_fixture
+  run bash -c '
+    source "'"${HELPERS_DIR}/mock_helper.bash"'"
+    mock_standard_tools
+    cd "'"${_MODULE_DIR}"'"
+    source "'"${SUT}"'"
+    _dsbTfLogInfo=0
+    _dsbTfLogWarnings=0
+    _dsbTfLogErrors=0
+    _dsbTfLogDebug=0
+    echo "mock-sub-dev" | tf-test-all-integrations
   '
   assert_success
 }

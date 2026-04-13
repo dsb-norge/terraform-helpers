@@ -38,7 +38,7 @@ The test suite uses [bats-core](https://github.com/bats-core/bats-core) (Bash Au
 
 All dependencies are managed via npm and listed in `package.json`.
 
-**Current state**: 409 tests across 26 files. All external tools are mocked -- tests run without any dependencies installed.
+**Current state**: 512 tests across 30 files. All external tools are mocked -- tests run without any dependencies installed.
 
 ---
 
@@ -80,9 +80,10 @@ test/
   21_module_detection.bats    # Repo type detection, project-only gating, module enumeration.
   22_module_operations.bats   # tf-init, tf-validate, tf-lint, tf-upgrade, tf-clean, tf-bump in module repos.
   23_module_examples.bats     # tf-init-examples, tf-validate-examples, tf-lint-examples.
-  24_module_testing.bats      # tf-test, tf-test-unit, tf-test-integration, subscription safety.
+  24_module_testing.bats      # tf-test, tf-test-unit, tf-test-integration, tf-test-all-integrations, subscription safety.
   25_module_docs.bats         # tf-docs, tf-docs-examples, tf-docs-all.
   26_module_status_checks.bats # Module-specific tf-status and tf-check-dir.
+  32_tf_unload.bats             # tf-unload: complete removal of helpers from shell.
 ```
 
 Files are numbered so output reads in a logical order, but **tests must not depend on execution order**. Each file is fully self-contained.
