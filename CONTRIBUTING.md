@@ -30,7 +30,7 @@ See [TESTING.md](TESTING.md) for the full testing guide.
 
 ## Code Organization
 
-The script is a single file (`dsb-tf-proj-helpers.sh`, ~8800 lines, ~215 functions) organized in a strict top-to-bottom dependency order:
+The script is a single file (`dsb-tf-proj-helpers.sh`, ~10100 lines, ~239 functions) organized in a strict top-to-bottom dependency order:
 
 1. Download guard and bash version check
 2. Cleanup of previous state
