@@ -976,6 +976,7 @@ _dsb_tf_help_enumerate_supported_topics() {
     "examples"
     "testing"
     "docs"
+    "flags"
   )
   local -a validCommands
   mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
@@ -1026,6 +1027,9 @@ _dsb_tf_help() {
     ;;
   docs)
     _dsb_tf_help_group_docs
+    ;;
+  flags)
+    _dsb_tf_help_group_flags
     ;;
   *)
     local -a validCommands
@@ -1108,6 +1112,7 @@ _dsb_tf_help_groups() {
     _dsb_i "  examples      -> Example directory commands (module repo)"
     _dsb_i "  testing       -> Terraform test commands (module repo)"
     _dsb_i "  docs          -> Documentation generation commands (module repo)"
+    _dsb_i "  flags         -> Flags supported by commands (--log, terraform passthrough)"
   else
     # Project repos: no examples, testing, or docs groups
     _dsb_i "  environments  -> Environment related commands"
@@ -1117,6 +1122,7 @@ _dsb_tf_help_groups() {
     _dsb_i "  general       -> General help"
     _dsb_i "  azure         -> Azure related commands"
     _dsb_i "  offline       -> Commands for working without access to remote state"
+    _dsb_i "  flags         -> Flags supported by commands (--log, terraform passthrough)"
   fi
   _dsb_i "  all           -> All help"
   _dsb_i ""
@@ -1164,7 +1170,7 @@ _dsb_tf_help_group_azure() {
 
 _dsb_tf_help_group_terraform() {
   _dsb_i "  Terraform Commands:"
-  _dsb_i "    tf-init [env]             -> Initialize selected or given environment (incl. main and local sub-modules)"
+  _dsb_i "    tf-init [env] [-flags]    -> Initialize (supports terraform flag passthrough)"
   _dsb_i "    tf-init-env [env]         -> Initialize selected or given environment (environment directory only)"
   _dsb_i "    tf-init-all               -> Initialize entire Terraform project, all environments"
   _dsb_i "    tf-init-main              -> Initialize Terraform project's main module"
@@ -1178,10 +1184,12 @@ _dsb_tf_help_group_terraform() {
   _dsb_i "    tf-validate-all           -> Validate all environments (project) or root + examples (module)"
   _dsb_i "    tf-lint-all               -> Lint all environments (project) or root + examples (module)"
   _dsb_i "    tf-outputs [env]          -> Show Terraform outputs for selected or given environment"
-  _dsb_i "    tf-plan [env]             -> Make Terraform create a plan for the selected or given environment"
-  _dsb_i "    tf-apply [env]            -> Make Terraform apply changes for the selected or given environment"
+  _dsb_i "    tf-plan [env] [-flags]    -> Create a plan (supports terraform flags and --log)"
+  _dsb_i "    tf-apply [env] [-flags]   -> Apply changes (supports terraform flags and --log)"
   _dsb_i "    tf-destroy [env]          -> Show command to manually destroy the selected or given environment"
   _dsb_i "    tf-versions               -> Show comprehensive version information"
+  _dsb_i ""
+  _dsb_i "  See 'tf-help flags' for details on terraform flag passthrough and --log."
 }
 
 _dsb_tf_help_group_offline() {
@@ -1239,12 +1247,14 @@ _dsb_tf_help_group_examples() {
 
 _dsb_tf_help_group_testing() {
   _dsb_i "  Testing Commands (module repo only):"
-  _dsb_i "    tf-test [filter]               -> Run terraform test (all or specific test file)"
-  _dsb_i "    tf-test-unit                   -> Run unit tests only (unit-*.tftest.hcl)"
-  _dsb_i "    tf-test-integration <name>     -> Run a specific integration test file (requires Azure subscription)"
-  _dsb_i "    tf-test-all-integrations       -> Run all integration tests (requires Azure subscription)"
-  _dsb_i "    tf-test-all-examples [example] -> Test all examples (init + apply + destroy, requires Azure subscription)"
-  _dsb_i "    tf-test-example <example>      -> Test a specific example (init + apply + destroy, requires Azure subscription)"
+  _dsb_i "    tf-test [filter]               -> Run terraform test (supports --log)"
+  _dsb_i "    tf-test-unit                   -> Run unit tests only (supports --log)"
+  _dsb_i "    tf-test-integration <name>     -> Run a specific integration test (Azure sub, supports --log)"
+  _dsb_i "    tf-test-all-integrations       -> Run all integration tests (Azure sub, supports --log)"
+  _dsb_i "    tf-test-all-examples [example] -> Test examples via apply+destroy (Azure sub, supports --log)"
+  _dsb_i "    tf-test-example <example>      -> Test a specific example via apply+destroy (Azure sub, supports --log)"
+  _dsb_i ""
+  _dsb_i "  All testing commands support --log to save output. See 'tf-help flags' for details."
 }
 
 _dsb_tf_help_group_docs() {
@@ -1253,6 +1263,52 @@ _dsb_tf_help_group_docs() {
   _dsb_i "    tf-docs-all-examples           -> Generate terraform-docs for all examples"
   _dsb_i "    tf-docs-example <example>      -> Generate terraform-docs for a specific example"
   _dsb_i "    tf-docs-all                    -> Generate terraform-docs for root and all examples"
+}
+
+_dsb_tf_help_group_flags() {
+  _dsb_i "Flags"
+  _dsb_i ""
+  _dsb_i "  Some commands support additional flags:"
+  _dsb_i ""
+  _dsb_i "  --log / --log=<file>  (output capture)"
+  _dsb_i "    Save command output to a log file with ANSI colors stripped."
+  _dsb_i "    When used without =<file>, an auto-generated timestamped filename is used."
+  _dsb_i "    Output is still displayed live on the terminal."
+  _dsb_i ""
+  _dsb_i "    Supported by:"
+  _dsb_i "      tf-plan, tf-apply, tf-test, tf-test-unit, tf-test-integration,"
+  _dsb_i "      tf-test-all-integrations, tf-test-all-examples, tf-test-example"
+  _dsb_i ""
+  _dsb_i "    Examples:"
+  _dsb_i "      tf-plan dev --log                    -> saves to tf-plan-dev-YYYYMMDD-HHMMSS.log"
+  _dsb_i "      tf-plan dev --log=./plans/today.log  -> saves to specified path"
+  _dsb_i "      tf-test-unit --log                   -> saves test output to file"
+  _dsb_i ""
+  _dsb_i "  Terraform passthrough flags  (single dash)"
+  _dsb_i "    Flags starting with a single dash are passed through directly to terraform."
+  _dsb_i "    These are not interpreted by the helpers -- they go straight to the"
+  _dsb_i "    terraform CLI command. Any terraform flag is supported."
+  _dsb_i ""
+  _dsb_i "    Supported by:"
+  _dsb_i "      tf-init, tf-init-offline, tf-plan, tf-apply"
+  _dsb_i ""
+  _dsb_i "    Examples:"
+  _dsb_i "      tf-plan dev -target=module.foo          -> plan specific resource"
+  _dsb_i "      tf-plan dev -out=plan.tfplan            -> save binary plan file"
+  _dsb_i "      tf-plan dev -destroy                    -> show destroy plan"
+  _dsb_i "      tf-apply dev -auto-approve              -> apply without prompt"
+  _dsb_i "      tf-init dev -backend-config=dev.hcl     -> custom backend config"
+  _dsb_i ""
+  _dsb_i "  Combining flags:"
+  _dsb_i "    Both our flags and terraform flags can be used together:"
+  _dsb_i "      tf-plan dev -target=module.foo --log    -> plan one resource and save output"
+  _dsb_i "      tf-apply dev -auto-approve --log=apply.log"
+  _dsb_i ""
+  _dsb_i "  Convention:"
+  _dsb_i "    --double-dash flags  -> consumed by the helpers (e.g., --log)"
+  _dsb_i "    -single-dash flags   -> passed through to terraform (e.g., -target)"
+  _dsb_i ""
+  _dsb_i "  For more details, see help for the specific command: tf-help <command>"
 }
 
 _dsb_tf_help_commands() {
@@ -1322,6 +1378,8 @@ _dsb_tf_help_commands() {
 
 _dsb_tf_help_all() {
   _dsb_tf_help_help
+  _dsb_i ""
+  _dsb_tf_help_group_flags
   _dsb_i ""
   _dsb_i "Detailed Help For All Commands:"
   _dsb_i ""
