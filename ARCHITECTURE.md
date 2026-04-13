@@ -189,7 +189,7 @@ Bash 4.3+ required. Unsupported platforms or old bash versions abort sourcing wi
 See [TESTING.md](TESTING.md) for the full guide.
 
 - **Framework**: bats-core with bats-support, bats-assert, bats-file
-- **Tests**: 512 across 30 files
+- **Tests**: 546 across 31 files
 - **Mocking**: All external tools mocked via function overrides
 - **CI**: GitHub Actions on PRs, posts updatable comment with results
 

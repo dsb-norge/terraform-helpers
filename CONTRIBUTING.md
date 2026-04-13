@@ -278,6 +278,74 @@ The `if !` idiom cannot be combined with inline variable assignment -- hence the
 
 ---
 
+## Passthrough Arguments and `--log`
+
+### Convention
+
+`--double-dash` flags are **our** flags (e.g., `--log`, `--log=file`). They are consumed by the argument parser and never forwarded to terraform. `-single-dash` flags are **terraform's** and get passed through unchanged. Bare strings are environment names (project repos) or test/example names (module repos).
+
+### Argument parsing pattern
+
+Commands that support passthrough and/or `--log` parse all arguments **before** `_dsb_tf_configure_shell` (because `set -u` is not yet active):
+
+```bash
+tf-plan() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-plan "$@"; local rc=$?; set -e; return "${rc}"; fi
+
+  local envName=""
+  local logFile=""
+  local -a terraformArgs=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --log)    logFile="auto"; shift ;;
+      --log=*)  logFile="${1#--log=}"; shift ;;
+      --*)      shift ;;  # ignore unknown double-dash flags (ours)
+      -*)       terraformArgs+=("$1"); shift ;;  # single-dash = terraform
+      *)
+        if [ -z "${envName}" ]; then envName="$1"; else terraformArgs+=("$1"); fi
+        shift ;;
+    esac
+  done
+  if [ "${logFile}" == "auto" ]; then
+    logFile=$(_dsb_tf_auto_log_filename "tf-plan" "${envName}")
+  fi
+
+  _dsb_tf_configure_shell
+  ...
+}
+```
+
+### `--log` implementation
+
+`_dsb_tf_run_with_log` wraps the internal function call. When `logFile` is non-empty, it pipes output through `tee` with ANSI stripping via process substitution:
+
+```bash
+_dsb_tf_run_with_log "${logFile}" _dsb_tf_plan_env "${envName}" "${terraformArgs[@]}"
+```
+
+### PIPESTATUS discipline with `tee`
+
+When using `--log`, the output passes through `tee`. The exit code of the left side of the pipeline is in `PIPESTATUS[0]`. **It MUST be read on the very next line after the pipeline** -- any intervening command (including `local`, `_dsb_d`, etc.) overwrites it. There is a static analysis test (`33_passthrough_and_log.bats`) that enforces this.
+
+### Adding passthrough to a new command
+
+1. Add the `while [[ $# -gt 0 ]]` argument parser before `_dsb_tf_configure_shell`
+2. Pass `"${terraformArgs[@]}"` to the internal function
+3. Update the internal function signature to accept `$@` after its positional params
+4. Append `"${extraArgs[@]}"` to the terraform command line
+5. Update help text to show `[terraform-flags]`
+6. Add tests in `33_passthrough_and_log.bats`
+
+### Adding `--log` to a new command
+
+1. Add `--log`/`--log=*` cases to the argument parser
+2. Generate auto filename with `_dsb_tf_auto_log_filename`
+3. Wrap the internal function call with `_dsb_tf_run_with_log "${logFile}" ...`
+4. Update help text to show `[--log[=file]]`
+5. Add tests in `33_passthrough_and_log.bats`
+
+---
+
 ## Caveats
 
 - **`_dsb_tf_error_push` is manual.** If you forget it at a failure point, the error stack has a gap. Audit every `return 1` path.
@@ -285,5 +353,6 @@ The `if !` idiom cannot be combined with inline variable assignment -- hence the
 - **`set -u` is active.** Use `${var:-}` for potentially unset variables.
 - **No `set -e`, no `pipefail`.** Every command that can fail must be checked explicitly.
 - **`PIPESTATUS` is ephemeral.** Read it immediately after the pipeline.
+- **`PIPESTATUS` with `tee`**: When using `--log` (which adds `tee` to the pipeline), `PIPESTATUS[0]` MUST be read on the very next line. There is a test that enforces this.
 - **The download guard (`{ }` braces) is structural.** Don't remove them.
 - **Lock files in module repos are gitignored.** Never check for their existence as a prerequisite. `tf-init` creates them, `tf-clean` deletes them.

@@ -38,7 +38,7 @@ The test suite uses [bats-core](https://github.com/bats-core/bats-core) (Bash Au
 
 All dependencies are managed via npm and listed in `package.json`.
 
-**Current state**: 512 tests across 30 files. All external tools are mocked -- tests run without any dependencies installed.
+**Current state**: 546 tests across 31 files. All external tools are mocked -- tests run without any dependencies installed.
 
 ---
 
@@ -84,6 +84,7 @@ test/
   25_module_docs.bats         # tf-docs, tf-docs-examples, tf-docs-all.
   26_module_status_checks.bats # Module-specific tf-status and tf-check-dir.
   32_tf_unload.bats             # tf-unload: complete removal of helpers from shell.
+  33_passthrough_and_log.bats   # Terraform arg passthrough, --log output capture, PIPESTATUS discipline.
 ```
 
 Files are numbered so output reads in a logical order, but **tests must not depend on execution order**. Each file is fully self-contained.
