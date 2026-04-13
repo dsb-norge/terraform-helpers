@@ -814,6 +814,57 @@ _dsb_tf_restore_shell() {
 
 ###################################################################################################
 #
+# Utility functions: --log output capture
+#
+###################################################################################################
+
+# what:
+#   runs a function/command with optional --log output capture
+#   when logFile is non-empty, pipes output through tee and strips ANSI for the log file
+#   PIPESTATUS discipline: the exit code is read on the VERY NEXT LINE after the pipeline
+# input:
+#   $1: logFile (empty string means no logging)
+#   $2..: command and arguments to run
+# on info:
+#   prints "Output saved to: <file>" when logging
+# returns:
+#   exit code from the command
+_dsb_tf_run_with_log() {
+  local logFile="${1}"
+  shift
+  local -a cmd=("$@")
+
+  if [ -n "${logFile}" ]; then
+    { "${cmd[@]}"; } 2>&1 | tee >(sed 's/\x1b\[[0-9;]*[mGKHJ]//g' > "${logFile}")
+    local rc=${PIPESTATUS[0]}
+    _dsb_i "Output saved to: ${logFile}"
+    return "${rc}"
+  else
+    "${cmd[@]}"
+  fi
+}
+
+# what:
+#   generates an auto log filename from command name and optional qualifier
+# input:
+#   $1: command name (e.g. "tf-plan")
+#   $2: qualifier (e.g. env name, test name) -- optional
+# returns:
+#   echoes the generated filename
+_dsb_tf_auto_log_filename() {
+  local cmdName="${1}"
+  local qualifier="${2:-}"
+  local timestamp
+  timestamp=$(date +%Y%m%d-%H%M%S)
+  if [ -n "${qualifier}" ]; then
+    echo "${cmdName}-${qualifier}-${timestamp}.log"
+  else
+    echo "${cmdName}-${timestamp}.log"
+  fi
+}
+
+###################################################################################################
+#
 # Utility functions: Display help
 #
 ###################################################################################################
@@ -1444,14 +1495,16 @@ _dsb_tf_help_specific_command() {
     ;;
   # terraform
   tf-init | tf-init-offline)
-    _dsb_i "tf-init [env]"
-    _dsb_i "tf-init-offline [env]"
+    _dsb_i "tf-init [env] [terraform-flags]"
+    _dsb_i "tf-init-offline [env] [terraform-flags]"
     _dsb_i "  Initialize the specified Terraform environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
     _dsb_i ""
     _dsb_i "  This also initializes the main module and any local sub-modules."
     _dsb_i ""
     _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
+    _dsb_i ""
+    _dsb_i "  Terraform flags (single dash, e.g. -input=false) are passed through to terraform init."
     _dsb_i ""
     _dsb_i "  Note:"
     _dsb_i "    For a complete initialization of the entire project, use 'tf-init-all'."
@@ -1590,18 +1643,39 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Related commands: tf-status, tf-check-tools."
     ;;
   tf-plan)
-    _dsb_i "tf-plan [env]:"
+    _dsb_i "tf-plan [env] [terraform-flags] [--log[=file]]:"
     _dsb_i "  Make Terraform create a plan for the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Terraform flags (single dash) are passed through to terraform plan."
+    _dsb_i "  Use --log to save output to a file (ANSI colors stripped)."
+    _dsb_i "  Use --log=<path> to specify the output file path."
+    _dsb_i ""
+    _dsb_i "  Examples:"
+    _dsb_i "    tf-plan dev                        -> basic plan"
+    _dsb_i "    tf-plan dev -target=module.foo      -> plan specific resource"
+    _dsb_i "    tf-plan dev -out=plan.tfplan        -> save binary plan file"
+    _dsb_i "    tf-plan dev --log                   -> save console output to file"
+    _dsb_i "    tf-plan dev -target=module.foo --log=./my-plan.log"
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
     _dsb_i "  Related commands: tf-init, tf-validate, tf-apply."
     ;;
   tf-apply)
-    _dsb_i "tf-apply [env]:"
+    _dsb_i "tf-apply [env] [terraform-flags] [--log[=file]]:"
     _dsb_i "  Make Terraform apply changes for the specified environment."
     _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Terraform flags (single dash) are passed through to terraform apply."
+    _dsb_i "  Use --log to save output to a file (ANSI colors stripped)."
+    _dsb_i "  Use --log=<path> to specify the output file path."
+    _dsb_i ""
+    _dsb_i "  Examples:"
+    _dsb_i "    tf-apply dev                            -> interactive apply"
+    _dsb_i "    tf-apply dev -auto-approve              -> non-interactive apply"
+    _dsb_i "    tf-apply dev plan.tfplan                -> apply saved plan file"
+    _dsb_i "    tf-apply dev --log                      -> save console output to file"
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
@@ -1855,66 +1929,72 @@ _dsb_tf_help_specific_command() {
     ;;
   # testing (module only)
   tf-test)
-    _dsb_i "tf-test [filter]:"
+    _dsb_i "tf-test [filter] [--log[=file]]:"
     _dsb_i "  Run terraform test at module root (module repo only)."
     _dsb_i ""
     _dsb_i "  If a filter is given (a test file name), only that test file is run."
     _dsb_i "  If no filter is given and integration tests exist, subscription confirmation is required."
+    _dsb_i "  Use --log to save output to a file (ANSI colors stripped)."
     _dsb_i ""
     _dsb_i "  Supports tab completion for test file names."
     _dsb_i ""
     _dsb_i "  Related commands: tf-test-unit, tf-test-integration, tf-test-all-integrations."
     ;;
   tf-test-unit)
-    _dsb_i "tf-test-unit:"
+    _dsb_i "tf-test-unit [--log[=file]]:"
     _dsb_i "  Run unit tests only (module repo only)."
     _dsb_i ""
     _dsb_i "  Runs all test files matching unit-*.tftest.hcl."
     _dsb_i "  Unit tests use mocked providers and do not need Azure authentication."
+    _dsb_i "  Use --log to save output to a file (ANSI colors stripped)."
     _dsb_i ""
     _dsb_i "  Related commands: tf-test, tf-test-integration, tf-test-all-integrations."
     ;;
   tf-test-integration)
-    _dsb_i "tf-test-integration <name>:"
+    _dsb_i "tf-test-integration <name> [--log[=file]]:"
     _dsb_i "  Run a specific integration test file (module repo only)."
     _dsb_i ""
     _dsb_i "  Requires an integration test file name (e.g., integration-test-01-basic.tftest.hcl)."
     _dsb_i "  WARNING: Integration tests deploy real Azure resources."
     _dsb_i "  Requires Azure CLI login and subscription confirmation."
+    _dsb_i "  Use --log to save output to a file (ANSI colors stripped)."
     _dsb_i "  Supports tab completion for integration test file names."
     _dsb_i ""
     _dsb_i "  Related commands: tf-test-all-integrations, tf-test, tf-test-unit."
     ;;
   tf-test-all-integrations)
-    _dsb_i "tf-test-all-integrations:"
+    _dsb_i "tf-test-all-integrations [--log[=file]]:"
     _dsb_i "  Run all integration tests (module repo only)."
     _dsb_i ""
     _dsb_i "  Runs all test files matching integration-*.tftest.hcl."
     _dsb_i "  WARNING: Integration tests deploy real Azure resources."
     _dsb_i "  Requires Azure CLI login and subscription confirmation."
+    _dsb_i "  Use --log to save output to a file (ANSI colors stripped)."
     _dsb_i ""
     _dsb_i "  Related commands: tf-test-integration, tf-test, tf-test-unit."
     ;;
   tf-test-all-examples)
-    _dsb_i "tf-test-all-examples [example]:"
+    _dsb_i "tf-test-all-examples [example] [--log[=file]]:"
     _dsb_i "  Test all examples by running init + apply + destroy (module repo only)."
     _dsb_i ""
     _dsb_i "  For each example: initializes, applies, then destroys."
     _dsb_i "  WARNING: This deploys real Azure resources."
     _dsb_i "  Requires Azure CLI login and subscription name confirmation."
     _dsb_i "  On failure, asks whether to continue with remaining examples."
+    _dsb_i "  Use --log to save output to a file (ANSI colors stripped)."
     _dsb_i ""
     _dsb_i "  Supports tab completion for example names."
     _dsb_i ""
     _dsb_i "  Related commands: tf-test-example, tf-init-all-examples, tf-test-all-integrations."
     ;;
   tf-test-example)
-    _dsb_i "tf-test-example <example>:"
+    _dsb_i "tf-test-example <example> [--log[=file]]:"
     _dsb_i "  Test a specific example by running init + apply + destroy (module repo only)."
     _dsb_i ""
     _dsb_i "  For the specified example: initializes, applies, then destroys."
     _dsb_i "  WARNING: This deploys real Azure resources."
     _dsb_i "  Requires Azure CLI login and subscription name confirmation."
+    _dsb_i "  Use --log to save output to a file (ANSI colors stripped)."
     _dsb_i ""
     _dsb_i "  Supports tab completion for example names."
     _dsb_i ""
@@ -4625,6 +4705,7 @@ _dsb_tf_terraform_preflight() {
 # input:
 #   $1: do upgrade (optional, defaults to 0)
 #   $2: offline init, ie. with -backend=false (optional, defaults to 0)
+#   $3..: extra terraform arguments (optional, passed through to terraform init)
 # on info:
 #   nothing
 # returns:
@@ -4632,6 +4713,8 @@ _dsb_tf_terraform_preflight() {
 _dsb_tf_init_env_actual() {
   local doUpgrade="${1:-0}"   # defaults to 0
   local offlineInit="${2:-0}" # defaults to 0
+  shift 2 || shift $# || :
+  local -a passthroughArgs=("$@")
 
   local envDir="${_dsbTfSelectedEnvDir}"
   local subId="${_dsbTfSubscriptionId}"
@@ -4645,6 +4728,9 @@ _dsb_tf_init_env_actual() {
   _dsb_d "  envDir: ${envDir}"
   _dsb_d "  subId: ${subId}"
   _dsb_d "  current ARM_SUBSCRIPTION_ID: '${ARM_SUBSCRIPTION_ID}'"
+  if [ "${#passthroughArgs[@]}" -gt 0 ]; then
+    _dsb_d "  passthroughArgs: ${passthroughArgs[*]}"
+  fi
 
   if [ "${doUpgrade}" -eq 1 ]; then
     extraInitArgs=" -upgrade"
@@ -4669,7 +4755,7 @@ _dsb_tf_init_env_actual() {
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
   # shellcheck disable=SC2086 # extraInitArgs is intentionally unquoted for word splitting
-  terraform -chdir="${envDir}" init -reconfigure -lock=false ${extraInitArgs} 2>&1 | _dsb_tf_fixup_paths_from_stdin
+  terraform -chdir="${envDir}" init -reconfigure -lock=false ${extraInitArgs} "${passthroughArgs[@]}" 2>&1 | _dsb_tf_fixup_paths_from_stdin
   if [ "${PIPESTATUS[0]}" -ne 0 ]; then
     _dsb_d "terraform init failed, attempting to restore tfstate file ... "
 
@@ -4924,12 +5010,17 @@ _dsb_tf_init() {
   local clearSelectedEnvAfter="${2:-1}" # defaults to 1
   local offlineInit="${3:-0}"           # defaults to 0
   local envToInit="${4:-}"              # defaults to empty string
+  shift 4 || shift $# || :
+  local -a passthroughArgs=("$@")
 
   _dsb_d "called with:"
   _dsb_d "  doUpgrade: ${doUpgrade}"
   _dsb_d "  offlineInit: ${offlineInit}"
   _dsb_d "  clearSelectedEnvAfter: ${clearSelectedEnvAfter}"
   _dsb_d "  envToInit: ${envToInit}"
+  if [ "${#passthroughArgs[@]}" -gt 0 ]; then
+    _dsb_d "  passthroughArgs: ${passthroughArgs[*]}"
+  fi
 
   local operationFriendlyName="Initialization"
   if [ "${doUpgrade}" -eq 1 ]; then
@@ -4988,7 +5079,7 @@ _dsb_tf_init() {
       local envDir="${_dsbTfSelectedEnvDir}" # available thanks to _dsb_tf_terraform_preflight
       _dsb_d "    envDir: ${envDir}"
 
-      if ! _dsb_tf_init_env_actual "${doUpgrade}" "${offlineInit}"; then
+      if ! _dsb_tf_init_env_actual "${doUpgrade}" "${offlineInit}" "${passthroughArgs[@]}"; then
         _dsb_e "  init in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
         ((initEnvStatus += 1))
       else
@@ -5038,6 +5129,7 @@ _dsb_tf_init() {
 #   $1: do upgrade
 #   $2: offline init, ie. with -backend=false (optional, defaults to 0)
 #   $3: optional, environment name to init, if not provided the selected environment is used
+#   $4..: extra terraform arguments (optional, passed through to terraform init)
 #
 # on info:
 #   nothing, status messages indirectly from _dsb_tf_init
@@ -5048,11 +5140,16 @@ _dsb_tf_init_full_single_env() {
   local doUpgrade="${1}"
   local offlineInit="${2:-0}" # defaults to 0
   local envToInit="${3:-}"    # defaults to empty string
+  shift 3 || shift $# || :
+  local -a passthroughArgs=("$@")
 
   _dsb_d "called with:"
   _dsb_d "  doUpgrade: ${doUpgrade}"
   _dsb_d "  envToInit: ${envToInit}"
   _dsb_d "  offlineInit: ${offlineInit}"
+  if [ "${#passthroughArgs[@]}" -gt 0 ]; then
+    _dsb_d "  passthroughArgs: ${passthroughArgs[*]}"
+  fi
 
   if [ -z "${envToInit}" ]; then
     envToInit=${_dsbTfSelectedEnv:-}
@@ -5064,7 +5161,7 @@ _dsb_tf_init_full_single_env() {
     _dsb_e "  or run 'tf-set-env <env>' first"
     returnCode=1
   else
-    _dsb_tf_init "${doUpgrade}" 0 "${offlineInit}" "${envToInit}" # $1 = 'init -upgrade', $2 = clearSelectedEnvAfter, $3 = with/without backend
+    _dsb_tf_init "${doUpgrade}" 0 "${offlineInit}" "${envToInit}" "${passthroughArgs[@]}" # $1 = 'init -upgrade', $2 = clearSelectedEnvAfter, $3 = with/without backend
     returnCode=$?
   fi
 
@@ -5345,6 +5442,8 @@ _dsb_tf_outputs_module_root() {
 _dsb_tf_plan_env() {
   local returnCode=0
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+  shift || :
+  local -a extraArgs=("$@")
 
   if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
 
@@ -5359,10 +5458,13 @@ _dsb_tf_plan_env() {
   _dsb_i "Creating plan for environment: $(_dsb_tf_get_rel_dir "${envDir}")"
 
   _dsb_d "current ARM_SUBSCRIPTION_ID: '${ARM_SUBSCRIPTION_ID}'"
+  if [ "${#extraArgs[@]}" -gt 0 ]; then
+    _dsb_d "extra terraform args: ${extraArgs[*]}"
+  fi
 
   # output from the command will have paths relative to the current environment directory
   #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
-  terraform -chdir="${envDir}" plan -lock=false 2>&1 | _dsb_tf_fixup_paths_from_stdin
+  terraform -chdir="${envDir}" plan -lock=false "${extraArgs[@]}" 2>&1 | _dsb_tf_fixup_paths_from_stdin
   if [ "${PIPESTATUS[0]}" -ne 0 ]; then
     _dsb_e "terraform plan in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
     returnCode=1
@@ -5388,6 +5490,8 @@ _dsb_tf_plan_env() {
 _dsb_tf_apply_env() {
   local returnCode=0
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
+  shift || :
+  local -a extraArgs=("$@")
 
   if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
 
@@ -5402,9 +5506,12 @@ _dsb_tf_apply_env() {
   _dsb_i "Running apply in environment: $(_dsb_tf_get_rel_dir "${envDir}")"
 
   _dsb_d "current ARM_SUBSCRIPTION_ID: '${ARM_SUBSCRIPTION_ID}'"
+  if [ "${#extraArgs[@]}" -gt 0 ]; then
+    _dsb_d "extra terraform args: ${extraArgs[*]}"
+  fi
 
   # output from the command will have paths relative to the current environment directory
-  if ! terraform -chdir="${envDir}" apply; then
+  if ! terraform -chdir="${envDir}" apply "${extraArgs[@]}"; then
     _dsb_e "terraform apply in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
     returnCode=1
   else
@@ -7455,8 +7562,13 @@ _dsb_tf_bump_the_project_single_env() {
 #   exit code directly
 _dsb_tf_init_module_root() {
   local doUpgrade="${1:-0}"
+  shift || :
+  local -a passthroughArgs=("$@")
 
   _dsb_d "called with doUpgrade: ${doUpgrade}"
+  if [ "${#passthroughArgs[@]}" -gt 0 ]; then
+    _dsb_d "  passthroughArgs: ${passthroughArgs[*]}"
+  fi
 
   # terraform must be installed
   if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_terraform; then
@@ -7482,7 +7594,7 @@ _dsb_tf_init_module_root() {
   _dsb_i "  directory: ${_dsbTfRootDir}"
 
   # shellcheck disable=SC2086 # extraInitArgs is intentionally unquoted for word splitting
-  terraform -chdir="${_dsbTfRootDir}" init -reconfigure -input=false ${extraInitArgs} 2>&1 | _dsb_tf_fixup_paths_from_stdin
+  terraform -chdir="${_dsbTfRootDir}" init -reconfigure -input=false ${extraInitArgs} "${passthroughArgs[@]}" 2>&1 | _dsb_tf_fixup_paths_from_stdin
   if [ "${PIPESTATUS[0]}" -ne 0 ]; then
     _dsb_e "terraform init at root failed"
     _dsb_tf_error_push "terraform init at module root failed"
@@ -9142,12 +9254,30 @@ tf-init-main() {
 
 tf-init() {
   if [[ "${-}" == *e* ]]; then set +e; tf-init "$@"; local rc=$?; set -e; return "${rc}"; fi
-  local envName="${1:-}"
+
+  # Parse args BEFORE configure_shell (set -u not yet active)
+  local envName=""
+  local -a terraformArgs=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --*)      shift ;;  # ignore unknown double-dash flags (ours)
+      -*)       terraformArgs+=("$1"); shift ;;  # single-dash = terraform
+      *)
+        if [ -z "${envName}" ]; then
+          envName="$1"
+        else
+          terraformArgs+=("$1")
+        fi
+        shift
+        ;;
+    esac
+  done
+
   _dsb_tf_configure_shell
   if [ "${_dsbTfRepoType}" == "module" ]; then
-    _dsb_tf_init_module_root
+    _dsb_tf_init_module_root 0 "${terraformArgs[@]}"
   else
-    _dsb_tf_init_full_single_env 0 0 "${envName}" # $1 = 0 means do not -upgrade, $2 = 0 means with backend
+    _dsb_tf_init_full_single_env 0 0 "${envName}" "${terraformArgs[@]}" # $1 = 0 means do not -upgrade, $2 = 0 means with backend
   fi
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
@@ -9159,12 +9289,30 @@ tf-init() {
 
 tf-init-offline() {
   if [[ "${-}" == *e* ]]; then set +e; tf-init-offline "$@"; local rc=$?; set -e; return "${rc}"; fi
-  local envName="${1:-}"
+
+  # Parse args BEFORE configure_shell (set -u not yet active)
+  local envName=""
+  local -a terraformArgs=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --*)      shift ;;  # ignore unknown double-dash flags (ours)
+      -*)       terraformArgs+=("$1"); shift ;;  # single-dash = terraform
+      *)
+        if [ -z "${envName}" ]; then
+          envName="$1"
+        else
+          terraformArgs+=("$1")
+        fi
+        shift
+        ;;
+    esac
+  done
+
   _dsb_tf_configure_shell
   if [ "${_dsbTfRepoType}" == "module" ]; then
-    _dsb_tf_init_module_root # no backend in module repos anyway
+    _dsb_tf_init_module_root 0 "${terraformArgs[@]}" # no backend in module repos anyway
   else
-    _dsb_tf_init_full_single_env 0 1 "${envName}" # $1 = 0 means do not -upgrade, $2 = 1 means without backend
+    _dsb_tf_init_full_single_env 0 1 "${envName}" "${terraformArgs[@]}" # $1 = 0 means do not -upgrade, $2 = 1 means without backend
   fi
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
@@ -9282,10 +9430,34 @@ tf-outputs() {
 
 tf-plan() {
   if [[ "${-}" == *e* ]]; then set +e; tf-plan "$@"; local rc=$?; set -e; return "${rc}"; fi
-  local envName="${1:-}"
+
+  # Parse args BEFORE configure_shell (set -u not yet active)
+  local envName=""
+  local logFile=""
+  local -a terraformArgs=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --log)    logFile="auto"; shift ;;
+      --log=*)  logFile="${1#--log=}"; shift ;;
+      --*)      shift ;;  # ignore unknown double-dash flags (ours)
+      -*)       terraformArgs+=("$1"); shift ;;  # single-dash = terraform
+      *)
+        if [ -z "${envName}" ]; then
+          envName="$1"
+        else
+          terraformArgs+=("$1")
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [ "${logFile}" == "auto" ]; then
+    logFile=$(_dsb_tf_auto_log_filename "tf-plan" "${envName}")
+  fi
+
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
-  _dsb_tf_plan_env "${envName}"
+  _dsb_tf_run_with_log "${logFile}" _dsb_tf_plan_env "${envName}" "${terraformArgs[@]}"
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
@@ -9296,10 +9468,34 @@ tf-plan() {
 
 tf-apply() {
   if [[ "${-}" == *e* ]]; then set +e; tf-apply "$@"; local rc=$?; set -e; return "${rc}"; fi
-  local envName="${1:-}"
+
+  # Parse args BEFORE configure_shell (set -u not yet active)
+  local envName=""
+  local logFile=""
+  local -a terraformArgs=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --log)    logFile="auto"; shift ;;
+      --log=*)  logFile="${1#--log=}"; shift ;;
+      --*)      shift ;;  # ignore unknown double-dash flags (ours)
+      -*)       terraformArgs+=("$1"); shift ;;  # single-dash = terraform
+      *)
+        if [ -z "${envName}" ]; then
+          envName="$1"
+        else
+          terraformArgs+=("$1")  # positional args (e.g., planfile for apply)
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [ "${logFile}" == "auto" ]; then
+    logFile=$(_dsb_tf_auto_log_filename "tf-apply" "${envName}")
+  fi
+
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
-  _dsb_tf_apply_env "${envName}"
+  _dsb_tf_run_with_log "${logFile}" _dsb_tf_apply_env "${envName}" "${terraformArgs[@]}"
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
@@ -9784,7 +9980,27 @@ tf-lint-example() {
 
 tf-test() {
   if [[ "${-}" == *e* ]]; then set +e; tf-test "$@"; local rc=$?; set -e; return "${rc}"; fi
-  local testFilter="${1:-}"
+
+  # Parse args BEFORE configure_shell (set -u not yet active)
+  local testFilter=""
+  local logFile=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --log)    logFile="auto"; shift ;;
+      --log=*)  logFile="${1#--log=}"; shift ;;
+      --*)      shift ;;
+      *)
+        if [ -z "${testFilter}" ]; then
+          testFilter="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [ "${logFile}" == "auto" ]; then
+    logFile=$(_dsb_tf_auto_log_filename "tf-test" "")
+  fi
+
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
 
@@ -9811,9 +10027,9 @@ tf-test() {
   fi
 
   if [ -n "${testFilter}" ]; then
-    _dsb_tf_run_terraform_test "${testFilter}"
+    _dsb_tf_run_with_log "${logFile}" _dsb_tf_run_terraform_test "${testFilter}"
   else
-    _dsb_tf_run_terraform_test
+    _dsb_tf_run_with_log "${logFile}" _dsb_tf_run_terraform_test
   fi
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
@@ -9825,6 +10041,21 @@ tf-test() {
 
 tf-test-unit() {
   if [[ "${-}" == *e* ]]; then set +e; tf-test-unit "$@"; local rc=$?; set -e; return "${rc}"; fi
+
+  # Parse args BEFORE configure_shell (set -u not yet active)
+  local logFile=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --log)    logFile="auto"; shift ;;
+      --log=*)  logFile="${1#--log=}"; shift ;;
+      --*)      shift ;;
+      *)        shift ;;
+    esac
+  done
+  if [ "${logFile}" == "auto" ]; then
+    logFile=$(_dsb_tf_auto_log_filename "tf-test-unit" "")
+  fi
+
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
 
@@ -9842,7 +10073,7 @@ tf-test-unit() {
     unitFilters+=("$(basename "${_utFile}")")
   done
 
-  _dsb_tf_run_terraform_test "${unitFilters[@]}"
+  _dsb_tf_run_with_log "${logFile}" _dsb_tf_run_terraform_test "${unitFilters[@]}"
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
@@ -9853,7 +10084,27 @@ tf-test-unit() {
 
 tf-test-integration() {
   if [[ "${-}" == *e* ]]; then set +e; tf-test-integration "$@"; local rc=$?; set -e; return "${rc}"; fi
-  local testName="${1:-}"
+
+  # Parse args BEFORE configure_shell (set -u not yet active)
+  local testName=""
+  local logFile=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --log)    logFile="auto"; shift ;;
+      --log=*)  logFile="${1#--log=}"; shift ;;
+      --*)      shift ;;
+      *)
+        if [ -z "${testName}" ]; then
+          testName="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [ "${logFile}" == "auto" ]; then
+    logFile=$(_dsb_tf_auto_log_filename "tf-test-integration" "${testName}")
+  fi
+
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
 
@@ -9903,7 +10154,7 @@ tf-test-integration() {
     return 1
   fi
 
-  _dsb_tf_run_terraform_test "${testName}"
+  _dsb_tf_run_with_log "${logFile}" _dsb_tf_run_terraform_test "${testName}"
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
@@ -9914,6 +10165,21 @@ tf-test-integration() {
 
 tf-test-all-integrations() {
   if [[ "${-}" == *e* ]]; then set +e; tf-test-all-integrations "$@"; local rc=$?; set -e; return "${rc}"; fi
+
+  # Parse args BEFORE configure_shell (set -u not yet active)
+  local logFile=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --log)    logFile="auto"; shift ;;
+      --log=*)  logFile="${1#--log=}"; shift ;;
+      --*)      shift ;;
+      *)        shift ;;
+    esac
+  done
+  if [ "${logFile}" == "auto" ]; then
+    logFile=$(_dsb_tf_auto_log_filename "tf-test-all-integrations" "")
+  fi
+
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
 
@@ -9937,7 +10203,7 @@ tf-test-all-integrations() {
     integrationFilters+=("$(basename "${_itFile}")")
   done
 
-  _dsb_tf_run_terraform_test "${integrationFilters[@]}"
+  _dsb_tf_run_with_log "${logFile}" _dsb_tf_run_terraform_test "${integrationFilters[@]}"
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
@@ -9948,7 +10214,27 @@ tf-test-all-integrations() {
 
 tf-test-all-examples() {
   if [[ "${-}" == *e* ]]; then set +e; tf-test-all-examples "$@"; local rc=$?; set -e; return "${rc}"; fi
-  local exampleName="${1:-}"
+
+  # Parse args BEFORE configure_shell (set -u not yet active)
+  local exampleName=""
+  local logFile=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --log)    logFile="auto"; shift ;;
+      --log=*)  logFile="${1#--log=}"; shift ;;
+      --*)      shift ;;
+      *)
+        if [ -z "${exampleName}" ]; then
+          exampleName="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [ "${logFile}" == "auto" ]; then
+    logFile=$(_dsb_tf_auto_log_filename "tf-test-all-examples" "")
+  fi
+
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
 
@@ -9958,7 +10244,7 @@ tf-test-all-examples() {
     return 1
   fi
 
-  _dsb_tf_test_examples "${exampleName}"
+  _dsb_tf_run_with_log "${logFile}" _dsb_tf_test_examples "${exampleName}"
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
@@ -9969,7 +10255,27 @@ tf-test-all-examples() {
 
 tf-test-example() {
   if [[ "${-}" == *e* ]]; then set +e; tf-test-example "$@"; local rc=$?; set -e; return "${rc}"; fi
-  local exampleName="${1:-}"
+
+  # Parse args BEFORE configure_shell (set -u not yet active)
+  local exampleName=""
+  local logFile=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --log)    logFile="auto"; shift ;;
+      --log=*)  logFile="${1#--log=}"; shift ;;
+      --*)      shift ;;
+      *)
+        if [ -z "${exampleName}" ]; then
+          exampleName="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+  if [ "${logFile}" == "auto" ]; then
+    logFile=$(_dsb_tf_auto_log_filename "tf-test-example" "${exampleName}")
+  fi
+
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
 
@@ -9989,7 +10295,7 @@ tf-test-example() {
     return 1
   fi
 
-  _dsb_tf_test_examples "${exampleName}"
+  _dsb_tf_run_with_log "${logFile}" _dsb_tf_test_examples "${exampleName}"
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
