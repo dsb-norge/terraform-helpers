@@ -13,74 +13,74 @@ teardown() {
 }
 
 # ---------------------------------------------------------------------------
-# tf-unload removes functions
+# tf-unload-helpers removes functions
 # ---------------------------------------------------------------------------
 
-@test "tf-unload removes tf-help" {
+@test "tf-unload-helpers removes tf-help" {
   assert_function_exists "tf-help"
-  tf-unload
+  tf-unload-helpers
   assert_function_not_exists "tf-help"
 }
 
-@test "tf-unload removes _dsb_tf_configure_shell" {
+@test "tf-unload-helpers removes _dsb_tf_configure_shell" {
   assert_function_exists "_dsb_tf_configure_shell"
-  tf-unload
+  tf-unload-helpers
   assert_function_not_exists "_dsb_tf_configure_shell"
 }
 
-@test "tf-unload removes itself" {
-  assert_function_exists "tf-unload"
-  tf-unload
-  assert_function_not_exists "tf-unload"
+@test "tf-unload-helpers removes itself" {
+  assert_function_exists "tf-unload-helpers"
+  tf-unload-helpers
+  assert_function_not_exists "tf-unload-helpers"
 }
 
 # ---------------------------------------------------------------------------
-# tf-unload removes global variables
+# tf-unload-helpers removes global variables
 # ---------------------------------------------------------------------------
 
-@test "tf-unload unsets _dsbTfRepoType" {
+@test "tf-unload-helpers unsets _dsbTfRepoType" {
   [[ -n "${_dsbTfRepoType:-}" ]] || _dsbTfRepoType="project"
-  tf-unload
+  tf-unload-helpers
   [[ -z "${_dsbTfRepoType:-}" ]]
 }
 
-@test "tf-unload unsets _dsbTfRootDir" {
+@test "tf-unload-helpers unsets _dsbTfRootDir" {
   [[ -n "${_dsbTfRootDir:-}" ]] || _dsbTfRootDir="/tmp/test"
-  tf-unload
+  tf-unload-helpers
   [[ -z "${_dsbTfRootDir:-}" ]]
 }
 
 # ---------------------------------------------------------------------------
-# tf-unload removes tab completions
+# tf-unload-helpers removes tab completions
 # ---------------------------------------------------------------------------
 
-@test "tf-unload removes completion for tf-set-env" {
+@test "tf-unload-helpers removes completion for tf-set-env" {
   # Verify completion is registered before unload
   run complete -p tf-set-env
   assert_success
 
-  tf-unload
+  tf-unload-helpers
 
   run complete -p tf-set-env
   assert_failure
 }
 
-@test "tf-unload removes completion for tf-help" {
+@test "tf-unload-helpers removes completion for tf-help" {
   run complete -p tf-help
   assert_success
 
-  tf-unload
+  tf-unload-helpers
 
   run complete -p tf-help
   assert_failure
 }
 
 # ---------------------------------------------------------------------------
-# tf-unload prints confirmation
+# tf-unload-helpers prints confirmation
 # ---------------------------------------------------------------------------
 
-@test "tf-unload prints confirmation message" {
-  run tf-unload
+@test "tf-unload-helpers prints confirmation message" {
+  run tf-unload-helpers
   assert_success
   assert_output --partial "DSB Terraform Helpers unloaded."
 }

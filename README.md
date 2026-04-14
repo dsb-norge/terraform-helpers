@@ -6,7 +6,7 @@ Collection of helper scripts for Terraform projects and module repos.
 
 ### Overview
 
-`dsb-tf-proj-helpers.sh` is a collection of helper functions designed to streamline and automate various tasks in Terraform projects and module repositories. The script provides 63 user-facing commands and automatically detects whether it's running in a project repo or a module repo, adapting its behavior accordingly.
+`dsb-tf-proj-helpers.sh` is a collection of helper functions designed to streamline and automate various tasks in Terraform projects and module repositories. The script provides 79 user-facing commands and automatically detects whether it's running in a project repo or a module repo, adapting its behavior accordingly.
 
 Features include:
 - **Project repos**: Environment management, terraform init/validate/plan/apply, version bumping, linting, Azure CLI integration
