@@ -169,6 +169,29 @@ teardown() {
 }
 
 # ---------------------------------------------------------------------------
+# Offline commands work with broken Azure auth
+# ---------------------------------------------------------------------------
+
+@test "tf-bump-env-offline succeeds when Azure auth is broken" {
+  mock_az_not_logged_in
+  local out
+  out="$(tf-bump-env-offline dev 2>&1)" || true
+  local clean
+  clean="$(strip_ansi "${out}")"
+  [[ "${clean}" == *"dev"* ]]
+  [[ "${clean}" == *"offline"* ]]
+}
+
+@test "tf-bump-all-offline succeeds when Azure auth is broken" {
+  mock_az_not_logged_in
+  local out
+  out="$(tf-bump-all-offline 2>&1)" || true
+  local clean
+  clean="$(strip_ansi "${out}")"
+  [[ "${clean}" == *"dev"* ]]
+}
+
+# ---------------------------------------------------------------------------
 # tf-bump preserves shell state
 # ---------------------------------------------------------------------------
 @test "tf-bump preserves shell state" {
