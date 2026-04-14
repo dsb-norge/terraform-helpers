@@ -211,13 +211,78 @@ teardown() {
 }
 
 # ---------------------------------------------------------------------------
-# tf-install-helpers: process substitution fallback
+# tf-install-helpers: process substitution fallback (downloads from GitHub)
 # ---------------------------------------------------------------------------
 
-@test "tf-install-helpers fails gracefully when source path not available" {
+@test "tf-install-helpers downloads when source path not available and gh auth ok" {
   run bash -c '
     source "'"${HELPERS_DIR}/mock_helper.bash"'"
     mock_standard_tools
+    export HOME="'"${HOME}"'"
+    export SHELL="/bin/bash"
+    cd "'"$(pwd)"'"
+    source "'"${SUT}"'"
+    _dsbTfLogInfo=1; _dsbTfLogWarnings=0; _dsbTfLogErrors=0; _dsbTfLogDebug=0
+    _dsbTfScriptSourcePath=""
+    # Override gh mock to return script content via api
+    gh() {
+      case "$1" in
+        --version) echo "gh version 2.40.0"; return 0 ;;
+        auth) return 0 ;;
+        api) cat "'"${SUT}"'"; return 0 ;;
+      esac
+      return 1
+    }
+    export -f gh
+    echo "n" | tf-install-helpers
+  '
+  assert_success
+  assert_clean_output_contains "Downloading"
+  assert_clean_output_contains "gh cli"
+  [[ -f "${HOME}/.local/bin/dsb-tf-proj-helpers.sh" ]]
+}
+
+@test "tf-install-helpers downloads via curl when gh not available" {
+  run bash -c '
+    source "'"${HELPERS_DIR}/mock_helper.bash"'"
+    mock_standard_tools
+    mock_gh_not_installed
+    export HOME="'"${HOME}"'"
+    export SHELL="/bin/bash"
+    cd "'"$(pwd)"'"
+    source "'"${SUT}"'"
+    _dsbTfLogInfo=1; _dsbTfLogWarnings=0; _dsbTfLogErrors=0; _dsbTfLogDebug=0
+    _dsbTfScriptSourcePath=""
+    # Mock curl to handle -o flag
+    curl() {
+      local outFile=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          -o) outFile="$2"; shift 2 ;;
+          *)  shift ;;
+        esac
+      done
+      if [[ -n "${outFile}" ]]; then
+        cat "'"${SUT}"'" > "${outFile}"
+      else
+        cat "'"${SUT}"'"
+      fi
+    }
+    export -f curl
+    echo "n" | tf-install-helpers
+  '
+  assert_success
+  assert_clean_output_contains "Downloading"
+  assert_clean_output_contains "curl"
+  [[ -f "${HOME}/.local/bin/dsb-tf-proj-helpers.sh" ]]
+}
+
+@test "tf-install-helpers fails when no source and no download tools" {
+  run bash -c '
+    source "'"${HELPERS_DIR}/mock_helper.bash"'"
+    mock_standard_tools
+    mock_gh_not_installed
+    mock_curl_not_installed
     export HOME="'"${HOME}"'"
     export SHELL="/bin/bash"
     cd "'"$(pwd)"'"
@@ -227,7 +292,81 @@ teardown() {
     echo "n" | tf-install-helpers
   '
   assert_failure
-  assert_clean_output_contains "Cannot determine the script source path"
+}
+
+# ---------------------------------------------------------------------------
+# tf-install-helpers: branch override via DSB_TF_HELPERS_BRANCH
+# ---------------------------------------------------------------------------
+
+@test "tf-install-helpers uses branch from DSB_TF_HELPERS_BRANCH env var" {
+  run bash -c '
+    source "'"${HELPERS_DIR}/mock_helper.bash"'"
+    mock_standard_tools
+    export HOME="'"${HOME}"'"
+    export SHELL="/bin/bash"
+    export DSB_TF_HELPERS_BRANCH="my-feature-branch"
+    cd "'"$(pwd)"'"
+    source "'"${SUT}"'"
+    _dsbTfLogInfo=1; _dsbTfLogWarnings=0; _dsbTfLogErrors=0; _dsbTfLogDebug=0
+    _dsbTfScriptSourcePath=""
+    # Mock gh to verify the branch is passed correctly
+    gh() {
+      if [[ "$1" == "auth" ]]; then return 0; fi
+      if [[ "$1" == "api" ]]; then
+        # Check the URL contains the branch ref
+        for arg in "$@"; do
+          if [[ "${arg}" == *"ref=my-feature-branch"* ]]; then
+            cat "'"${SUT}"'"
+            return 0
+          fi
+        done
+        echo "ERROR: branch not in URL" >&2
+        return 1
+      fi
+      return 1
+    }
+    export -f gh
+    echo "n" | tf-install-helpers
+  '
+  assert_success
+  assert_clean_output_contains "my-feature-branch"
+}
+
+@test "tf-update-helpers uses branch from DSB_TF_HELPERS_BRANCH env var" {
+  run bash -c '
+    source "'"${HELPERS_DIR}/mock_helper.bash"'"
+    mock_standard_tools
+    export HOME="'"${HOME}"'"
+    export SHELL="/bin/bash"
+    cd "'"$(pwd)"'"
+    source "'"${SUT}"'"
+    _dsbTfLogInfo=1; _dsbTfLogWarnings=0; _dsbTfLogErrors=0; _dsbTfLogDebug=0
+    echo "n" | tf-install-helpers
+    # Now set the branch and update
+    export DSB_TF_HELPERS_BRANCH="other-branch"
+    # Override gh mock to verify branch in URL
+    gh() {
+      case "$1" in
+        --version) echo "gh version 2.40.0"; return 0 ;;
+        auth) return 0 ;;
+        api)
+          for arg in "$@"; do
+            if [[ "${arg}" == *"ref=other-branch"* ]]; then
+              cat "'"${SUT}"'"
+              return 0
+            fi
+          done
+          echo "ERROR: branch not in URL" >&2
+          return 1
+          ;;
+      esac
+      return 1
+    }
+    export -f gh
+    tf-update-helpers
+  '
+  assert_success
+  assert_clean_output_contains "other-branch"
 }
 
 # ---------------------------------------------------------------------------
@@ -395,22 +534,17 @@ teardown() {
     source "'"${SUT}"'"
     _dsbTfLogInfo=1; _dsbTfLogWarnings=0; _dsbTfLogErrors=0; _dsbTfLogDebug=0
     echo "n" | tf-install-helpers
-    # Mock curl to handle -o flag and copy the script content to the output file
-    curl() {
-      local outFile=""
-      while [[ $# -gt 0 ]]; do
-        case "$1" in
-          -o) outFile="$2"; shift 2 ;;
-          *)  shift ;;
-        esac
-      done
-      if [[ -n "${outFile}" ]]; then
-        cat "'"${SUT}"'" > "${outFile}"
-      else
+    # Mock gh api to return full script content for download
+    gh() {
+      if [[ "$1" == "auth" ]]; then return 0; fi
+      if [[ "$1" == "--version" ]]; then echo "gh version 2.40.0"; return 0; fi
+      if [[ "$1" == "api" ]]; then
         cat "'"${SUT}"'"
+        return 0
       fi
+      return 1
     }
-    export -f curl
+    export -f gh
     tf-update-helpers
   '
   assert_success
