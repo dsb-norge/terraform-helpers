@@ -111,6 +111,28 @@ teardown() {
   [[ -f "${HOME}/.local/bin/dsb-tf-proj-helpers.sh" ]]
 }
 
+@test "tf-install-helpers succeeds when sourced from the installed location" {
+  # This reproduces the bug: source from install path, then run tf-install-helpers.
+  # cp fails when source and destination are the same file.
+  run bash -c '
+    source "'"${HELPERS_DIR}/mock_helper.bash"'"
+    mock_standard_tools
+    export HOME="'"${HOME}"'"
+    export SHELL="/bin/bash"
+    cd "'"$(pwd)"'"
+    # First install normally
+    source "'"${SUT}"'"
+    _dsbTfLogInfo=0; _dsbTfLogWarnings=0; _dsbTfLogErrors=0; _dsbTfLogDebug=0
+    echo "n" | tf-install-helpers
+    # Now re-source from the installed location (simulates tf-load-helpers)
+    source "${HOME}/.local/bin/dsb-tf-proj-helpers.sh"
+    _dsbTfLogInfo=0; _dsbTfLogWarnings=0; _dsbTfLogErrors=1; _dsbTfLogDebug=0
+    # This should succeed even though source == destination
+    echo "n" | tf-install-helpers
+  '
+  assert_success
+}
+
 # ---------------------------------------------------------------------------
 # tf-install-helpers: shell profile alias
 # ---------------------------------------------------------------------------
