@@ -1094,21 +1094,21 @@ _dsb_tf_help_help() {
     _dsb_i "  tf-versions              -> Show comprehensive version information"
   else
     _dsb_i "Common Commands:"
-    _dsb_i "  tf-status        -> Show status of tools, authentication, and environment"
-    _dsb_i "  az-relog          -> Azure re-login"
-    _dsb_i "  tf-set-env [env]  -> Set environment"
-    _dsb_i "  tf-init           -> Initialize Terraform project"
-    _dsb_i "  tf-init-offline   -> Initialize Terraform project, without backend"
-    _dsb_i "  tf-upgrade        -> Upgrade Terraform dependencies (within existing version constraints)"
-    _dsb_i "  tf-fmt-fix        -> Run syntax check and fix recursively from current directory"
-    _dsb_i "  tf-validate       -> Make Terraform validate the project"
-    _dsb_i "  tf-plan           -> Make Terraform create a plan"
-    _dsb_i "  tf-apply          -> Make Terraform apply changes"
-    _dsb_i "  tf-lint           -> Run tflint"
+    _dsb_i "  tf-status           -> Show status of tools, authentication, and environment"
+    _dsb_i "  az-relog            -> Azure re-login"
+    _dsb_i "  tf-set-env [env]    -> Set environment"
+    _dsb_i "  tf-init             -> Initialize Terraform project"
+    _dsb_i "  tf-init-offline     -> Initialize Terraform project, without backend"
+    _dsb_i "  tf-upgrade          -> Upgrade Terraform dependencies (within existing version constraints)"
+    _dsb_i "  tf-fmt-fix          -> Run syntax check and fix recursively from current directory"
+    _dsb_i "  tf-validate         -> Make Terraform validate the project"
+    _dsb_i "  tf-plan             -> Make Terraform create a plan"
+    _dsb_i "  tf-apply            -> Make Terraform apply changes"
+    _dsb_i "  tf-lint             -> Run tflint"
   fi
   _dsb_i ""
   _dsb_i "Setup:"
-  _dsb_i "  tf-help setup      -> Install, update, and manage the helpers locally"
+  _dsb_i "  tf-help setup       -> Install, update, and manage the helpers locally"
   _dsb_i ""
   _dsb_i "Note:"
   _dsb_i "  tf-help supports tab completion for available arguments,"
@@ -1345,10 +1345,17 @@ _dsb_tf_help_group_setup() {
   _dsb_i ""
   _dsb_i "  Notes:"
   _dsb_i "    - tf-install-helpers copies the script to ~/.local/bin and makes it executable."
+  _dsb_i "    - If loaded via process substitution, it downloads from GitHub automatically."
+  _dsb_i "    - Downloads prefer gh cli (authenticated) with curl as fallback."
   _dsb_i "    - It optionally adds a tf-load-helpers alias to your shell profile (.bashrc/.zshrc)."
   _dsb_i "    - Running tf-install-helpers multiple times is safe (idempotent)."
   _dsb_i "    - tf-update-helpers downloads the latest version from GitHub."
   _dsb_i "    - tf-reload-helpers is useful after debugging or to reset all internal state."
+  _dsb_i ""
+  _dsb_i "  Feature branch testing:"
+  _dsb_i "    Set DSB_TF_HELPERS_BRANCH to download from a specific branch:"
+  _dsb_i "      export DSB_TF_HELPERS_BRANCH=my-feature-branch"
+  _dsb_i "      tf-install-helpers   # or tf-update-helpers"
 }
 
 _dsb_tf_help_commands() {
@@ -2147,15 +2154,17 @@ _dsb_tf_help_specific_command() {
     _dsb_i "tf-install-helpers:"
     _dsb_i "  Install the helpers script locally to ~/.local/bin."
     _dsb_i ""
-    _dsb_i "  Copies the currently loaded script to ~/.local/bin/dsb-tf-proj-helpers.sh"
-    _dsb_i "  and makes it executable."
+    _dsb_i "  If sourced from a file, copies it to ~/.local/bin/dsb-tf-proj-helpers.sh."
+    _dsb_i "  If loaded via process substitution (source <(curl ...)), downloads the"
+    _dsb_i "  script from GitHub using gh cli (preferred) or curl (fallback)."
     _dsb_i "  Optionally adds a 'tf-load-helpers' alias to your shell profile"
     _dsb_i "  (.bashrc or .zshrc) so you can load the helpers by typing: tf-load-helpers"
     _dsb_i ""
     _dsb_i "  Safe to run multiple times (idempotent -- no duplicate alias entries)."
-    _dsb_i "  Note: requires the script to have been sourced from a file."
-    _dsb_i "  If loaded via process substitution (source <(curl ...)), use tf-update-helpers"
-    _dsb_i "  after installing to get the latest version."
+    _dsb_i ""
+    _dsb_i "  Set DSB_TF_HELPERS_BRANCH to download from a feature branch:"
+    _dsb_i "    export DSB_TF_HELPERS_BRANCH=my-feature-branch"
+    _dsb_i "    tf-install-helpers"
     _dsb_i ""
     _dsb_i "  Related commands: tf-uninstall-helpers, tf-update-helpers, tf-reload-helpers."
     ;;
@@ -2172,9 +2181,13 @@ _dsb_tf_help_specific_command() {
     _dsb_i "tf-update-helpers:"
     _dsb_i "  Download the latest version and reload the helpers."
     _dsb_i ""
-    _dsb_i "  Downloads the latest script from GitHub, replaces the local copy,"
-    _dsb_i "  and re-sources it. Requires the helpers to be installed locally first."
-    _dsb_i "  Requires curl to be available."
+    _dsb_i "  Downloads the latest script from GitHub using gh cli (preferred) or"
+    _dsb_i "  curl (fallback), replaces the local copy, and re-sources it."
+    _dsb_i "  Requires the helpers to be installed locally first."
+    _dsb_i ""
+    _dsb_i "  Set DSB_TF_HELPERS_BRANCH to download from a feature branch:"
+    _dsb_i "    export DSB_TF_HELPERS_BRANCH=my-feature-branch"
+    _dsb_i "    tf-update-helpers"
     _dsb_i ""
     _dsb_i "  Related commands: tf-install-helpers, tf-reload-helpers."
     ;;
@@ -9101,7 +9114,7 @@ _dsb_tf_versions_project() {
 # Constants for setup commands (HOME-dependent paths are computed at call time via functions)
 _DSB_TF_INSTALL_FILENAME="dsb-tf-proj-helpers.sh"
 _DSB_TF_PROFILE_MARKER="# dsb-terraform-helpers"
-_DSB_TF_SOURCE_URL="https://raw.githubusercontent.com/dsb-norge/terraform-helpers/main/dsb-tf-proj-helpers.sh"
+_DSB_TF_GH_REPO="dsb-norge/terraform-helpers"
 
 # what:
 #   get the install directory path (computed at call time to respect current HOME)
@@ -9190,26 +9203,73 @@ _dsb_tf_remove_shell_alias() {
 }
 
 # what:
+#   get the branch to use for downloading the script
+#   respects DSB_TF_HELPERS_BRANCH env var for feature branch testing
+# output:
+#   prints the branch name
+_dsb_tf_get_download_branch() {
+  echo "${DSB_TF_HELPERS_BRANCH:-main}"
+}
+
+# what:
+#   download the script from GitHub to a target file
+#   prefers gh cli (authenticated) over curl (public, may be rate-limited)
+#   respects DSB_TF_HELPERS_BRANCH env var for branch override
+# input:
+#   $1 : target file path to write the downloaded script to
+# returns:
+#   0 on success, 1 on failure
+_dsb_tf_download_script_to_file() {
+  local targetFile="${1}"
+  local branch
+  branch="$(_dsb_tf_get_download_branch)"
+
+  local branchInfo=""
+  if [[ "${branch}" != "main" ]]; then
+    branchInfo=" (branch: ${branch})"
+  fi
+
+  # Try gh cli first (authenticated, no rate limiting)
+  if _dsbTfLogErrors=0 _dsb_tf_check_gh_cli &>/dev/null && gh auth status &>/dev/null; then
+    local ghApiUrl="/repos/${_DSB_TF_GH_REPO}/contents/${_DSB_TF_INSTALL_FILENAME}?ref=${branch}"
+    _dsb_i "Downloading via gh cli${branchInfo} ..."
+    if gh api -H "Accept: application/vnd.github.v3.raw" "${ghApiUrl}" > "${targetFile}" 2>/dev/null; then
+      if [[ -s "${targetFile}" ]]; then
+        return 0
+      fi
+    fi
+    rm -f "${targetFile}" 2>/dev/null || :
+    _dsb_w "gh cli download failed, trying curl ..."
+  fi
+
+  # Fallback to curl (public endpoint, may be rate-limited)
+  if command -v curl &>/dev/null; then
+    local curlUrl="https://raw.githubusercontent.com/${_DSB_TF_GH_REPO}/${branch}/${_DSB_TF_INSTALL_FILENAME}"
+    _dsb_i "Downloading via curl${branchInfo} ..."
+    if curl -fsSL "${curlUrl}" -o "${targetFile}" 2>/dev/null; then
+      if [[ -s "${targetFile}" ]]; then
+        return 0
+      fi
+    fi
+    rm -f "${targetFile}" 2>/dev/null || :
+    _dsb_e "curl download failed from: ${curlUrl}"
+  fi
+
+  _dsb_e "Failed to download script. Neither gh cli nor curl succeeded."
+  _dsb_tf_error_push "download failed"
+  return 1
+}
+
+# what:
 #   install the script to ~/.local/bin
 # input:
-#   none (uses _dsbTfScriptSourcePath to locate the running script)
+#   none (uses _dsbTfScriptSourcePath to locate the running script, or downloads if not available)
 # returns:
 #   0 on success, 1 on failure
 _dsb_tf_install_script() {
   local installDir installPath
   installDir="$(_dsb_tf_get_install_dir)"
   installPath="$(_dsb_tf_get_install_path)"
-
-  # Determine the source file to copy from
-  local sourceFile="${_dsbTfScriptSourcePath:-}"
-  if [[ -z "${sourceFile}" ]] || [[ ! -f "${sourceFile}" ]]; then
-    # Fallback: if we don't have a source file path, we can't install
-    _dsb_e "Cannot determine the script source path."
-    _dsb_e "The script may have been loaded via process substitution (source <(curl ...))."
-    _dsb_e "Try downloading the script first, then source it from the file."
-    _dsb_tf_error_push "script source path not available"
-    return 1
-  fi
 
   # Create install directory
   mkdir -p "${installDir}" 2>/dev/null
@@ -9219,11 +9279,21 @@ _dsb_tf_install_script() {
     return 1
   fi
 
-  # Copy the script
-  if ! cp "${sourceFile}" "${installPath}"; then
-    _dsb_e "Failed to copy script to ${installPath}"
-    _dsb_tf_error_push "failed to copy script"
-    return 1
+  # Determine the source: local file or download
+  local sourceFile="${_dsbTfScriptSourcePath:-}"
+  if [[ -n "${sourceFile}" ]] && [[ -f "${sourceFile}" ]]; then
+    # Copy from the locally available source file
+    if ! cp "${sourceFile}" "${installPath}"; then
+      _dsb_e "Failed to copy script to ${installPath}"
+      _dsb_tf_error_push "failed to copy script"
+      return 1
+    fi
+  else
+    # No local source (loaded via process substitution) -- download from GitHub
+    _dsb_i "Script was loaded via process substitution, downloading from GitHub ..."
+    if ! _dsb_tf_download_script_to_file "${installPath}"; then
+      return 1
+    fi
   fi
 
   # Make executable
@@ -9250,30 +9320,10 @@ _dsb_tf_download_latest_script() {
     return 1
   fi
 
-  # Check curl is available
-  if ! command -v curl &>/dev/null; then
-    _dsb_e "curl is required but not installed."
-    _dsb_tf_error_push "curl not available"
-    return 1
-  fi
-
-  _dsb_i "Downloading latest version from:"
-  _dsb_i "  ${_DSB_TF_SOURCE_URL}"
-
   # Download to a temp file first, then replace
   local tmpFile="${installPath}.tmp"
-  if ! curl -fsSL "${_DSB_TF_SOURCE_URL}" -o "${tmpFile}" 2>/dev/null; then
+  if ! _dsb_tf_download_script_to_file "${tmpFile}"; then
     rm -f "${tmpFile}" 2>/dev/null || :
-    _dsb_e "Failed to download script from ${_DSB_TF_SOURCE_URL}"
-    _dsb_tf_error_push "download failed"
-    return 1
-  fi
-
-  # Verify the download is not empty and looks like our script
-  if [[ ! -s "${tmpFile}" ]]; then
-    rm -f "${tmpFile}" 2>/dev/null || :
-    _dsb_e "Downloaded file is empty."
-    _dsb_tf_error_push "downloaded file is empty"
     return 1
   fi
 
@@ -10879,7 +10929,7 @@ tf-unload-helpers() {
   unset -v _dsbTfErrorStack 2>/dev/null || :
 
   # Remove setup constants
-  unset -v _DSB_TF_INSTALL_FILENAME _DSB_TF_PROFILE_MARKER _DSB_TF_SOURCE_URL 2>/dev/null || :
+  unset -v _DSB_TF_INSTALL_FILENAME _DSB_TF_PROFILE_MARKER _DSB_TF_GH_REPO 2>/dev/null || :
 
   # Remove ARM_SUBSCRIPTION_ID if we set it
   unset ARM_SUBSCRIPTION_ID 2>/dev/null || :
