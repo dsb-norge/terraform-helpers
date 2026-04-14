@@ -4792,12 +4792,6 @@ _dsb_tf_az_select_sub() {
 ###################################################################################################
 
 # what:
-#   preflight checks for terraform operations functions
-#   checks if terraform is installed
-#   selects the given environment
-#   checks if the selected environment is valid
-#   sets the subscription to the selected environment
-# what:
 #   validate an environment exists and set globals, without touching Azure
 #   used by offline code paths that need env info but not subscription
 # input:
@@ -4834,6 +4828,12 @@ _dsb_tf_set_env_offline() {
   return 0
 }
 
+# what:
+#   preflight checks for terraform operations functions
+#   checks if terraform is installed
+#   selects the given environment
+#   checks if the selected environment is valid
+#   sets the subscription to the selected environment
 # input:
 #   $1: environment name
 #   $2: if we are in offline mode (optional, defaults to 0)
@@ -5861,12 +5861,8 @@ _dsb_tf_run_tflint() {
     githubAuthAvailable=0
   fi
 
-  # leverage _dsb_tf_set_env, this enumerates directories and validates the environment
-  _dsbTfLogInfo=1 _dsbTfLogErrors=0 _dsb_tf_set_env "${selectedEnv}"
-  # shellcheck disable=SC2181 # inline var assignment requires $?
-  if [ $? -ne 0 ]; then
-    _dsb_e "Failed to set environment '${selectedEnv}'."
-    _dsb_e "  please run 'tf-check-env ${selectedEnv}'"
+  # validate the environment (linting is local, does not need Azure)
+  if ! _dsb_tf_set_env_offline "${selectedEnv}"; then
     return 1
   fi
 

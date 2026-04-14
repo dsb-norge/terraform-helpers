@@ -28,6 +28,13 @@ teardown() {
   assert_success
 }
 
+@test "tf-lint succeeds when Azure auth is broken" {
+  mock_az_not_logged_in
+  mock_gh
+  run tf-lint "dev"
+  assert_success
+}
+
 @test "tflint wrapper is downloaded if missing" {
   mock_az
   mock_gh
