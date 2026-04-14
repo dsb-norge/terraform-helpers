@@ -4797,6 +4797,43 @@ _dsb_tf_az_select_sub() {
 #   selects the given environment
 #   checks if the selected environment is valid
 #   sets the subscription to the selected environment
+# what:
+#   validate an environment exists and set globals, without touching Azure
+#   used by offline code paths that need env info but not subscription
+# input:
+#   $1: environment name
+# returns:
+#   0 on success, 1 on failure
+_dsb_tf_set_env_offline() {
+  local envToSet="${1:-}"
+
+  if [ -z "${envToSet}" ]; then
+    _dsb_e "No environment specified."
+    _dsb_tf_error_push "no environment specified"
+    return 1
+  fi
+
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  # shellcheck disable=SC2181 # inline var assignment requires $?
+  if [ $? -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    _dsb_tf_error_push "directory check failed"
+    return 1
+  fi
+
+  if ! _dsb_tf_look_for_env "${envToSet}"; then
+    _dsb_e "Environment '${envToSet}' not found."
+    _dsb_tf_error_push "environment '${envToSet}' not found"
+    return 1
+  fi
+
+  _dsbTfSelectedEnv="${envToSet}"
+  _dsbTfSelectedEnvDir="${_dsbTfEnvsDirList["${envToSet}"]}"
+  _dsb_i "Selected environment: ${_dsbTfSelectedEnv} (offline mode, skipping Azure)"
+
+  return 0
+}
+
 # input:
 #   $1: environment name
 #   $2: if we are in offline mode (optional, defaults to 0)
@@ -4826,21 +4863,10 @@ _dsb_tf_terraform_preflight() {
   fi
 
   if [ "${offlineInit}" -eq 1 ]; then
-    # Offline: validate the environment exists and set globals, but skip Azure subscription
-    _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
-    # shellcheck disable=SC2181 # inline var assignment requires $?
-    if [ $? -ne 0 ]; then
-      _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    # Offline: validate the environment exists and set globals, skip Azure
+    if ! _dsb_tf_set_env_offline "${selectedEnv}"; then
       return 1
     fi
-    if ! _dsb_tf_look_for_env "${selectedEnv}"; then
-      _dsb_e "Environment '${selectedEnv}' not found."
-      _dsb_tf_error_push "environment not found"
-      return 1
-    fi
-    _dsbTfSelectedEnv="${selectedEnv}"
-    _dsbTfSelectedEnvDir="${_dsbTfEnvsDirList["${selectedEnv}"]}"
-    _dsb_i "Selected environment: ${_dsbTfSelectedEnv} (offline mode, skipping Azure)"
   else
     # Online: full environment setup including Azure subscription
     _dsbTfLogInfo=1 _dsbTfLogErrors=0 _dsb_tf_set_env "${selectedEnv}"
@@ -7482,25 +7508,31 @@ _dsb_tf_bump_an_env() {
   local initStatus=0
   local listStatus=0
 
-  # leverage _dsb_tf_set_env, this validates the environment and sets the subscription
-  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${givenEnv}"; then
+  # validate the environment and set globals (offline-aware)
+  if [ "${offlineInit}" -eq 1 ]; then
+    if ! _dsb_tf_set_env_offline "${givenEnv}"; then
       return 1
-    else
-    local envDir="${_dsbTfSelectedEnvDir}" # available thanks to _dsb_tf_set_env
-    _dsb_d "    envDir: ${envDir}"
-
-    # terraform init -upgrade the project
-    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_init 1 0 "${offlineInit}" "${givenEnv}"; then # $1 = 1 means do -upgrade, $2 = 0 means do not unset the selected environment, $3 = with/without backend
-      _dsb_d "Failed to upgrade the environment '${givenEnv}' with non-zero exit code."
-      initStatus=1
     fi
-
-    # show latest available provider versions and locked versions in the project
-    if ! _dsb_tf_list_available_terraform_provider_upgrades_for_env; then # uses the selected environment
-      _dsb_d "Failed to list available provider upgrades for environment '${givenEnv}' with non-zero exit code."
-      _dsb_d "  returnCode: ${returnCode}"
-      listStatus=1
+  else
+    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${givenEnv}"; then
+      return 1
     fi
+  fi
+
+  local envDir="${_dsbTfSelectedEnvDir}"
+  _dsb_d "    envDir: ${envDir}"
+
+  # terraform init -upgrade the project
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_init 1 0 "${offlineInit}" "${givenEnv}"; then # $1 = 1 means do -upgrade, $2 = 0 means do not unset the selected environment, $3 = with/without backend
+    _dsb_d "Failed to upgrade the environment '${givenEnv}' with non-zero exit code."
+    initStatus=1
+  fi
+
+  # show latest available provider versions and locked versions in the project
+  if ! _dsb_tf_list_available_terraform_provider_upgrades_for_env; then # uses the selected environment
+    _dsb_d "Failed to list available provider upgrades for environment '${givenEnv}' with non-zero exit code."
+    _dsb_d "  returnCode: ${returnCode}"
+    listStatus=1
   fi
 
   # Use proper arithmetic instead of += which would do string concatenation (e.g. "0" + "1" = "01" not 1)
@@ -7567,11 +7599,16 @@ _dsb_tf_bump_the_project() {
     _dsb_e "  or try running 'tf-check-dir' to verify the directory structure"
     return 1
   elif [ "${envCount}" -eq 1 ] && [ -n "${givenEnv}" ]; then # a single environment was explicitly specified
-
-    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${givenEnv}"; then
-      _dsb_d "Failed to set environment '${givenEnv}'."
-      _dsb_e "  please run 'tf-check-env ${givenEnv}' for more information."
-      return 1
+    if [ "${offlineInit}" -eq 1 ]; then
+      if ! _dsb_tf_set_env_offline "${givenEnv}"; then
+        return 1
+      fi
+    else
+      if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${givenEnv}"; then
+        _dsb_d "Failed to set environment '${givenEnv}'."
+        _dsb_e "  please run 'tf-check-env ${givenEnv}' for more information."
+        return 1
+      fi
     fi
   fi
 
@@ -7614,13 +7651,26 @@ _dsb_tf_bump_the_project() {
     _dsb_i "Bump environment: ${envName}"
     _dsb_i ""
 
-    # leverage _dsb_tf_set_env, this validates the environment and sets the subscription
-    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${envName}"; then
-      _dsb_e "  unable to set environment '${envName}', upgrade skipped."
-      _dsb_e "  please run 'tf-check-env ${envName}' for more information."
-      ((preflightStatus += 1))
+    # validate the environment and set globals (offline-aware)
+    local _setEnvOk=0
+    if [ "${offlineInit}" -eq 1 ]; then
+      if ! _dsb_tf_set_env_offline "${envName}"; then
+        _dsb_e "  unable to set environment '${envName}', upgrade skipped."
+        ((preflightStatus += 1))
+      else
+        _setEnvOk=1
+      fi
     else
-      local envDir="${_dsbTfSelectedEnvDir}" # available thanks to _dsb_tf_set_env
+      if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${envName}"; then
+        _dsb_e "  unable to set environment '${envName}', upgrade skipped."
+        _dsb_e "  please run 'tf-check-env ${envName}' for more information."
+        ((preflightStatus += 1))
+      else
+        _setEnvOk=1
+      fi
+    fi
+    if [ "${_setEnvOk}" -eq 1 ]; then
+      local envDir="${_dsbTfSelectedEnvDir}"
       _dsb_d "    envDir: ${envDir}"
 
       # terraform init -upgrade the project
