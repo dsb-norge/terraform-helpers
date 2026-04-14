@@ -198,6 +198,10 @@ declare -ga _dsbTfTestFilesList                  # Indexed array, all .tftest.hc
 declare -ga _dsbTfUnitTestFilesList              # Indexed array, unit-*.tftest.hcl files (module repos)
 declare -ga _dsbTfIntegrationTestFilesList       # Indexed array, integration-*.tftest.hcl files (module repos)
 
+# Setup/install support
+declare -g _dsbTfInstallDir=""                   # path where script is installed locally (e.g., ~/.local/bin)
+declare -g _dsbTfScriptSourcePath=""             # path to the currently running script (BASH_SOURCE at source time)
+
 ###################################################################################################
 #
 # Utility functions: logging
@@ -954,8 +958,12 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-docs-all-examples"
     "tf-docs-example"
     "tf-docs-all"
-    # general
-    "tf-unload"
+    # setup
+    "tf-install-helpers"
+    "tf-uninstall-helpers"
+    "tf-update-helpers"
+    "tf-reload-helpers"
+    "tf-unload-helpers"
   )
   echo "${commands[@]}"
 }
@@ -977,6 +985,7 @@ _dsb_tf_help_enumerate_supported_topics() {
     "testing"
     "docs"
     "flags"
+    "setup"
   )
   local -a validCommands
   mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
@@ -1031,6 +1040,9 @@ _dsb_tf_help() {
   flags)
     _dsb_tf_help_group_flags
     ;;
+  setup)
+    _dsb_tf_help_group_setup
+    ;;
   *)
     local -a validCommands
     mapfile -t validCommands < <(_dsb_tf_help_get_commands_supported_by_help)
@@ -1055,34 +1067,34 @@ _dsb_tf_help_help() {
   _dsb_i "  Below are commands for getting help with groups or specific commands."
   _dsb_i ""
   _dsb_i "General Help:"
-  _dsb_i "  tf-help groups    -> show all command groups"
-  _dsb_i "  tf-help [group]   -> show help for a specific command group"
-  _dsb_i "  tf-help commands  -> show all commands"
-  _dsb_i "  tf-help [command] -> show help for a specific command"
-  _dsb_i "  tf-help all       -> show all help"
+  _dsb_i "  tf-help groups     -> Show all command groups"
+  _dsb_i "  tf-help [group]    -> Show help for a specific command group"
+  _dsb_i "  tf-help commands   -> Show all commands"
+  _dsb_i "  tf-help [command]  -> Show help for a specific command"
+  _dsb_i "  tf-help all        -> Show all help"
   _dsb_i ""
   if [ "${_dsbTfRepoType:-}" == "module" ]; then
     _dsb_i "Common Commands (module repo):"
-    _dsb_i "  tf-status             -> Show status of tools, authentication, and module structure"
-    _dsb_i "  tf-init               -> Initialize Terraform module at root"
-    _dsb_i "  tf-init-all           -> Initialize module root and all examples"
-    _dsb_i "  tf-validate           -> Validate Terraform module at root"
-    _dsb_i "  tf-validate-all       -> Validate module root and all examples"
-    _dsb_i "  tf-lint               -> Run tflint at root"
-    _dsb_i "  tf-lint-all           -> Lint module root and all examples"
-    _dsb_i "  tf-fmt-fix            -> Run syntax check and fix recursively from current directory"
-    _dsb_i "  tf-upgrade            -> Upgrade Terraform dependencies at root"
-    _dsb_i "  tf-bump               -> All-in-one bump (modules, tflint plugins, cicd, providers)"
-    _dsb_i "  tf-clean              -> Remove .terraform and .terraform.lock.hcl files"
-    _dsb_i "  tf-init-all-examples      -> Initialize example directories"
-    _dsb_i "  tf-validate-all-examples  -> Validate example directories"
-    _dsb_i "  tf-test-unit          -> Run unit tests"
+    _dsb_i "  tf-status                -> Show status of tools, authentication, and module structure"
+    _dsb_i "  tf-init                  -> Initialize Terraform module at root"
+    _dsb_i "  tf-init-all              -> Initialize module root and all examples"
+    _dsb_i "  tf-validate              -> Validate Terraform module at root"
+    _dsb_i "  tf-validate-all          -> Validate module root and all examples"
+    _dsb_i "  tf-lint                  -> Run tflint at root"
+    _dsb_i "  tf-lint-all              -> Lint module root and all examples"
+    _dsb_i "  tf-fmt-fix               -> Run syntax check and fix recursively from current directory"
+    _dsb_i "  tf-upgrade               -> Upgrade Terraform dependencies at root"
+    _dsb_i "  tf-bump                  -> All-in-one bump (modules, tflint plugins, cicd, providers)"
+    _dsb_i "  tf-clean                 -> Remove .terraform and .terraform.lock.hcl files"
+    _dsb_i "  tf-init-all-examples     -> Initialize example directories"
+    _dsb_i "  tf-validate-all-examples -> Validate example directories"
+    _dsb_i "  tf-test-unit             -> Run unit tests"
     _dsb_i "  tf-test-all-integrations -> Run all integration tests (requires Azure)"
-    _dsb_i "  tf-docs-all           -> Generate documentation for root and examples"
-    _dsb_i "  tf-versions           -> Show comprehensive version information"
+    _dsb_i "  tf-docs-all              -> Generate documentation for root and examples"
+    _dsb_i "  tf-versions              -> Show comprehensive version information"
   else
     _dsb_i "Common Commands:"
-    _dsb_i "  tf-status         -> Show status of tools, authentication, and environment"
+    _dsb_i "  tf-status        -> Show status of tools, authentication, and environment"
     _dsb_i "  az-relog          -> Azure re-login"
     _dsb_i "  tf-set-env [env]  -> Set environment"
     _dsb_i "  tf-init           -> Initialize Terraform project"
@@ -1095,7 +1107,10 @@ _dsb_tf_help_help() {
     _dsb_i "  tf-lint           -> Run tflint"
   fi
   _dsb_i ""
-  _dsb_i "Note: "
+  _dsb_i "Setup:"
+  _dsb_i "  tf-help setup      -> Install, update, and manage the helpers locally"
+  _dsb_i ""
+  _dsb_i "Note:"
   _dsb_i "  tf-help supports tab completion for available arguments,"
   _dsb_i "  simply add a space after the tf-help command and press tab."
 }
@@ -1113,6 +1128,7 @@ _dsb_tf_help_groups() {
     _dsb_i "  testing       -> Terraform test commands (module repo)"
     _dsb_i "  docs          -> Documentation generation commands (module repo)"
     _dsb_i "  flags         -> Flags supported by commands (--log, terraform passthrough)"
+    _dsb_i "  setup         -> Install, update, and manage the helpers"
   else
     # Project repos: no examples, testing, or docs groups
     _dsb_i "  environments  -> Environment related commands"
@@ -1123,6 +1139,7 @@ _dsb_tf_help_groups() {
     _dsb_i "  azure         -> Azure related commands"
     _dsb_i "  offline       -> Commands for working without access to remote state"
     _dsb_i "  flags         -> Flags supported by commands (--log, terraform passthrough)"
+    _dsb_i "  setup         -> Install, update, and manage the helpers"
   fi
   _dsb_i "  all           -> All help"
   _dsb_i ""
@@ -1152,10 +1169,9 @@ _dsb_tf_help_group_general() {
   _dsb_i "  General Commands:"
   _dsb_i "    tf-status             -> Show status of tools, authentication, and environment"
   _dsb_i "    tf-lint [env]         -> Run tflint for the selected or given environment"
-  _dsb_i "    tf-clean              -> Look for an delete '.terraform' directories"
+  _dsb_i "    tf-clean              -> Look for and delete '.terraform' directories"
   _dsb_i "    tf-clean-tflint       -> Look for and delete '.tflint' directories"
   _dsb_i "    tf-clean-all          -> Look for and delete both '.terraform' and '.tflint' directories"
-  _dsb_i "    tf-unload             -> Completely remove all helpers from the shell"
 }
 
 _dsb_tf_help_group_azure() {
@@ -1311,6 +1327,30 @@ _dsb_tf_help_group_flags() {
   _dsb_i "  For more details, see help for the specific command: tf-help <command>"
 }
 
+_dsb_tf_help_group_setup() {
+  _dsb_i "  Setup Commands:"
+  _dsb_i "    tf-install-helpers     -> Install the helpers script locally (~/.local/bin)"
+  _dsb_i "    tf-uninstall-helpers   -> Remove the installed script and shell alias"
+  _dsb_i "    tf-update-helpers      -> Download the latest version and reload"
+  _dsb_i "    tf-reload-helpers      -> Reload helpers from local copy (resets shell state)"
+  _dsb_i "    tf-unload-helpers      -> Completely remove all helpers from the current shell"
+  _dsb_i ""
+  _dsb_i "  Workflow:"
+  _dsb_i "    1. tf-install-helpers   Install and optionally add tf-load-helpers alias"
+  _dsb_i "    2. tf-load-helpers      Load helpers in a new shell (alias in .bashrc/.zshrc)"
+  _dsb_i "    3. tf-update-helpers    Check for updates and reload"
+  _dsb_i "    4. tf-reload-helpers    Reload from local copy to reset state"
+  _dsb_i "    5. tf-unload-helpers    Remove helpers from the current session"
+  _dsb_i "    6. tf-uninstall-helpers Remove the script and shell alias entirely"
+  _dsb_i ""
+  _dsb_i "  Notes:"
+  _dsb_i "    - tf-install-helpers copies the script to ~/.local/bin and makes it executable."
+  _dsb_i "    - It optionally adds a tf-load-helpers alias to your shell profile (.bashrc/.zshrc)."
+  _dsb_i "    - Running tf-install-helpers multiple times is safe (idempotent)."
+  _dsb_i "    - tf-update-helpers downloads the latest version from GitHub."
+  _dsb_i "    - tf-reload-helpers is useful after debugging or to reset all internal state."
+}
+
 _dsb_tf_help_commands() {
   _dsb_i "DSB Terraform Project Helpers 🚀"
   _dsb_i ""
@@ -1358,6 +1398,8 @@ _dsb_tf_help_commands() {
     _dsb_tf_help_group_azure
     _dsb_i ""
     _dsb_i "  Note: Environment commands (tf-set-env, tf-list-envs, etc.) are not available in module repos."
+    _dsb_i ""
+    _dsb_tf_help_group_setup
   else
     _dsb_i "All available commands:"
     _dsb_i ""
@@ -1372,6 +1414,8 @@ _dsb_tf_help_commands() {
     _dsb_tf_help_group_general
     _dsb_i ""
     _dsb_tf_help_group_azure
+    _dsb_i ""
+    _dsb_tf_help_group_setup
   fi
   _dsb_i ""
 }
@@ -1380,6 +1424,8 @@ _dsb_tf_help_all() {
   _dsb_tf_help_help
   _dsb_i ""
   _dsb_tf_help_group_flags
+  _dsb_i ""
+  _dsb_tf_help_group_setup
   _dsb_i ""
   _dsb_i "Detailed Help For All Commands:"
   _dsb_i ""
@@ -2096,14 +2142,62 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Related commands: tf-docs, tf-docs-all-examples."
     ;;
-  # general
-  tf-unload)
-    _dsb_i "tf-unload:"
-    _dsb_i "  Completely remove all DSB Terraform Helpers from the shell."
+  # setup
+  tf-install-helpers)
+    _dsb_i "tf-install-helpers:"
+    _dsb_i "  Install the helpers script locally to ~/.local/bin."
+    _dsb_i ""
+    _dsb_i "  Copies the currently loaded script to ~/.local/bin/dsb-tf-proj-helpers.sh"
+    _dsb_i "  and makes it executable."
+    _dsb_i "  Optionally adds a 'tf-load-helpers' alias to your shell profile"
+    _dsb_i "  (.bashrc or .zshrc) so you can load the helpers by typing: tf-load-helpers"
+    _dsb_i ""
+    _dsb_i "  Safe to run multiple times (idempotent -- no duplicate alias entries)."
+    _dsb_i "  Note: requires the script to have been sourced from a file."
+    _dsb_i "  If loaded via process substitution (source <(curl ...)), use tf-update-helpers"
+    _dsb_i "  after installing to get the latest version."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-uninstall-helpers, tf-update-helpers, tf-reload-helpers."
+    ;;
+  tf-uninstall-helpers)
+    _dsb_i "tf-uninstall-helpers:"
+    _dsb_i "  Remove the locally installed helpers script and shell alias."
+    _dsb_i ""
+    _dsb_i "  Removes ~/.local/bin/dsb-tf-proj-helpers.sh and the tf-load-helpers"
+    _dsb_i "  alias from your shell profile (if present). Asks for confirmation."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-install-helpers, tf-unload-helpers."
+    ;;
+  tf-update-helpers)
+    _dsb_i "tf-update-helpers:"
+    _dsb_i "  Download the latest version and reload the helpers."
+    _dsb_i ""
+    _dsb_i "  Downloads the latest script from GitHub, replaces the local copy,"
+    _dsb_i "  and re-sources it. Requires the helpers to be installed locally first."
+    _dsb_i "  Requires curl to be available."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-install-helpers, tf-reload-helpers."
+    ;;
+  tf-reload-helpers)
+    _dsb_i "tf-reload-helpers:"
+    _dsb_i "  Reload the helpers from the local copy."
+    _dsb_i ""
+    _dsb_i "  Re-sources the installed script from ~/.local/bin."
+    _dsb_i "  Useful for resetting internal state or after manual edits."
+    _dsb_i "  Requires the helpers to be installed locally."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-update-helpers, tf-unload-helpers."
+    ;;
+  tf-unload-helpers)
+    _dsb_i "tf-unload-helpers:"
+    _dsb_i "  Completely remove all DSB Terraform Helpers from the current shell."
     _dsb_i ""
     _dsb_i "  Removes all functions (tf-*, az-*, _dsb_*), global variables (_dsbTf*),"
     _dsb_i "  tab completions, and temporary files."
     _dsb_i "  After running, the shell returns to its state before the helpers were loaded."
+    _dsb_i "  Does not affect the installed copy -- use tf-uninstall-helpers for that."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-reload-helpers, tf-uninstall-helpers."
     ;;
   *)
     _dsb_w "Unknown help topic: ${command}"
@@ -9000,6 +9094,199 @@ _dsb_tf_versions_project() {
 
 ###################################################################################################
 #
+# Internal: setup/install management
+#
+###################################################################################################
+
+# Constants for setup commands (HOME-dependent paths are computed at call time via functions)
+_DSB_TF_INSTALL_FILENAME="dsb-tf-proj-helpers.sh"
+_DSB_TF_PROFILE_MARKER="# dsb-terraform-helpers"
+_DSB_TF_SOURCE_URL="https://raw.githubusercontent.com/dsb-norge/terraform-helpers/main/dsb-tf-proj-helpers.sh"
+
+# what:
+#   get the install directory path (computed at call time to respect current HOME)
+_dsb_tf_get_install_dir() {
+  echo "${HOME}/.local/bin"
+}
+
+# what:
+#   get the full install path for the script
+_dsb_tf_get_install_path() {
+  echo "${HOME}/.local/bin/${_DSB_TF_INSTALL_FILENAME}"
+}
+
+# what:
+#   determine the shell profile file to modify based on the user's login shell
+# output:
+#   prints the path to the profile file
+# returns:
+#   0 if supported shell, 1 if unsupported
+_dsb_tf_get_shell_profile() {
+  local shellName
+  shellName="$(basename "${SHELL}")" || shellName=""
+
+  case "${shellName}" in
+    bash) echo "${HOME}/.bashrc" ;;
+    zsh)  echo "${HOME}/.zshrc" ;;
+    *)
+      _dsb_e "Unsupported shell: '${shellName}'. Only bash and zsh are supported."
+      _dsb_tf_error_push "unsupported shell '${shellName}'"
+      return 1
+      ;;
+  esac
+  return 0
+}
+
+# what:
+#   check if the helpers are installed locally
+# returns:
+#   0 if installed, 1 if not
+_dsb_tf_is_installed_locally() {
+  local installPath
+  installPath="$(_dsb_tf_get_install_path)"
+  [[ -f "${installPath}" ]]
+}
+
+# what:
+#   add the tf-load-helpers alias to the user's shell profile
+#   idempotent: will not add duplicate entries
+# returns:
+#   0 on success, 1 on failure
+_dsb_tf_add_shell_alias() {
+  local profileFile
+  profileFile=$(_dsb_tf_get_shell_profile) || return 1
+
+  local aliasLine="alias tf-load-helpers='source \"\$HOME/.local/bin/${_DSB_TF_INSTALL_FILENAME}\"' ${_DSB_TF_PROFILE_MARKER}"
+
+  # Create profile file if it doesn't exist
+  touch "${profileFile}" 2>/dev/null || :
+
+  # Only add if marker not already present (idempotent)
+  if ! grep -qF "${_DSB_TF_PROFILE_MARKER}" "${profileFile}" 2>/dev/null; then
+    printf '\n%s\n' "${aliasLine}" >> "${profileFile}"
+    _dsb_i "Added tf-load-helpers alias to ${profileFile}"
+  else
+    _dsb_i "Alias already exists in ${profileFile} (no changes made)"
+  fi
+
+  return 0
+}
+
+# what:
+#   remove the tf-load-helpers alias from the user's shell profile
+# returns:
+#   0 on success (or nothing to remove)
+_dsb_tf_remove_shell_alias() {
+  local profileFile
+  profileFile=$(_dsb_tf_get_shell_profile) || return 0
+
+  if [[ -f "${profileFile}" ]] && grep -qF "${_DSB_TF_PROFILE_MARKER}" "${profileFile}" 2>/dev/null; then
+    # Portable sed in-place: use .bak suffix then remove (works on both GNU and BSD sed)
+    sed -i.bak "/${_DSB_TF_PROFILE_MARKER}/d" "${profileFile}" && rm -f "${profileFile}.bak"
+    _dsb_i "Removed tf-load-helpers alias from ${profileFile}"
+  fi
+
+  return 0
+}
+
+# what:
+#   install the script to ~/.local/bin
+# input:
+#   none (uses _dsbTfScriptSourcePath to locate the running script)
+# returns:
+#   0 on success, 1 on failure
+_dsb_tf_install_script() {
+  local installDir installPath
+  installDir="$(_dsb_tf_get_install_dir)"
+  installPath="$(_dsb_tf_get_install_path)"
+
+  # Determine the source file to copy from
+  local sourceFile="${_dsbTfScriptSourcePath:-}"
+  if [[ -z "${sourceFile}" ]] || [[ ! -f "${sourceFile}" ]]; then
+    # Fallback: if we don't have a source file path, we can't install
+    _dsb_e "Cannot determine the script source path."
+    _dsb_e "The script may have been loaded via process substitution (source <(curl ...))."
+    _dsb_e "Try downloading the script first, then source it from the file."
+    _dsb_tf_error_push "script source path not available"
+    return 1
+  fi
+
+  # Create install directory
+  mkdir -p "${installDir}" 2>/dev/null
+  if [[ ! -d "${installDir}" ]]; then
+    _dsb_e "Failed to create directory: ${installDir}"
+    _dsb_tf_error_push "failed to create install directory"
+    return 1
+  fi
+
+  # Copy the script
+  if ! cp "${sourceFile}" "${installPath}"; then
+    _dsb_e "Failed to copy script to ${installPath}"
+    _dsb_tf_error_push "failed to copy script"
+    return 1
+  fi
+
+  # Make executable
+  chmod +x "${installPath}"
+
+  # Update the global to reflect install location
+  _dsbTfInstallDir="${installDir}"
+
+  _dsb_i "Script installed to ${installPath}"
+  return 0
+}
+
+# what:
+#   download the latest version of the script and replace the local copy
+# returns:
+#   0 on success, 1 on failure
+_dsb_tf_download_latest_script() {
+  local installPath
+  installPath="$(_dsb_tf_get_install_path)"
+
+  if ! _dsb_tf_is_installed_locally; then
+    _dsb_e "Helpers are not installed locally. Run tf-install-helpers first."
+    _dsb_tf_error_push "helpers not installed locally"
+    return 1
+  fi
+
+  # Check curl is available
+  if ! command -v curl &>/dev/null; then
+    _dsb_e "curl is required but not installed."
+    _dsb_tf_error_push "curl not available"
+    return 1
+  fi
+
+  _dsb_i "Downloading latest version from:"
+  _dsb_i "  ${_DSB_TF_SOURCE_URL}"
+
+  # Download to a temp file first, then replace
+  local tmpFile="${installPath}.tmp"
+  if ! curl -fsSL "${_DSB_TF_SOURCE_URL}" -o "${tmpFile}" 2>/dev/null; then
+    rm -f "${tmpFile}" 2>/dev/null || :
+    _dsb_e "Failed to download script from ${_DSB_TF_SOURCE_URL}"
+    _dsb_tf_error_push "download failed"
+    return 1
+  fi
+
+  # Verify the download is not empty and looks like our script
+  if [[ ! -s "${tmpFile}" ]]; then
+    rm -f "${tmpFile}" 2>/dev/null || :
+    _dsb_e "Downloaded file is empty."
+    _dsb_tf_error_push "downloaded file is empty"
+    return 1
+  fi
+
+  # Replace the installed copy
+  mv "${tmpFile}" "${installPath}"
+  chmod +x "${installPath}"
+
+  _dsb_i "Script updated successfully."
+  return 0
+}
+
+###################################################################################################
+#
 # Exposed functions
 #
 ###################################################################################################
@@ -10429,9 +10716,141 @@ tf-docs-all() {
   return "${returnCode}"
 }
 
+# Setup/install functions
+# ----------------------
+tf-install-helpers() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-install-helpers "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+
+  # Install the script
+  if ! _dsb_tf_install_script; then
+    _dsb_tf_error_dump
+    _dsb_tf_restore_shell
+    return 1
+  fi
+
+  # Ask about shell profile alias
+  local addAlias=""
+  _dsb_i ""
+  _dsb_i "Would you like to add a 'tf-load-helpers' alias to your shell profile?"
+  _dsb_i "This lets you load the helpers by typing: tf-load-helpers"
+  read -r -p "Add alias? (y/n): " addAlias
+
+  if [[ "${addAlias}" == "y" || "${addAlias}" == "Y" ]]; then
+    if ! _dsb_tf_add_shell_alias; then
+      _dsb_tf_error_dump
+      _dsb_tf_restore_shell
+      return 1
+    fi
+  fi
+
+  _dsb_i ""
+  _dsb_i "Installation complete."
+
+  _dsb_tf_restore_shell
+  return 0
+}
+
+tf-uninstall-helpers() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-uninstall-helpers "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+
+  local installPath
+  installPath="$(_dsb_tf_get_install_path)"
+
+  if ! _dsb_tf_is_installed_locally; then
+    _dsb_w "Helpers are not installed locally (nothing to uninstall)."
+    _dsb_tf_restore_shell
+    return 0
+  fi
+
+  # Ask for confirmation
+  local confirm=""
+  _dsb_i "This will remove the helpers script from ${installPath}"
+  _dsb_i "and remove the tf-load-helpers alias from your shell profile (if present)."
+  read -r -p "Proceed? (y/n): " confirm
+
+  if [[ "${confirm}" != "y" && "${confirm}" != "Y" ]]; then
+    _dsb_i "Uninstall cancelled."
+    _dsb_tf_restore_shell
+    return 0
+  fi
+
+  # Remove the shell alias first
+  _dsb_tf_remove_shell_alias
+
+  # Remove the installed script
+  rm -f "${installPath}" 2>/dev/null || :
+
+  # Clear the install dir global
+  _dsbTfInstallDir=""
+
+  _dsb_i "Helpers uninstalled successfully."
+  _dsb_tf_restore_shell
+  return 0
+}
+
+tf-update-helpers() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-update-helpers "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+
+  local installPath
+  installPath="$(_dsb_tf_get_install_path)"
+
+  if ! _dsb_tf_is_installed_locally; then
+    _dsb_e "Helpers are not installed locally. Run tf-install-helpers first."
+    _dsb_tf_error_push "helpers not installed locally"
+    _dsb_tf_error_dump
+    _dsb_tf_restore_shell
+    return 1
+  fi
+
+  if ! _dsb_tf_download_latest_script; then
+    _dsb_tf_error_dump
+    _dsb_tf_restore_shell
+    return 1
+  fi
+
+  _dsb_i "Reloading helpers from updated script..."
+  _dsb_tf_restore_shell
+
+  # Re-source the updated script
+  # shellcheck disable=SC1090
+  source "${installPath}"
+  return $?
+}
+
+tf-reload-helpers() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-reload-helpers "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+
+  local installPath
+  installPath="$(_dsb_tf_get_install_path)"
+
+  if ! _dsb_tf_is_installed_locally; then
+    _dsb_e "Helpers are not installed locally. Run tf-install-helpers first."
+    _dsb_tf_error_push "helpers not installed locally"
+    _dsb_tf_error_dump
+    _dsb_tf_restore_shell
+    return 1
+  fi
+
+  _dsb_i "Reloading helpers from ${installPath}..."
+  _dsb_tf_restore_shell
+
+  # Re-source the installed script
+  # shellcheck disable=SC1090
+  source "${installPath}"
+  local rc=$?
+  if [ "${rc}" -eq 0 ]; then
+    _dsb_i "Helpers reloaded successfully."
+  fi
+  return "${rc}"
+}
+
 # Unload function
 # ----------------
-tf-unload() {
+tf-unload-helpers() {
   # Remove all global variables with _dsbTf prefix
   local _varNames
   _varNames=$(typeset -p 2>/dev/null | awk '$3 ~ /^_dsbTf/ { sub(/=.*/, "", $3); print $3 }') || _varNames=''
@@ -10459,6 +10878,9 @@ tf-unload() {
   # Remove the error stack array
   unset -v _dsbTfErrorStack 2>/dev/null || :
 
+  # Remove setup constants
+  unset -v _DSB_TF_INSTALL_FILENAME _DSB_TF_PROFILE_MARKER _DSB_TF_SOURCE_URL 2>/dev/null || :
+
   # Remove ARM_SUBSCRIPTION_ID if we set it
   unset ARM_SUBSCRIPTION_ID 2>/dev/null || :
 
@@ -10466,7 +10888,7 @@ tf-unload() {
   rm -f "/tmp/dsb-tf-helpers-$$-"* 2>/dev/null || :
 
   # Finally unset ourselves
-  unset -f tf-unload 2>/dev/null || :
+  unset -f tf-unload-helpers 2>/dev/null || :
 
   echo "DSB Terraform Helpers unloaded."
 }
@@ -10499,6 +10921,21 @@ tf-versions() {
 # Init: final setup
 #
 ###################################################################################################
+
+# Record the source path of this script for setup commands
+# BASH_SOURCE[0] is the path to this file when sourced from a file,
+# or /dev/fd/N when sourced via process substitution (source <(curl ...))
+_dsbTfScriptSourcePath="${BASH_SOURCE[0]:-}" || _dsbTfScriptSourcePath=""
+# Clear if it's not a real file (e.g., /dev/fd/N from process substitution)
+if [[ -z "${_dsbTfScriptSourcePath}" ]] || [[ ! -f "${_dsbTfScriptSourcePath}" ]] || [[ "${_dsbTfScriptSourcePath}" == /dev/* ]] || [[ "${_dsbTfScriptSourcePath}" == /proc/* ]]; then
+  _dsbTfScriptSourcePath=""
+fi
+# Track install location if already installed
+if _dsb_tf_is_installed_locally 2>/dev/null; then
+  _dsbTfInstallDir="$(_dsb_tf_get_install_dir)" || _dsbTfInstallDir=""
+else
+  _dsbTfInstallDir=""
+fi
 
 # TODO: consider this scrolling other places as well
 printf "\033[2J\033[H" # Scroll the shell output to hide previous output without clearing the buffer

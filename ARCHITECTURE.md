@@ -4,7 +4,7 @@ Design and architecture reference. For the developer guide, see [CONTRIBUTING.md
 
 ## What This Script Is
 
-A collection of bash helper functions for working with DSB Terraform projects and module repos. It is **sourced** into the user's interactive shell (via `source <(curl ...)` or `eval "$(gh api ...)"`) and provides 75 user-facing commands prefixed with `tf-` and `az-`. The script is a single file (~10100 lines, 239 functions) and requires no installation beyond sourcing.
+A collection of bash helper functions for working with DSB Terraform projects and module repos. It is **sourced** into the user's interactive shell (via `source <(curl ...)` or `eval "$(gh api ...)"`), and optionally installed locally. It provides 79 user-facing commands prefixed with `tf-` and `az-`. The script is a single file (~10900 lines, 255 functions) and requires no installation beyond sourcing (though local install is supported via `tf-install-helpers`).
 
 The script automatically detects whether it's running in a **project repo** (has `main/` + `envs/`) or a **module repo** (has root `.tf` files, no `main/` or `envs/`) and adapts its behavior accordingly.
 
@@ -58,7 +58,7 @@ Module repos additionally enumerate: examples directory, test files (unit/integr
 
 ## Function Categories
 
-### Exposed functions (75, prefixed `tf-` and `az-`)
+### Exposed functions (79, prefixed `tf-` and `az-`)
 
 User-facing commands. Every exposed function includes the `set -e` neutralization guard and the configure/restore lifecycle.
 
@@ -77,22 +77,23 @@ User-facing commands. Every exposed function includes the `set -e` neutralizatio
 
 | Group | Commands |
 |---|---|
-| Examples | `tf-init-examples`, `tf-validate-examples`, `tf-lint-examples` |
-| Testing | `tf-test`, `tf-test-unit`, `tf-test-integration`, `tf-test-all-integrations`, `tf-test-example`, `tf-test-examples` |
-| Documentation | `tf-docs`, `tf-docs-examples`, `tf-docs-all` |
+| Examples | `tf-init-all-examples`, `tf-init-example`, `tf-validate-all-examples`, `tf-validate-example`, `tf-lint-all-examples`, `tf-lint-example` |
+| Testing | `tf-test`, `tf-test-unit`, `tf-test-integration`, `tf-test-all-integrations`, `tf-test-example`, `tf-test-all-examples` |
+| Documentation | `tf-docs`, `tf-docs-all-examples`, `tf-docs-example`, `tf-docs-all` |
 
 **Common commands** (available in both, may branch by repo type):
 
 | Group | Commands |
 |---|---|
-| Check | `tf-check-dir`, `tf-check-prereqs`, `tf-check-tools`, `tf-check-gh-auth` |
+| Check | `tf-check-dir`, `tf-check-prereqs`, `tf-check-tools`, `tf-check-az-auth`, `tf-check-gh-auth` |
 | Status | `tf-status` |
-| Terraform | `tf-init`, `tf-init-offline`, `tf-validate`, `tf-fmt`, `tf-fmt-fix`, `tf-upgrade`, `tf-upgrade-offline` |
-| Linting | `tf-lint` |
+| Terraform | `tf-init`, `tf-init-offline`, `tf-validate`, `tf-validate-all`, `tf-fmt`, `tf-fmt-fix`, `tf-upgrade`, `tf-upgrade-offline`, `tf-outputs`, `tf-versions` |
+| Linting | `tf-lint`, `tf-lint-all` |
 | Clean | `tf-clean`, `tf-clean-tflint`, `tf-clean-all` |
 | Bump | `tf-bump`, `tf-bump-offline`, `tf-bump-modules`, `tf-bump-cicd`, `tf-bump-tflint-plugins` |
 | Provider | `tf-show-provider-upgrades` |
 | Azure | `az-login`, `az-logout`, `az-relog`, `az-whoami`, `az-set-sub`, `az-select-sub` |
+| Setup | `tf-install-helpers`, `tf-uninstall-helpers`, `tf-update-helpers`, `tf-reload-helpers`, `tf-unload-helpers` |
 | Help | `tf-help` |
 
 ### Internal functions (~150, prefixed `_dsb_tf_`)
@@ -147,28 +148,32 @@ All functions return exit codes directly. No ERR trap, no `set -e`, no global re
 |---|---|
 | 1-10 | Download guard, bash version check |
 | 92-158 | Init: cleanup of previous state |
-| 159-201 | Init: global variable declarations |
-| 203-291 | Utility: logging |
-| 293-319 | Init: architecture detection |
-| 321-560 | Utility: general (`_dsb_tf_report_status`, etc.) |
-| 562-724 | Utility: debug |
-| 726-829 | Utility: error handling (error stack, signal handler, configure/restore) |
-| 831-1826 | Utility: help system |
-| 1828-1988 | Utility: tab completion |
-| 1990-2171 | Utility: version parsing |
-| 2173-2908 | Internal: checks |
-| 2910-3605 | Internal: directory enumeration (includes repo type detection) |
-| 3607-3854 | Internal: environment management |
-| 3856-4329 | Internal: Azure CLI |
-| 4331-5075 | Internal: terraform operations |
-| 5077-5237 | Internal: linting |
-| 5239-5429 | Internal: clean |
-| 5431-7303 | Internal: upgrade/bump |
-| 7305-7569 | Internal: module examples support |
-| 7571-7792 | Internal: terraform test support |
-| 7794-7901 | Internal: documentation generation |
-| 7903-8866 | Exposed functions |
-| 8868-8883 | Init: final setup |
+| 159-205 | Init: global variable declarations |
+| 207-295 | Utility: logging |
+| 297-323 | Init: architecture detection |
+| 325-550 | Utility: general (`_dsb_tf_report_status`, etc.) |
+| 552-714 | Utility: debug |
+| 716-819 | Utility: error handling (error stack, signal handler, configure/restore) |
+| 821-870 | Utility: `--log` output capture |
+| 872-2208 | Utility: help system |
+| 2210-2428 | Utility: tab completion |
+| 2430-2611 | Utility: version parsing |
+| 2613-3355 | Internal: checks |
+| 3357-4052 | Internal: directory enumeration (includes repo type detection) |
+| 4054-4301 | Internal: environment management |
+| 4303-4776 | Internal: Azure CLI |
+| 4778-5522 | Internal: terraform operations |
+| 5524-5684 | Internal: linting |
+| 5686-5876 | Internal: clean |
+| 5878-7700 | Internal: upgrade/bump |
+| 7702-8080 | Internal: module repo operations |
+| 8082-8346 | Internal: module examples support |
+| 8348-8571 | Internal: terraform test support |
+| 8573-8692 | Internal: documentation generation |
+| 8694-9095 | Internal: version information |
+| 9097-9288 | Internal: setup/install management |
+| 9290-10919 | Exposed functions |
+| 10921-10951 | Init: final setup |
 
 ---
 
@@ -189,7 +194,7 @@ Bash 4.3+ required. Unsupported platforms or old bash versions abort sourcing wi
 See [TESTING.md](TESTING.md) for the full guide.
 
 - **Framework**: bats-core with bats-support, bats-assert, bats-file
-- **Tests**: 546 across 31 files
+- **Tests**: 570 across 32 files
 - **Mocking**: All external tools mocked via function overrides
 - **CI**: GitHub Actions on PRs, posts updatable comment with results
 
@@ -199,7 +204,7 @@ See [TESTING.md](TESTING.md) for the full guide.
 
 | File | Purpose |
 |---|---|
-| `dsb-tf-proj-helpers.sh` | The script (~10100 lines, 239 functions) |
+| `dsb-tf-proj-helpers.sh` | The script (~10900 lines, 255 functions) |
 | [README.md](README.md) | User-facing: how to load and use |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | This document |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Developer guide: patterns, conventions, how to add features |
