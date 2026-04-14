@@ -10784,18 +10784,24 @@ tf-install-helpers() {
     return 1
   fi
 
-  # Ask about shell profile alias
-  local addAlias=""
-  _dsb_i ""
-  _dsb_i "Would you like to add a 'tf-load-helpers' alias to your shell profile?"
-  _dsb_i "This lets you load the helpers by typing: tf-load-helpers"
-  read -r -p "Add alias? (y/n): " addAlias
+  # Ask about shell profile alias (skip if already present)
+  local profileFile
+  profileFile=$(_dsb_tf_get_shell_profile 2>/dev/null) || profileFile=""
+  if [[ -n "${profileFile}" ]] && grep -qF "${_DSB_TF_PROFILE_MARKER}" "${profileFile}" 2>/dev/null; then
+    _dsb_i "Shell alias tf-load-helpers already configured in ${profileFile}"
+  else
+    local addAlias=""
+    _dsb_i ""
+    _dsb_i "Would you like to add a 'tf-load-helpers' alias to your shell profile?"
+    _dsb_i "This lets you load the helpers by typing: tf-load-helpers"
+    read -r -p "Add alias? (y/n): " addAlias
 
-  if [[ "${addAlias}" == "y" || "${addAlias}" == "Y" ]]; then
-    if ! _dsb_tf_add_shell_alias; then
-      _dsb_tf_error_dump
-      _dsb_tf_restore_shell
-      return 1
+    if [[ "${addAlias}" == "y" || "${addAlias}" == "Y" ]]; then
+      if ! _dsb_tf_add_shell_alias; then
+        _dsb_tf_error_dump
+        _dsb_tf_restore_shell
+        return 1
+      fi
     fi
   fi
 

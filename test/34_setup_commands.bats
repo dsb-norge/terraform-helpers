@@ -137,6 +137,24 @@ teardown() {
 # tf-install-helpers: shell profile alias
 # ---------------------------------------------------------------------------
 
+@test "tf-install-helpers skips alias prompt when alias already exists" {
+  run bash -c '
+    source "'"${HELPERS_DIR}/mock_helper.bash"'"
+    mock_standard_tools
+    export HOME="'"${HOME}"'"
+    export SHELL="/bin/bash"
+    cd "'"$(pwd)"'"
+    source "'"${SUT}"'"
+    _dsbTfLogInfo=1; _dsbTfLogWarnings=0; _dsbTfLogErrors=0; _dsbTfLogDebug=0
+    # First install with alias
+    echo "y" | tf-install-helpers
+    # Second install -- should not ask about alias
+    echo "" | tf-install-helpers
+  '
+  assert_success
+  assert_clean_output_contains "already configured"
+}
+
 @test "tf-install-helpers asks about shell profile alias" {
   run bash -c '
     source "'"${HELPERS_DIR}/mock_helper.bash"'"
