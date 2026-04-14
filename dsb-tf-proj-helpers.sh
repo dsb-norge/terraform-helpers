@@ -9282,8 +9282,13 @@ _dsb_tf_install_script() {
   # Determine the source: local file or download
   local sourceFile="${_dsbTfScriptSourcePath:-}"
   if [[ -n "${sourceFile}" ]] && [[ -f "${sourceFile}" ]]; then
-    # Copy from the locally available source file
-    if ! cp "${sourceFile}" "${installPath}"; then
+    # Check if source and destination are the same file (already installed and sourced from there)
+    local resolvedSource resolvedDest
+    resolvedSource="$(readlink -f "${sourceFile}" 2>/dev/null || echo "${sourceFile}")"
+    resolvedDest="$(readlink -f "${installPath}" 2>/dev/null || echo "${installPath}")"
+    if [[ "${resolvedSource}" == "${resolvedDest}" ]]; then
+      _dsb_i "Script is already installed at ${installPath} (no copy needed)"
+    elif ! cp "${sourceFile}" "${installPath}"; then
       _dsb_e "Failed to copy script to ${installPath}"
       _dsb_tf_error_push "failed to copy script"
       return 1
