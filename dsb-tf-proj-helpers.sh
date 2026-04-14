@@ -4825,13 +4825,31 @@ _dsb_tf_terraform_preflight() {
     return 1
   fi
 
-  # leverage _dsb_tf_set_env, this validates the environment and sets the subscription
-  _dsbTfLogInfo=1 _dsbTfLogErrors=0 _dsb_tf_set_env "${selectedEnv}"
-  # shellcheck disable=SC2181 # inline var assignment requires $?
-  if [ $? -ne 0 ]; then
-    _dsb_e "Failed to set environment '${selectedEnv}'."
-    _dsb_e "  please run 'tf-check-env ${selectedEnv}'"
-    return 1
+  if [ "${offlineInit}" -eq 1 ]; then
+    # Offline: validate the environment exists and set globals, but skip Azure subscription
+    _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+    # shellcheck disable=SC2181 # inline var assignment requires $?
+    if [ $? -ne 0 ]; then
+      _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+      return 1
+    fi
+    if ! _dsb_tf_look_for_env "${selectedEnv}"; then
+      _dsb_e "Environment '${selectedEnv}' not found."
+      _dsb_tf_error_push "environment not found"
+      return 1
+    fi
+    _dsbTfSelectedEnv="${selectedEnv}"
+    _dsbTfSelectedEnvDir="${_dsbTfEnvsDirList["${selectedEnv}"]}"
+    _dsb_i "Selected environment: ${_dsbTfSelectedEnv} (offline mode, skipping Azure)"
+  else
+    # Online: full environment setup including Azure subscription
+    _dsbTfLogInfo=1 _dsbTfLogErrors=0 _dsb_tf_set_env "${selectedEnv}"
+    # shellcheck disable=SC2181 # inline var assignment requires $?
+    if [ $? -ne 0 ]; then
+      _dsb_e "Failed to set environment '${selectedEnv}'."
+      _dsb_e "  please run 'tf-check-env ${selectedEnv}'"
+      return 1
+    fi
   fi
 
   # should be set when _dsbTfSelectedEnv is set

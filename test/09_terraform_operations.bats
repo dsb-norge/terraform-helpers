@@ -49,6 +49,14 @@ teardown() {
   assert_output --partial "Initializ"
 }
 
+@test "tf-init-offline succeeds when Azure auth is broken" {
+  mock_terraform
+  mock_az_not_logged_in
+  run tf-init-offline "dev"
+  assert_success
+  assert_output --partial "offline"
+}
+
 # -------------------------------------------------------
 # tf-init-env
 # -------------------------------------------------------
