@@ -3269,6 +3269,7 @@ _dsb_tf_check_prereqs() {
 _dsb_tf_check_env() {
   local selectedEnv="${_dsbTfSelectedEnv:-}" # allowed to be empty
   local envToCheck="${1:-${selectedEnv}}"    # input with fallback to selected environment
+  local skipLockCheck="${2:-0}"              # optional, defaults to 0
 
   if [ -z "${envToCheck}" ]; then
     _dsb_e "No environment specified and no environment selected."
@@ -3289,9 +3290,11 @@ _dsb_tf_check_env() {
   if ! _dsb_tf_look_for_env "${envToCheck}"; then
     envStatus=1
   else
-    _dsb_i "Checking lock file ..."
-    if ! _dsb_tf_look_for_lock_file "${envToCheck}"; then
-      lockFileStatus=1
+    if [ "${skipLockCheck}" -eq 0 ]; then
+      _dsb_i "Checking lock file ..."
+      if ! _dsb_tf_look_for_lock_file "${envToCheck}"; then
+        lockFileStatus=1
+      fi
     fi
 
     _dsb_i "Checking subscription hint file ..."
@@ -4171,8 +4174,10 @@ _dsb_tf_list_envs() {
 #     - _dsbTfSubscriptionName (implicitly set by _dsb_tf_az_set_sub)
 _dsb_tf_set_env() {
   local envToSet="${1:-}"
+  local skipLockCheck="${2:-0}" # optional, defaults to 0
 
   _dsb_d "envToSet: ${envToSet}"
+  _dsb_d "skipLockCheck: ${skipLockCheck}"
 
   if [ -z "${envToSet}" ]; then
     _dsb_e "No environment specified."
@@ -4234,7 +4239,7 @@ _dsb_tf_set_env() {
     _dsb_e "Subscription hint file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
   else
     # hint file exists, let's try to set the subscription
-    _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_set_sub
+    _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_az_set_sub "${skipLockCheck}"
     local azSubStatus=$?
 
     if [ "${azSubStatus}" -ne 0 ]; then
@@ -4247,9 +4252,11 @@ _dsb_tf_set_env() {
   fi
 
   local lockFileStatus=0
-  if ! _dsbTfLogErrors=0 _dsb_tf_look_for_lock_file; then
-    lockFileStatus=1
-    _dsb_e "Lock file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
+  if [ "${skipLockCheck}" -eq 0 ]; then
+    if ! _dsbTfLogErrors=0 _dsb_tf_look_for_lock_file; then
+      lockFileStatus=1
+      _dsb_e "Lock file check failed, please run 'tf-check-env ${_dsbTfSelectedEnv}'"
+    fi
   fi
 
   local returnCode=$((lockFileStatus + subscriptionHintFileStatus + azSubStatus))
@@ -4586,6 +4593,7 @@ _dsb_tf_az_re_login() {
 #     - _dsbTfSubscriptionName
 _dsb_tf_az_set_sub() {
   local returnCode=1
+  local skipLockCheck="${1:-0}" # optional, defaults to 0
   local selectedEnv="${_dsbTfSelectedEnv:-}"
 
   if [ -z "${selectedEnv}" ]; then
@@ -4597,7 +4605,7 @@ _dsb_tf_az_set_sub() {
 
   # enumerate the directories and validate the selected environment
   # populates _dsbTfSelectedEnvSubscriptionHintContent if successful
-  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_env
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_env "" "${skipLockCheck}"
   # shellcheck disable=SC2181 # inline var assignment requires $?
   if [ $? -ne 0 ]; then
     _dsb_e "Environment check failed, please run 'tf-check-env ${selectedEnv}'"
@@ -4800,6 +4808,10 @@ _dsb_tf_az_select_sub() {
 #   0 on success, 1 on failure
 _dsb_tf_set_env_offline() {
   local envToSet="${1:-}"
+  local skipLockCheck="${2:-0}" # optional, defaults to 0
+
+  _dsb_d "envToSet: ${envToSet}"
+  _dsb_d "skipLockCheck: ${skipLockCheck}"
 
   if [ -z "${envToSet}" ]; then
     _dsb_e "No environment specified."
@@ -4825,6 +4837,14 @@ _dsb_tf_set_env_offline() {
   _dsbTfSelectedEnvDir="${_dsbTfEnvsDirList["${envToSet}"]}"
   _dsb_i "Selected environment: ${_dsbTfSelectedEnv} (offline mode, skipping Azure)"
 
+  if [ "${skipLockCheck}" -eq 0 ]; then
+    if ! _dsbTfLogErrors=0 _dsb_tf_look_for_lock_file; then
+      _dsb_e "Lock file check failed, please run 'tf-init ${envToSet}' first"
+      _dsb_tf_error_push "lock file not found for '${envToSet}'"
+      return 1
+    fi
+  fi
+
   return 0
 }
 
@@ -4838,6 +4858,8 @@ _dsb_tf_set_env_offline() {
 #   $1: environment name
 #   $2: if we are in offline mode (optional, defaults to 0)
 #         ie. do not expect to be able to resolve subscription name to id
+#   $3: skip lock file check (optional, defaults to 0)
+#         set to 1 for init/upgrade commands that create the lock file
 # on info:
 #   nothing
 # returns:
@@ -4845,11 +4867,13 @@ _dsb_tf_set_env_offline() {
 _dsb_tf_terraform_preflight() {
   local returnCode=0
   local selectedEnv="${1}"
-  local offlineInit="${2:-0}" # defaults to 0
+  local offlineInit="${2:-0}"    # defaults to 0
+  local skipLockCheck="${3:-0}"  # defaults to 0
 
   _dsb_d "called with:"
   _dsb_d "  selectedEnv: ${selectedEnv}"
   _dsb_d "  offlineInit: ${offlineInit}"
+  _dsb_d "  skipLockCheck: ${skipLockCheck}"
 
   if [ -z "${selectedEnv}" ]; then
     _dsb_e "No environment selected, please run 'tf-select-env' or 'tf-set-env <env>'"
@@ -4864,12 +4888,12 @@ _dsb_tf_terraform_preflight() {
 
   if [ "${offlineInit}" -eq 1 ]; then
     # Offline: validate the environment exists and set globals, skip Azure
-    if ! _dsb_tf_set_env_offline "${selectedEnv}"; then
+    if ! _dsb_tf_set_env_offline "${selectedEnv}" "${skipLockCheck}"; then
       return 1
     fi
   else
     # Online: full environment setup including Azure subscription
-    _dsbTfLogInfo=1 _dsbTfLogErrors=0 _dsb_tf_set_env "${selectedEnv}"
+    _dsbTfLogInfo=1 _dsbTfLogErrors=0 _dsb_tf_set_env "${selectedEnv}" "${skipLockCheck}"
     # shellcheck disable=SC2181 # inline var assignment requires $?
     if [ $? -ne 0 ]; then
       _dsb_e "Failed to set environment '${selectedEnv}'."
@@ -5024,7 +5048,7 @@ _dsb_tf_init_env() {
   _dsb_d "  offlineInit: ${offlineInit}"
   _dsb_d "  selectedEnv: ${selectedEnv}"
 
-  if ! _dsb_tf_terraform_preflight "${selectedEnv}" "${offlineInit}"; then
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}" "${offlineInit}" 1; then # $3 = 1: skip lock check, init creates it
 
 
     return 1
@@ -5103,7 +5127,7 @@ _dsb_tf_init_modules() {
   _dsb_d "skipPreflight: ${skipPreflight}"
 
   if [ "${skipPreflight}" -ne 1 ]; then
-    if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+    if ! _dsb_tf_terraform_preflight "${selectedEnv}" 0 1; then # $3 = 1: skip lock check, init creates it
 
       return 1
 
@@ -5111,7 +5135,6 @@ _dsb_tf_init_modules() {
   fi
 
   # to able to init modules, we need to have the lock file and the providers directory
-  # environment lock file's existence was checked implicitly by _dsb_tf_terraform_preflight -> _dsb_tf_set_env further up
   local envProvidersDir="${_dsbTfSelectedEnvDir:-}/.terraform/providers" # this exists when init has been run in the selected environment
 
   if [ ! -d "${envProvidersDir}" ]; then
@@ -5167,7 +5190,7 @@ _dsb_tf_init_main() {
   _dsb_d "skipPreflight: ${skipPreflight}"
 
   if [ "${skipPreflight}" -ne 1 ]; then
-    if ! _dsb_tf_terraform_preflight "${selectedEnv}"; then
+    if ! _dsb_tf_terraform_preflight "${selectedEnv}" 0 1; then # $3 = 1: skip lock check, init creates it
 
       return 1
 
@@ -5279,7 +5302,7 @@ _dsb_tf_init() {
     _dsb_i ""
 
     # preflight, check if terraform is installed, set the environment and check if it is valid
-    if ! _dsb_tf_terraform_preflight "${envName}" "${offlineInit}"; then
+    if ! _dsb_tf_terraform_preflight "${envName}" "${offlineInit}" 1; then # $3 = 1: skip lock check, init creates it
 
       _dsb_e "  preflight checks failed"
 
@@ -5451,7 +5474,7 @@ _dsb_tf_validate_env() {
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
 
   # we always do preflight in offline mode since no subscription resolution is needed for validate
-  if ! _dsb_tf_terraform_preflight "${selectedEnv}" 1; then # $2 = 1 means offline init
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}" 1 1; then # $2 = offline, $3 = skip lock check
     return 1
   fi
 
@@ -5581,7 +5604,7 @@ _dsb_tf_outputs_env() {
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
 
   # we always do preflight in offline mode since no subscription resolution is needed for output
-  if ! _dsb_tf_terraform_preflight "${selectedEnv}" 1; then # $2 = 1 means offline init
+  if ! _dsb_tf_terraform_preflight "${selectedEnv}" 1 1; then # $2 = offline, $3 = skip lock check
     return 1
   fi
 
@@ -5861,8 +5884,8 @@ _dsb_tf_run_tflint() {
     githubAuthAvailable=0
   fi
 
-  # validate the environment (linting is local, does not need Azure)
-  if ! _dsb_tf_set_env_offline "${selectedEnv}"; then
+  # validate the environment (linting is local, does not need Azure or lock file)
+  if ! _dsb_tf_set_env_offline "${selectedEnv}" 1; then # $2 = 1: skip lock check
     return 1
   fi
 
@@ -7504,13 +7527,13 @@ _dsb_tf_bump_an_env() {
   local initStatus=0
   local listStatus=0
 
-  # validate the environment and set globals (offline-aware)
+  # validate the environment and set globals (offline-aware, skip lock check since bump runs init)
   if [ "${offlineInit}" -eq 1 ]; then
-    if ! _dsb_tf_set_env_offline "${givenEnv}"; then
+    if ! _dsb_tf_set_env_offline "${givenEnv}" 1; then
       return 1
     fi
   else
-    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${givenEnv}"; then
+    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${givenEnv}" 1; then
       return 1
     fi
   fi
@@ -7596,11 +7619,11 @@ _dsb_tf_bump_the_project() {
     return 1
   elif [ "${envCount}" -eq 1 ] && [ -n "${givenEnv}" ]; then # a single environment was explicitly specified
     if [ "${offlineInit}" -eq 1 ]; then
-      if ! _dsb_tf_set_env_offline "${givenEnv}"; then
+      if ! _dsb_tf_set_env_offline "${givenEnv}" 1; then # skip lock check, bump runs init
         return 1
       fi
     else
-      if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${givenEnv}"; then
+      if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${givenEnv}" 1; then # skip lock check, bump runs init
         _dsb_d "Failed to set environment '${givenEnv}'."
         _dsb_e "  please run 'tf-check-env ${givenEnv}' for more information."
         return 1
@@ -7647,17 +7670,17 @@ _dsb_tf_bump_the_project() {
     _dsb_i "Bump environment: ${envName}"
     _dsb_i ""
 
-    # validate the environment and set globals (offline-aware)
+    # validate the environment and set globals (offline-aware, skip lock check since bump runs init)
     local _setEnvOk=0
     if [ "${offlineInit}" -eq 1 ]; then
-      if ! _dsb_tf_set_env_offline "${envName}"; then
+      if ! _dsb_tf_set_env_offline "${envName}" 1; then
         _dsb_e "  unable to set environment '${envName}', upgrade skipped."
         ((preflightStatus += 1))
       else
         _setEnvOk=1
       fi
     else
-      if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${envName}"; then
+      if ! _dsbTfLogInfo=0 _dsbTfLogErrors=1 _dsb_tf_set_env "${envName}" 1; then
         _dsb_e "  unable to set environment '${envName}', upgrade skipped."
         _dsb_e "  please run 'tf-check-env ${envName}' for more information."
         ((preflightStatus += 1))
