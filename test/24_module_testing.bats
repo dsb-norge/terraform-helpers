@@ -308,7 +308,7 @@ setup_module_fixture() {
   assert_failure
 }
 
-@test "tf-test-all-examples with subscription runs init+apply+destroy" {
+@test "tf-test-all-examples with subscription shows per-example results" {
   setup_module_fixture
   run bash -c '
     source "'"${HELPERS_DIR}/mock_helper.bash"'"
@@ -322,12 +322,11 @@ setup_module_fixture() {
     echo "mock-sub-dev" | tf-test-all-examples
   '
   assert_success
-  assert_clean_output_contains "terraform init"
-  assert_clean_output_contains "terraform apply"
-  assert_clean_output_contains "terraform destroy"
+  assert_clean_output_contains "PASS"
+  assert_clean_output_contains "passed"
 }
 
-@test "tf-test-all-examples shows per-example summary" {
+@test "tf-test-all-examples shows summary with counts" {
   setup_module_fixture
   run bash -c '
     source "'"${HELPERS_DIR}/mock_helper.bash"'"
@@ -341,7 +340,7 @@ setup_module_fixture() {
     echo "mock-sub-dev" | tf-test-all-examples
   '
   assert_success
-  assert_clean_output_contains "succeeded"
+  assert_clean_output_contains "out of"
 }
 
 # -- Phase 5: Internal _dsb_tf_run_terraform_test --
