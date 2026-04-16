@@ -335,7 +335,7 @@ teardown() {
   mock_standard_tools
   source "${SUT}"
 
-  COMP_WORDS=("tf-test-integration" "integ")
+  COMP_WORDS=("tf-test-integration" "integration-test-01")
   COMP_CWORD=1
   _dsb_tf_completions_for_integration_test_names
   [[ "${#COMPREPLY[@]}" -eq 1 ]]

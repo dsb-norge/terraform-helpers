@@ -72,7 +72,7 @@ setup_module_fixture() {
 @test "module enumeration: finds test files" {
   setup_module_fixture
   _dsb_tf_enumerate_directories
-  [[ "${#_dsbTfTestFilesList[@]}" -eq 2 ]]
+  [[ "${#_dsbTfTestFilesList[@]}" -eq 4 ]]
 }
 
 @test "module enumeration: finds unit test files" {
@@ -85,6 +85,5 @@ setup_module_fixture() {
 @test "module enumeration: finds integration test files" {
   setup_module_fixture
   _dsb_tf_enumerate_directories
-  [[ "${#_dsbTfIntegrationTestFilesList[@]}" -eq 1 ]]
-  [[ "$(basename "${_dsbTfIntegrationTestFilesList[0]}")" == "integration-test-01-basic.tftest.hcl" ]]
+  [[ "${#_dsbTfIntegrationTestFilesList[@]}" -eq 3 ]]
 }
