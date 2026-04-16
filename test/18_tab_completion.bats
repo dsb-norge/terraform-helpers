@@ -36,13 +36,13 @@ teardown() {
 @test "completion registered for tf-plan" {
   local comp_output
   comp_output="$(complete -p tf-plan 2>&1)"
-  [[ "${comp_output}" == *"_dsb_tf_completions_for_available_envs"* ]]
+  [[ "${comp_output}" == *"_dsb_tf_completions_with_log_flag"* ]]
 }
 
 @test "completion registered for tf-apply" {
   local comp_output
   comp_output="$(complete -p tf-apply 2>&1)"
-  [[ "${comp_output}" == *"_dsb_tf_completions_for_available_envs"* ]]
+  [[ "${comp_output}" == *"_dsb_tf_completions_with_log_flag"* ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -201,11 +201,16 @@ teardown() {
   mock_standard_tools
   source "${SUT}"
 
-  for cmd in tf-init-example tf-validate-example tf-lint-example tf-test-example tf-docs-example; do
+  # Most singular example commands use the basic example name completion
+  for cmd in tf-init-example tf-validate-example tf-lint-example tf-docs-example; do
     run complete -p "${cmd}"
     assert_success
     assert_output --partial "_dsb_tf_completions_for_example_names"
   done
+  # tf-test-example uses flag-aware version
+  run complete -p tf-test-example
+  assert_success
+  assert_output --partial "_dsb_tf_completions_for_test_example_with_flags"
 }
 
 @test "completion registered for all plural example commands" {
@@ -215,11 +220,16 @@ teardown() {
   mock_standard_tools
   source "${SUT}"
 
-  for cmd in tf-init-all-examples tf-validate-all-examples tf-lint-all-examples tf-test-all-examples; do
+  # Most plural example commands use the basic example name completion
+  for cmd in tf-init-all-examples tf-validate-all-examples tf-lint-all-examples; do
     run complete -p "${cmd}"
     assert_success
     assert_output --partial "_dsb_tf_completions_for_example_names"
   done
+  # tf-test-all-examples uses flag-aware version with parallel support
+  run complete -p tf-test-all-examples
+  assert_success
+  assert_output --partial "_dsb_tf_completions_for_test_example_with_parallel_flags"
 }
 
 @test "example completion does not complete second argument" {
@@ -246,7 +256,7 @@ teardown() {
 
   run complete -p tf-test
   assert_success
-  assert_output --partial "_dsb_tf_completions_for_test_names"
+  assert_output --partial "_dsb_tf_completions_for_test_with_flags"
 }
 
 @test "test name completion returns test files in module repo" {
@@ -310,7 +320,7 @@ teardown() {
 
   run complete -p tf-test-integration
   assert_success
-  assert_output --partial "_dsb_tf_completions_for_integration_test_names"
+  assert_output --partial "_dsb_tf_completions_for_test_integration_with_flags"
 }
 
 @test "integration test name completion returns integration test files in module repo" {
@@ -365,12 +375,44 @@ teardown() {
 # -- All env completions registered --
 
 @test "completion registered for all environment-accepting commands" {
+  # Commands using basic env completion
   for cmd in tf-set-env tf-check-env tf-select-env tf-init-env tf-init-env-offline \
     tf-init tf-init-offline tf-upgrade-env tf-upgrade-env-offline tf-upgrade tf-upgrade-offline \
-    tf-validate tf-plan tf-apply tf-destroy tf-show-provider-upgrades \
+    tf-validate tf-destroy tf-show-provider-upgrades \
     tf-bump tf-bump-offline tf-bump-env tf-bump-env-offline; do
     run complete -p "${cmd}"
     assert_success
     assert_output --partial "_dsb_tf_completions_for_available_envs"
   done
+  # tf-plan and tf-apply use flag-aware completion (still offers env names)
+  for cmd in tf-plan tf-apply; do
+    run complete -p "${cmd}"
+    assert_success
+    assert_output --partial "_dsb_tf_completions_with_log_flag"
+  done
+}
+
+# -- Flag completion --
+
+@test "flag completion offers --log for tf-plan" {
+  COMP_WORDS=("tf-plan" "--")
+  COMP_CWORD=1
+  _dsb_tf_completions_with_log_flag
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+  [[ " ${COMPREPLY[*]} " == *" --log "* ]]
+}
+
+@test "flag completion offers --max-parallel for tf-test-all-integrations" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test-all-integrations" "--")
+  COMP_CWORD=1
+  _dsb_tf_completions_with_parallel_flags
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+  [[ " ${COMPREPLY[*]} " == *" --max-parallel= "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --log "* ]]
 }
