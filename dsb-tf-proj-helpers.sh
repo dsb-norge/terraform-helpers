@@ -1263,14 +1263,15 @@ _dsb_tf_help_group_examples() {
 
 _dsb_tf_help_group_testing() {
   _dsb_i "  Testing Commands (module repo only):"
-  _dsb_i "    tf-test [filter]               -> Run terraform test (supports --log)"
-  _dsb_i "    tf-test-unit                   -> Run unit tests only (supports --log)"
-  _dsb_i "    tf-test-integration <name>     -> Run a specific integration test (Azure sub, supports --log)"
-  _dsb_i "    tf-test-all-integrations       -> Run all integration tests (Azure sub, supports --log)"
-  _dsb_i "    tf-test-all-examples [example] -> Test examples via apply+destroy (Azure sub, supports --log)"
-  _dsb_i "    tf-test-example <example>      -> Test a specific example via apply+destroy (Azure sub, supports --log)"
+  _dsb_i "    tf-test [filter]               -> Run terraform test"
+  _dsb_i "    tf-test-unit                   -> Run unit tests only"
+  _dsb_i "    tf-test-integration <name>     -> Run a specific integration test"
+  _dsb_i "    tf-test-all-integrations       -> Run all integration tests in parallel"
+  _dsb_i "    tf-test-all-examples [example] -> Test examples via apply+destroy in parallel"
+  _dsb_i "    tf-test-example <example>      -> Test a specific example via apply+destroy"
   _dsb_i ""
-  _dsb_i "  All testing commands support --log to save output. See 'tf-help flags' for details."
+  _dsb_i "  All testing commands support --log. tf-test-all-integrations and"
+  _dsb_i "  tf-test-all-examples also support --max-parallel. See 'tf-help flags'."
 }
 
 _dsb_tf_help_group_docs() {
@@ -1300,6 +1301,18 @@ _dsb_tf_help_group_flags() {
   _dsb_i "      tf-plan dev --log=./plans/today.log  -> saves to specified path"
   _dsb_i "      tf-test-unit --log                   -> saves test output to file"
   _dsb_i ""
+  _dsb_i "  --max-parallel=<N>  (parallel test execution)"
+  _dsb_i "    Run multiple tests or examples in parallel (default: 10)."
+  _dsb_i "    Each job captures output separately and a summary is shown at the end."
+  _dsb_i ""
+  _dsb_i "    Supported by:"
+  _dsb_i "      tf-test-all-integrations, tf-test-all-examples"
+  _dsb_i ""
+  _dsb_i "    Examples:"
+  _dsb_i "      tf-test-all-integrations --max-parallel=3  -> run 3 tests at a time"
+  _dsb_i "      tf-test-all-examples --max-parallel=2      -> test 2 examples at a time"
+  _dsb_i "      tf-test-all-integrations --max-parallel=1  -> run one at a time (sequential)"
+  _dsb_i ""
   _dsb_i "  Terraform passthrough flags  (single dash)"
   _dsb_i "    Flags starting with a single dash are passed through directly to terraform."
   _dsb_i "    These are not interpreted by the helpers -- they go straight to the"
@@ -1314,18 +1327,6 @@ _dsb_tf_help_group_flags() {
   _dsb_i "      tf-plan dev -destroy                    -> show destroy plan"
   _dsb_i "      tf-apply dev -auto-approve              -> apply without prompt"
   _dsb_i "      tf-init dev -backend-config=dev.hcl     -> custom backend config"
-  _dsb_i ""
-  _dsb_i "  --max-parallel=<N>  (parallel test execution)"
-  _dsb_i "    Run multiple tests or examples in parallel (default: 10)."
-  _dsb_i "    Each job captures output separately and a summary is shown at the end."
-  _dsb_i ""
-  _dsb_i "    Supported by:"
-  _dsb_i "      tf-test-all-integrations, tf-test-all-examples"
-  _dsb_i ""
-  _dsb_i "    Examples:"
-  _dsb_i "      tf-test-all-integrations --max-parallel=3  -> run 3 tests at a time"
-  _dsb_i "      tf-test-all-examples --max-parallel=2      -> test 2 examples at a time"
-  _dsb_i "      tf-test-all-integrations --max-parallel=1  -> run one at a time (sequential)"
   _dsb_i ""
   _dsb_i "  Combining flags:"
   _dsb_i "    Both our flags and terraform flags can be used together:"
@@ -2449,6 +2450,167 @@ _dsb_tf_register_completions_for_integration_test_names() {
   complete -F _dsb_tf_completions_for_integration_test_names tf-test-integration
 }
 
+# Completion for commands supporting --log flag (and optionally positional env args)
+# Used by: tf-plan, tf-apply, tf-test, tf-test-unit, tf-test-example
+_dsb_tf_completions_with_log_flag() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  # If typing a flag, complete flags
+  if [[ "${cur}" == --* ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "--log --log=" -- "${cur}")
+    return
+  fi
+
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
+
+  # First positional arg: offer env names (project) or nothing (module)
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    if [[ "${_dsbTfRepoType:-}" != "module" ]] && [[ -v _dsbTfAvailableEnvs ]]; then
+      if [[ -n "${_dsbTfAvailableEnvs[*]}" ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "${cur}")
+      fi
+    fi
+  fi
+}
+
+# Completion for commands supporting --log and --max-parallel= flags
+# Used by: tf-test-all-integrations, tf-test-all-examples
+_dsb_tf_completions_with_parallel_flags() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  # If typing a flag, complete flags
+  if [[ "${cur}" == --* ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "--log --log= --max-parallel=" -- "${cur}")
+    return
+  fi
+}
+
+# Completion for tf-test: test file names + --log flag
+_dsb_tf_completions_for_test_with_flags() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  if [[ "${cur}" == --* ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "--log --log=" -- "${cur}")
+    return
+  fi
+
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    if [[ -v _dsbTfTestFilesList ]]; then
+      local -a testNames=()
+      local _tFile
+      for _tFile in "${_dsbTfTestFilesList[@]}"; do
+        testNames+=("$(basename "${_tFile}")")
+      done
+      if [[ -n "${testNames[*]}" ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${testNames[*]}" -- "${cur}")
+      fi
+    fi
+  fi
+}
+
+# Completion for tf-test-all-examples: example names + --log + --max-parallel flags
+_dsb_tf_completions_for_test_example_with_parallel_flags() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  if [[ "${cur}" == --* ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "--log --log= --max-parallel=" -- "${cur}")
+    return
+  fi
+
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    if declare -p _dsbTfExamplesDirList &>/dev/null; then
+      local -a exNames=()
+      local _exKey
+      for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
+        exNames+=("${_exKey}")
+      done
+      if [[ -n "${exNames[*]}" ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${exNames[*]}" -- "${cur}")
+      fi
+    fi
+  fi
+}
+
+# Completion for tf-test-example: example names + --log flag
+_dsb_tf_completions_for_test_example_with_flags() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  # If typing a flag, complete flags
+  if [[ "${cur}" == --* ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "--log --log=" -- "${cur}")
+    return
+  fi
+
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    if declare -p _dsbTfExamplesDirList &>/dev/null; then
+      local -a exNames=()
+      local _exKey
+      for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
+        exNames+=("${_exKey}")
+      done
+      if [[ -n "${exNames[*]}" ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${exNames[*]}" -- "${cur}")
+      fi
+    fi
+  fi
+}
+
+# Completion for tf-test-integration: test names + --log flag
+_dsb_tf_completions_for_test_integration_with_flags() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  # If typing a flag, complete flags
+  if [[ "${cur}" == --* ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "--log --log=" -- "${cur}")
+    return
+  fi
+
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    if [[ -v _dsbTfIntegrationTestFilesList ]]; then
+      local -a testNames=()
+      local _tFile
+      for _tFile in "${_dsbTfIntegrationTestFilesList[@]}"; do
+        testNames+=("$(basename "${_tFile}")")
+      done
+      if [[ -n "${testNames[*]}" ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${testNames[*]}" -- "${cur}")
+      fi
+    fi
+  fi
+}
+
+_dsb_tf_register_completions_for_flags() {
+  # Commands with --log flag + env positional arg
+  complete -F _dsb_tf_completions_with_log_flag tf-plan
+  complete -F _dsb_tf_completions_with_log_flag tf-apply
+  # Commands with --log flag + test name filter
+  complete -F _dsb_tf_completions_for_test_with_flags tf-test
+  # Commands with --log flag only (no positional args)
+  complete -F _dsb_tf_completions_with_log_flag tf-test-unit
+  # Commands with --log + --max-parallel flags (no positional args)
+  complete -F _dsb_tf_completions_with_parallel_flags tf-test-all-integrations
+  # Commands with --log + --max-parallel flags + example positional arg
+  complete -F _dsb_tf_completions_for_test_example_with_parallel_flags tf-test-all-examples
+  # Commands with --log flag + example positional arg
+  complete -F _dsb_tf_completions_for_test_example_with_flags tf-test-example
+  # Commands with --log flag + test name positional arg
+  complete -F _dsb_tf_completions_for_test_integration_with_flags tf-test-integration
+}
+
 # make it easier to configure the shell
 _dsb_tf_register_all_completions() {
   _dsb_tf_register_completions_for_available_envs
@@ -2457,6 +2619,7 @@ _dsb_tf_register_all_completions() {
   _dsb_tf_register_completions_for_example_names
   _dsb_tf_register_completions_for_test_names
   _dsb_tf_register_completions_for_integration_test_names
+  _dsb_tf_register_completions_for_flags  # overrides some of the above with flag-aware versions
 }
 
 ###################################################################################################
@@ -8585,6 +8748,7 @@ _dsb_tf_run_terraform_test() {
 #   single-line progress updates during execution, summary at end
 # returns:
 #   0 if all jobs succeed, 1 if any job fails
+# cSpell: ignore jobpids
 _dsb_tf_run_parallel_jobs() {
   local maxParallel="${1}"
   local jobTypeLabel="${2}"
@@ -8607,7 +8771,7 @@ _dsb_tf_run_parallel_jobs() {
 
   # Clamp max parallel
   if [ "${maxParallel}" -lt 1 ]; then
-    maxParallel=10
+    maxParallel=1
   fi
   if [ "${maxParallel}" -gt "${totalJobs}" ]; then
     maxParallel="${totalJobs}"
@@ -8620,34 +8784,52 @@ _dsb_tf_run_parallel_jobs() {
   tmpDir=$(mktemp -d "/tmp/dsb-tf-parallel-$$-XXXXXX")
 
   # Track jobs
-  local -a activePids=()
-  local -A pidToName=()
-  local -A jobExitCodes=()
-  local -A jobOutputFiles=()
+  local -a jobpids=()       # currently active background PIDs
+  local -A pidToName=()     # PID -> job name mapping
+  local -A jobExitCodes=()  # job name -> exit code
+  local -A jobOutFiles=()   # job name -> output file path
   local completed=0
   local launched=0
   local failCount=0
   local successCount=0
+  local interrupted=0
 
   # Pre-create output file paths
   local i
   for ((i = 0; i < totalJobs; i++)); do
-    jobOutputFiles["${jobNames[$i]}"]="${tmpDir}/${jobNames[$i]}.out"
+    jobOutFiles["${jobNames[$i]}"]="${tmpDir}/${jobNames[$i]}.out"
   done
+
+  # SIGINT handler: kill all background jobs and show summary
+  _parallel_cleanup() {
+    interrupted=1
+    _dsb_i ""
+    _dsb_w "Interrupted! Stopping ${#jobpids[@]} running job(s) ..."
+    local pid
+    for pid in "${jobpids[@]}"; do
+      kill "${pid}" 2>/dev/null || :
+    done
+    # Wait for all to actually terminate
+    for pid in "${jobpids[@]}"; do
+      wait "${pid}" 2>/dev/null || :
+    done
+    jobpids=()
+  }
+  trap _parallel_cleanup INT
 
   # Helper: check which PIDs have finished, reap them
   _parallel_reap_finished() {
     local newActive=()
-    local pid
-    for pid in "${activePids[@]}"; do
+    local pid jName exitFile exitCode
+    for pid in "${jobpids[@]}"; do
       if kill -0 "${pid}" 2>/dev/null; then
         newActive+=("${pid}")
       else
         # Job finished -- get exit code from file
         wait "${pid}" 2>/dev/null || :
-        local jName="${pidToName[${pid}]}"
-        local exitFile="${tmpDir}/${jName}.exit"
-        local exitCode=1
+        jName="${pidToName[${pid}]}"
+        exitFile="${tmpDir}/${jName}.exit"
+        exitCode=1
         if [[ -f "${exitFile}" ]]; then
           exitCode=$(<"${exitFile}")
         fi
@@ -8658,39 +8840,38 @@ _dsb_tf_run_parallel_jobs() {
         else
           ((failCount++))
         fi
-        # Progress update
-        printf '\r\033[K'
-        _dsb_i "  [${completed}/${totalJobs}] ${jName} ... $([ "${exitCode}" -eq 0 ] && echo "passed" || echo "FAILED")"
+        # Progress update (atomic: single printf for the whole line)
+        printf '\r\033[K  [%d/%d] %s ... %s\n' "${completed}" "${totalJobs}" "${jName}" "$([ "${exitCode}" -eq 0 ] && echo "passed" || echo "FAILED")"
       fi
     done
-    activePids=("${newActive[@]}")
+    jobpids=("${newActive[@]}")
   }
 
   # Main execution loop
-  while [ "${completed}" -lt "${totalJobs}" ]; do
+  local jName jCmd jOut jExit jPid
+  while [ "${completed}" -lt "${totalJobs}" ] && [ "${interrupted}" -eq 0 ]; do
     # Launch jobs up to max parallel
-    while [ "${#activePids[@]}" -lt "${maxParallel}" ] && [ "${launched}" -lt "${totalJobs}" ]; do
-      local jName="${jobNames[$launched]}"
-      local jCmd="${jobCommands[$launched]}"
-      local jOut="${jobOutputFiles[${jName}]}"
-      local jExit="${tmpDir}/${jName}.exit"
+    while [ "${#jobpids[@]}" -lt "${maxParallel}" ] && [ "${launched}" -lt "${totalJobs}" ]; do
+      jName="${jobNames[$launched]}"
+      jCmd="${jobCommands[$launched]}"
+      jOut="${jobOutFiles[${jName}]}"
+      jExit="${tmpDir}/${jName}.exit"
 
       (
         eval "${jCmd}" > "${jOut}" 2>&1
         printf '%d' $? > "${jExit}"
       ) &
-      local jPid=$!
-      activePids+=("${jPid}")
+      jPid=$!
+      jobpids+=("${jPid}")
       pidToName[${jPid}]="${jName}"
       ((launched++))
     done
 
     # Wait for any job to finish (efficient, no busy-wait)
-    if [ "${#activePids[@]}" -gt 0 ]; then
-      # Show spinner while waiting
-      printf '\r\033[K'
-      printf '  [%d/%d done, %d running] waiting ...' "${completed}" "${totalJobs}" "${#activePids[@]}"
-      wait -n "${activePids[@]}" 2>/dev/null || :
+    if [ "${#jobpids[@]}" -gt 0 ]; then
+      # Progress line (single atomic printf to avoid truncation)
+      printf '\r\033[K  [%d/%d done, %d running] waiting ...' "${completed}" "${totalJobs}" "${#jobpids[@]}"
+      wait -n "${jobpids[@]}" 2>/dev/null || :
       _parallel_reap_finished
     fi
   done
@@ -8698,16 +8879,35 @@ _dsb_tf_run_parallel_jobs() {
   # Clear the progress line
   printf '\r\033[K'
 
+  # Remove SIGINT trap (restored by _dsb_tf_restore_shell later)
+  trap - INT
+
+  # Mark unlaunched jobs as skipped if interrupted
+  if [ "${interrupted}" -eq 1 ]; then
+    for ((i = launched; i < totalJobs; i++)); do
+      jName="${jobNames[$i]}"
+      jobExitCodes["${jName}"]="130"
+      ((failCount++))
+      ((completed++))
+    done
+  fi
+
   # Summary
   _dsb_i ""
-  _dsb_i "Results: ${successCount} passed, ${failCount} failed out of ${totalJobs} ${jobTypeLabel}(s)"
+  if [ "${interrupted}" -eq 1 ]; then
+    _dsb_i "Results (interrupted): ${successCount} passed, ${failCount} failed/skipped out of ${totalJobs} ${jobTypeLabel}(s)"
+  else
+    _dsb_i "Results: ${successCount} passed, ${failCount} failed out of ${totalJobs} ${jobTypeLabel}(s)"
+  fi
 
   # Per-job results
   for ((i = 0; i < totalJobs; i++)); do
-    local jName="${jobNames[$i]}"
+    jName="${jobNames[$i]}"
     local jExitCode="${jobExitCodes[${jName}]:-1}"
     if [ "${jExitCode}" -eq 0 ]; then
       _dsb_i "  \e[32mPASS\e[0m  ${jName}"
+    elif [ "${jExitCode}" -eq 130 ]; then
+      _dsb_i "  \e[33mSKIP\e[0m  ${jName} (interrupted)"
     else
       _dsb_i "  \e[31mFAIL\e[0m  ${jName} (exit code ${jExitCode})"
     fi
@@ -8715,16 +8915,20 @@ _dsb_tf_run_parallel_jobs() {
 
   # Show output for failed jobs
   if [ "${failCount}" -gt 0 ]; then
-    _dsb_i ""
-    _dsb_i "Output from failed ${jobTypeLabel}(s):"
+    local hasFailOutput=0
     for ((i = 0; i < totalJobs; i++)); do
-      local jName="${jobNames[$i]}"
+      jName="${jobNames[$i]}"
       local jExitCode="${jobExitCodes[${jName}]:-1}"
-      if [ "${jExitCode}" -ne 0 ]; then
-        local jOut="${jobOutputFiles[${jName}]}"
+      if [ "${jExitCode}" -ne 0 ] && [ "${jExitCode}" -ne 130 ]; then
+        if [ "${hasFailOutput}" -eq 0 ]; then
+          _dsb_i ""
+          _dsb_i "Output from failed ${jobTypeLabel}(s):"
+          hasFailOutput=1
+        fi
+        jOut="${jobOutFiles[${jName}]:-}"
         _dsb_i ""
         _dsb_i "--- ${jName} ---"
-        if [[ -f "${jOut}" ]] && [[ -s "${jOut}" ]]; then
+        if [[ -n "${jOut}" ]] && [[ -f "${jOut}" ]] && [[ -s "${jOut}" ]]; then
           cat "${jOut}"
         else
           _dsb_i "  (no output captured)"
@@ -8747,7 +8951,7 @@ _dsb_tf_run_parallel_jobs() {
 #   runs terraform test for example directories (apply + destroy)
 # input:
 #   $1: exampleName (optional, if empty runs on all examples)
-#   $2: maxParallel (optional, defaults to 1)
+#   $2: maxParallel (optional, defaults to 10)
 # on info:
 #   per-example status messages
 # returns:
@@ -8791,13 +8995,13 @@ _dsb_tf_test_examples() {
 
   # Build job list for parallel runner
   local -a jobArgs=()
-  local exName exDir
+  local exName exDir cmd
   for exName in "${exampleNames[@]}"; do
     exDir="${_dsbTfExamplesDirList[${exName}]}"
     # Each example job: init + apply + destroy
-    local cmd="terraform -chdir='${exDir}' init -reconfigure -input=false"
-    cmd+=" && ARM_SUBSCRIPTION_ID='${ARM_SUBSCRIPTION_ID:-}' terraform -chdir='${exDir}' apply -auto-approve"
-    cmd+=" && ARM_SUBSCRIPTION_ID='${ARM_SUBSCRIPTION_ID:-}' terraform -chdir='${exDir}' destroy -auto-approve"
+    cmd="terraform -chdir='${exDir}' init -reconfigure -input=false"
+    cmd="${cmd} && ARM_SUBSCRIPTION_ID='${ARM_SUBSCRIPTION_ID:-}' terraform -chdir='${exDir}' apply -auto-approve"
+    cmd="${cmd} && ARM_SUBSCRIPTION_ID='${ARM_SUBSCRIPTION_ID:-}' terraform -chdir='${exDir}' destroy -auto-approve"
     jobArgs+=("${exName}" "${cmd}")
   done
 
@@ -10792,7 +10996,7 @@ tf-test-all-integrations() {
 
   # Parse args BEFORE configure_shell (set -u not yet active)
   local logFile=""
-  local maxParallel=1
+  local maxParallel=10
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --log)              logFile="auto"; shift ;;
@@ -10846,7 +11050,7 @@ tf-test-all-examples() {
   # Parse args BEFORE configure_shell (set -u not yet active)
   local exampleName=""
   local logFile=""
-  local maxParallel=1
+  local maxParallel=10
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --log)              logFile="auto"; shift ;;
