@@ -416,3 +416,85 @@ teardown() {
   [[ " ${COMPREPLY[*]} " == *" --max-parallel= "* ]]
   [[ " ${COMPREPLY[*]} " == *" --log "* ]]
 }
+
+# -- Flags and positional args coexist --
+
+@test "tf-test-example offers example names after --log flag" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate: tf-test-example --log <tab>
+  COMP_WORDS=("tf-test-example" "--log" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_example_with_flags
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+}
+
+@test "tf-test-example offers flags after example name" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate: tf-test-example 01-basic --<tab>
+  COMP_WORDS=("tf-test-example" "01-basic" "--")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_example_with_flags
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+  [[ " ${COMPREPLY[*]} " == *" --log "* ]]
+}
+
+@test "tf-test-example does not offer second example name" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate: tf-test-example 01-basic <tab> (non-flag, second positional)
+  COMP_WORDS=("tf-test-example" "01-basic" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_example_with_flags
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+@test "tf-plan offers env names after --log flag" {
+  # Simulate: tf-plan --log <tab>
+  COMP_WORDS=("tf-plan" "--log" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_with_log_flag
+  # In project repo, should offer env names
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+}
+
+@test "tf-test-all-examples offers example names after --max-parallel flag" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate: tf-test-all-examples --max-parallel=3 <tab>
+  COMP_WORDS=("tf-test-all-examples" "--max-parallel=3" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_example_with_parallel_flags
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+}
+
+@test "tf-test-integration offers test names after --log flag" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate: tf-test-integration --log <tab>
+  COMP_WORDS=("tf-test-integration" "--log" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_integration_with_flags
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+}
