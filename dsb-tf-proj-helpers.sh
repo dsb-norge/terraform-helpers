@@ -2246,6 +2246,20 @@ _dsb_tf_help_specific_command() {
 #
 ###################################################################################################
 
+# Helper: count how many positional (non-flag) args have been completed so far.
+# Skips the command name (index 0) and the current word being typed.
+# Flags (--*) are not counted. Returns the count via echo.
+_dsb_tf_count_positional_args() {
+  local count=0
+  local i
+  for ((i = 1; i < COMP_CWORD; i++)); do
+    if [[ "${COMP_WORDS[$i]}" != --* ]]; then
+      ((count++))
+    fi
+  done
+  echo "${count}"
+}
+
 # for _dsbTfAvailableEnvs
 # --------------------------------------------------
 _dsb_tf_completions_for_available_envs() {
@@ -2452,11 +2466,12 @@ _dsb_tf_register_completions_for_integration_test_names() {
 
 # Completion for commands supporting --log flag (and optionally positional env args)
 # Used by: tf-plan, tf-apply, tf-test, tf-test-unit, tf-test-example
+# Completion for commands supporting --log flag (and optionally positional env args)
+# Used by: tf-plan, tf-apply, tf-test-unit
 _dsb_tf_completions_with_log_flag() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=()
 
-  # If typing a flag, complete flags
   if [[ "${cur}" == --* ]]; then
     mapfile -t COMPREPLY < <(compgen -W "--log --log=" -- "${cur}")
     return
@@ -2464,8 +2479,10 @@ _dsb_tf_completions_with_log_flag() {
 
   _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
 
-  # First positional arg: offer env names (project) or nothing (module)
-  if [[ ${COMP_CWORD} -eq 1 ]]; then
+  # Offer env names if no positional arg given yet (project repos only)
+  local posCount
+  posCount=$(_dsb_tf_count_positional_args)
+  if [[ "${posCount}" -eq 0 ]]; then
     if [[ "${_dsbTfRepoType:-}" != "module" ]] && [[ -v _dsbTfAvailableEnvs ]]; then
       if [[ -n "${_dsbTfAvailableEnvs[*]}" ]]; then
         mapfile -t COMPREPLY < <(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "${cur}")
@@ -2474,13 +2491,12 @@ _dsb_tf_completions_with_log_flag() {
   fi
 }
 
-# Completion for commands supporting --log and --max-parallel= flags
-# Used by: tf-test-all-integrations, tf-test-all-examples
+# Completion for commands supporting --log and --max-parallel= flags (no positional args)
+# Used by: tf-test-all-integrations
 _dsb_tf_completions_with_parallel_flags() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=()
 
-  # If typing a flag, complete flags
   if [[ "${cur}" == --* ]]; then
     mapfile -t COMPREPLY < <(compgen -W "--log --log= --max-parallel=" -- "${cur}")
     return
@@ -2499,7 +2515,10 @@ _dsb_tf_completions_for_test_with_flags() {
 
   _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
 
-  if [[ ${COMP_CWORD} -eq 1 ]]; then
+  # Offer test names if no positional arg given yet
+  local posCount
+  posCount=$(_dsb_tf_count_positional_args)
+  if [[ "${posCount}" -eq 0 ]]; then
     if [[ -v _dsbTfTestFilesList ]]; then
       local -a testNames=()
       local _tFile
@@ -2525,7 +2544,10 @@ _dsb_tf_completions_for_test_example_with_parallel_flags() {
 
   _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
 
-  if [[ ${COMP_CWORD} -eq 1 ]]; then
+  # Offer example names if no positional arg given yet
+  local posCount
+  posCount=$(_dsb_tf_count_positional_args)
+  if [[ "${posCount}" -eq 0 ]]; then
     if declare -p _dsbTfExamplesDirList &>/dev/null; then
       local -a exNames=()
       local _exKey
@@ -2544,7 +2566,6 @@ _dsb_tf_completions_for_test_example_with_flags() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=()
 
-  # If typing a flag, complete flags
   if [[ "${cur}" == --* ]]; then
     mapfile -t COMPREPLY < <(compgen -W "--log --log=" -- "${cur}")
     return
@@ -2552,7 +2573,10 @@ _dsb_tf_completions_for_test_example_with_flags() {
 
   _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
 
-  if [[ ${COMP_CWORD} -eq 1 ]]; then
+  # Offer example names if no positional arg given yet
+  local posCount
+  posCount=$(_dsb_tf_count_positional_args)
+  if [[ "${posCount}" -eq 0 ]]; then
     if declare -p _dsbTfExamplesDirList &>/dev/null; then
       local -a exNames=()
       local _exKey
@@ -2571,7 +2595,6 @@ _dsb_tf_completions_for_test_integration_with_flags() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=()
 
-  # If typing a flag, complete flags
   if [[ "${cur}" == --* ]]; then
     mapfile -t COMPREPLY < <(compgen -W "--log --log=" -- "${cur}")
     return
@@ -2579,7 +2602,10 @@ _dsb_tf_completions_for_test_integration_with_flags() {
 
   _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
 
-  if [[ ${COMP_CWORD} -eq 1 ]]; then
+  # Offer integration test names if no positional arg given yet
+  local posCount
+  posCount=$(_dsb_tf_count_positional_args)
+  if [[ "${posCount}" -eq 0 ]]; then
     if [[ -v _dsbTfIntegrationTestFilesList ]]; then
       local -a testNames=()
       local _tFile
