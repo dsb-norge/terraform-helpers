@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2164,SC1090,SC1091,SC2030,SC2031,SC2034,SC2154,SC2317
 load 'helpers/test_helper'
 
 setup() {
@@ -165,6 +166,29 @@ teardown() {
   # Should process multiple environments
   [[ "${clean}" == *"dev"* ]]
   [[ "${clean}" == *"prod"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Offline commands work with broken Azure auth
+# ---------------------------------------------------------------------------
+
+@test "tf-bump-env-offline succeeds when Azure auth is broken" {
+  mock_az_not_logged_in
+  local out
+  out="$(tf-bump-env-offline dev 2>&1)" || true
+  local clean
+  clean="$(strip_ansi "${out}")"
+  [[ "${clean}" == *"dev"* ]]
+  [[ "${clean}" == *"offline"* ]]
+}
+
+@test "tf-bump-all-offline succeeds when Azure auth is broken" {
+  mock_az_not_logged_in
+  local out
+  out="$(tf-bump-all-offline 2>&1)" || true
+  local clean
+  clean="$(strip_ansi "${out}")"
+  [[ "${clean}" == *"dev"* ]]
 }
 
 # ---------------------------------------------------------------------------

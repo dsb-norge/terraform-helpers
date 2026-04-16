@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2164,SC1090,SC1091,SC2030,SC2031,SC2034,SC2154,SC2317
 load 'helpers/test_helper'
 
 setup() {
@@ -27,6 +28,13 @@ teardown() {
   assert_success
 }
 
+@test "tf-lint succeeds when Azure auth is broken" {
+  mock_az_not_logged_in
+  mock_gh
+  run tf-lint "dev"
+  assert_success
+}
+
 @test "tflint wrapper is downloaded if missing" {
   mock_az
   mock_gh
@@ -37,6 +45,31 @@ teardown() {
   assert_success
   # After the run, the wrapper should have been created
   [[ -f "${project_dir}/.tflint/tflint.sh" ]]
+}
+
+@test "tf-lint reports failure when wrapper script fails" {
+  mock_az
+  mock_gh
+  # Pre-create a wrapper that exits with failure
+  mkdir -p "${project_dir}/.tflint"
+  printf '#!/usr/bin/env bash\necho "tflint error" >&2\nexit 1\n' > "${project_dir}/.tflint/tflint.sh"
+  chmod +x "${project_dir}/.tflint/tflint.sh"
+
+  run tf-lint "dev"
+  assert_failure
+}
+
+@test "tf-lint preserves working directory even on failure" {
+  mock_az
+  mock_gh
+  local original_pwd="${PWD}"
+  # Pre-create a wrapper that fails
+  mkdir -p "${project_dir}/.tflint"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "${project_dir}/.tflint/tflint.sh"
+  chmod +x "${project_dir}/.tflint/tflint.sh"
+
+  tf-lint "dev" || true
+  [[ "${PWD}" == "${original_pwd}" ]]
 }
 
 @test "tflint wrapper is not re-downloaded if present" {

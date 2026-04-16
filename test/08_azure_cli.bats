@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2164,SC1090,SC1091,SC2030,SC2031,SC2034,SC2154,SC2317
 load 'helpers/test_helper'
 
 setup() {
@@ -159,4 +160,44 @@ teardown() {
   mock_az_not_logged_in
   run _dsb_tf_az_is_logged_in
   assert_failure
+}
+
+# -------------------------------------------------------
+# tf-check-az-auth
+# -------------------------------------------------------
+
+@test "tf-check-az-auth succeeds when logged in" {
+  mock_az
+  run tf-check-az-auth
+  assert_success
+  assert_output --partial "test@example.com"
+}
+
+@test "tf-check-az-auth fails when not logged in" {
+  mock_az_not_logged_in
+  _dsbTfLogErrors=1
+  run tf-check-az-auth
+  assert_failure
+  assert_clean_output_contains "Not logged in"
+}
+
+@test "tf-check-az-auth fails when az not installed" {
+  mock_az_not_installed
+  _dsbTfLogErrors=1
+  run tf-check-az-auth
+  assert_failure
+}
+
+# -------------------------------------------------------
+# tf-status with azure not logged in
+# -------------------------------------------------------
+
+@test "tf-status handles azure not logged in gracefully" {
+  mock_az_not_logged_in
+  _dsbTfLogInfo=1
+  run tf-status
+  # Should not crash with internal error
+  assert_clean_output_not_contains "Internal error"
+  # Should show a not-logged-in status
+  assert_clean_output_contains "N/A"
 }

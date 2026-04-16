@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2164,SC1090,SC1091,SC2030,SC2031,SC2034,SC2154,SC2317
 load 'helpers/test_helper'
 
 setup() {
@@ -35,13 +36,13 @@ teardown() {
 @test "completion registered for tf-plan" {
   local comp_output
   comp_output="$(complete -p tf-plan 2>&1)"
-  [[ "${comp_output}" == *"_dsb_tf_completions_for_available_envs"* ]]
+  [[ "${comp_output}" == *"_dsb_tf_completions_with_log_flag"* ]]
 }
 
 @test "completion registered for tf-apply" {
   local comp_output
   comp_output="$(complete -p tf-apply 2>&1)"
-  [[ "${comp_output}" == *"_dsb_tf_completions_for_available_envs"* ]]
+  [[ "${comp_output}" == *"_dsb_tf_completions_with_log_flag"* ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -148,4 +149,352 @@ teardown() {
   [[ "${reply_str}" == *"--force-install"* ]]
   [[ "${reply_str}" == *"--help"* ]]
   [[ "${reply_str}" == *"--use-version"* ]]
+}
+
+# -- Example name completion (module repo) --
+
+@test "example name completion returns examples in module repo" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate completion
+  COMP_WORDS=("tf-init-example" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_example_names
+  [[ "${#COMPREPLY[@]}" -gt 0 ]]
+  # Should contain example names from fixture
+  local joined="${COMPREPLY[*]}"
+  [[ "${joined}" == *"01-basic"* ]]
+}
+
+@test "example name completion filters by prefix" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-init-example" "01")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_example_names
+  [[ "${#COMPREPLY[@]}" -eq 1 ]]
+  [[ "${COMPREPLY[0]}" == "01-basic" ]]
+}
+
+@test "example name completion returns empty in project repo" {
+  # project repo has no examples
+  COMP_WORDS=("tf-init-example" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_example_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+# -- Example command completion registration --
+
+@test "completion registered for all singular example commands" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Most singular example commands use the basic example name completion
+  for cmd in tf-init-example tf-validate-example tf-lint-example tf-docs-example; do
+    run complete -p "${cmd}"
+    assert_success
+    assert_output --partial "_dsb_tf_completions_for_example_names"
+  done
+  # tf-test-example uses flag-aware version
+  run complete -p tf-test-example
+  assert_success
+  assert_output --partial "_dsb_tf_completions_for_test_example_with_flags"
+}
+
+@test "completion registered for all plural example commands" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Most plural example commands use the basic example name completion
+  for cmd in tf-init-all-examples tf-validate-all-examples tf-lint-all-examples; do
+    run complete -p "${cmd}"
+    assert_success
+    assert_output --partial "_dsb_tf_completions_for_example_names"
+  done
+  # tf-test-all-examples uses flag-aware version with parallel support
+  run complete -p tf-test-all-examples
+  assert_success
+  assert_output --partial "_dsb_tf_completions_for_test_example_with_parallel_flags"
+}
+
+@test "example completion does not complete second argument" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-init-example" "01-basic" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_example_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+# -- Test name completion --
+
+@test "completion registered for tf-test" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  run complete -p tf-test
+  assert_success
+  assert_output --partial "_dsb_tf_completions_for_test_with_flags"
+}
+
+@test "test name completion returns test files in module repo" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_test_names
+  [[ "${#COMPREPLY[@]}" -gt 0 ]]
+  local joined="${COMPREPLY[*]}"
+  [[ "${joined}" == *"unit-tests.tftest.hcl"* ]]
+  [[ "${joined}" == *"integration-test-01-basic.tftest.hcl"* ]]
+}
+
+@test "test name completion filters by prefix" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test" "unit")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_test_names
+  [[ "${#COMPREPLY[@]}" -eq 1 ]]
+  [[ "${COMPREPLY[0]}" == "unit-tests.tftest.hcl" ]]
+}
+
+@test "test name completion returns empty in project repo" {
+  COMP_WORDS=("tf-test" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_test_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+@test "test name completion does not complete second argument" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test" "unit-tests.tftest.hcl" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+# -- Integration test name completion --
+
+@test "completion registered for tf-test-integration" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  run complete -p tf-test-integration
+  assert_success
+  assert_output --partial "_dsb_tf_completions_for_test_integration_with_flags"
+}
+
+@test "integration test name completion returns integration test files in module repo" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test-integration" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_integration_test_names
+  [[ "${#COMPREPLY[@]}" -gt 0 ]]
+  local joined="${COMPREPLY[*]}"
+  [[ "${joined}" == *"integration-test-01-basic.tftest.hcl"* ]]
+}
+
+@test "integration test name completion filters by prefix" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test-integration" "integration-test-01")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_integration_test_names
+  [[ "${#COMPREPLY[@]}" -eq 1 ]]
+  [[ "${COMPREPLY[0]}" == "integration-test-01-basic.tftest.hcl" ]]
+}
+
+@test "integration test name completion returns empty in project repo" {
+  COMP_WORDS=("tf-test-integration" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_integration_test_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+@test "integration test name completion does not complete second argument" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test-integration" "integration-test-01-basic.tftest.hcl" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_integration_test_names
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+# -- All env completions registered --
+
+@test "completion registered for all environment-accepting commands" {
+  # Commands using basic env completion
+  for cmd in tf-set-env tf-check-env tf-select-env tf-init-env tf-init-env-offline \
+    tf-init tf-init-offline tf-upgrade-env tf-upgrade-env-offline tf-upgrade tf-upgrade-offline \
+    tf-validate tf-destroy tf-show-provider-upgrades \
+    tf-bump tf-bump-offline tf-bump-env tf-bump-env-offline; do
+    run complete -p "${cmd}"
+    assert_success
+    assert_output --partial "_dsb_tf_completions_for_available_envs"
+  done
+  # tf-plan and tf-apply use flag-aware completion (still offers env names)
+  for cmd in tf-plan tf-apply; do
+    run complete -p "${cmd}"
+    assert_success
+    assert_output --partial "_dsb_tf_completions_with_log_flag"
+  done
+}
+
+# -- Flag completion --
+
+@test "flag completion offers --log for tf-plan" {
+  COMP_WORDS=("tf-plan" "--")
+  COMP_CWORD=1
+  _dsb_tf_completions_with_log_flag
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+  [[ " ${COMPREPLY[*]} " == *" --log "* ]]
+}
+
+@test "flag completion offers --max-parallel for tf-test-all-integrations" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-test-all-integrations" "--")
+  COMP_CWORD=1
+  _dsb_tf_completions_with_parallel_flags
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+  [[ " ${COMPREPLY[*]} " == *" --max-parallel= "* ]]
+  [[ " ${COMPREPLY[*]} " == *" --log "* ]]
+}
+
+# -- Flags and positional args coexist --
+
+@test "tf-test-example offers example names after --log flag" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate: tf-test-example --log <tab>
+  COMP_WORDS=("tf-test-example" "--log" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_example_with_flags
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+}
+
+@test "tf-test-example offers flags after example name" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate: tf-test-example 01-basic --<tab>
+  COMP_WORDS=("tf-test-example" "01-basic" "--")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_example_with_flags
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+  [[ " ${COMPREPLY[*]} " == *" --log "* ]]
+}
+
+@test "tf-test-example does not offer second example name" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate: tf-test-example 01-basic <tab> (non-flag, second positional)
+  COMP_WORDS=("tf-test-example" "01-basic" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_example_with_flags
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+@test "tf-plan offers env names after --log flag" {
+  # Simulate: tf-plan --log <tab>
+  COMP_WORDS=("tf-plan" "--log" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_with_log_flag
+  # In project repo, should offer env names
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+}
+
+@test "tf-test-all-examples offers example names after --max-parallel flag" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate: tf-test-all-examples --max-parallel=3 <tab>
+  COMP_WORDS=("tf-test-all-examples" "--max-parallel=3" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_example_with_parallel_flags
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
+}
+
+@test "tf-test-integration offers test names after --log flag" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  # Simulate: tf-test-integration --log <tab>
+  COMP_WORDS=("tf-test-integration" "--log" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_test_integration_with_flags
+  [[ "${#COMPREPLY[@]}" -ge 1 ]]
 }

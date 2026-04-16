@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2164,SC1090,SC1091,SC2030,SC2031,SC2034,SC2154,SC2317
 load 'helpers/test_helper'
 
 setup() {
@@ -46,6 +47,14 @@ teardown() {
   run tf-init-offline "dev"
   assert_success
   assert_output --partial "Initializ"
+}
+
+@test "tf-init-offline succeeds when Azure auth is broken" {
+  mock_terraform
+  mock_az_not_logged_in
+  run tf-init-offline "dev"
+  assert_success
+  assert_output --partial "offline"
 }
 
 # -------------------------------------------------------
@@ -137,6 +146,35 @@ teardown() {
   assert_failure
   assert_output --partial "Terraform check failed"
 }
+
+# -------------------------------------------------------
+# Pipeline failure detection
+# -------------------------------------------------------
+
+@test "tf-init reports failure when terraform init fails" {
+  mock_terraform_init_fails
+  mock_az
+  run tf-init "dev"
+  assert_failure
+}
+
+@test "tf-validate reports failure when terraform validate fails" {
+  mock_terraform_validate_fails
+  mock_az
+  run tf-validate "dev"
+  assert_failure
+}
+
+@test "tf-plan reports failure when terraform plan fails" {
+  mock_terraform_plan_fails
+  mock_az
+  run tf-plan "dev"
+  assert_failure
+}
+
+# -------------------------------------------------------
+# Terraform preflight (continued)
+# -------------------------------------------------------
 
 @test "terraform preflight exports ARM_SUBSCRIPTION_ID on online operations" {
   mock_terraform

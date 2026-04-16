@@ -33,8 +33,8 @@ default_test_setup() {
 default_test_teardown() {
   # Restore shell if configure_shell was called
   if declare -F _dsb_tf_restore_shell &>/dev/null; then
-    # Only restore if we're in configured state (traps are set)
-    if [[ "$(trap -p ERR 2>/dev/null)" == *"_dsb_tf_error_handler"* ]]; then
+    # Only restore if we're in configured state (signal traps are set)
+    if [[ "$(trap -p SIGINT 2>/dev/null)" == *"_dsb_tf_signal_handler"* ]]; then
       _dsb_tf_restore_shell 2>/dev/null || true
     fi
   fi

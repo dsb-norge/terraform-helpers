@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2164,SC1090,SC1091,SC2030,SC2031,SC2034,SC2154,SC2317
 load 'helpers/test_helper'
 
 setup_file() {
@@ -20,23 +21,30 @@ teardown() {
 # -- _dsb_tf_configure_shell --
 
 @test "_dsb_tf_configure_shell enables set -u" {
-  # shopt -o history returns 1 in non-interactive shells, which trips bats' set -e
   _dsb_tf_configure_shell || true
 
   local opts
   opts="$(set +o)"
-  # Must restore before any assertion (ERR trap interferes with assertion internals)
   _dsb_tf_restore_shell
   [[ "${opts}" == *"set -o nounset"* ]]
 }
 
-@test "_dsb_tf_configure_shell installs ERR trap" {
+@test "_dsb_tf_configure_shell installs SIGINT trap" {
   _dsb_tf_configure_shell || true
 
   local trap_output
-  trap_output="$(trap -p ERR)"
+  trap_output="$(trap -p SIGINT)"
   _dsb_tf_restore_shell
-  [[ "${trap_output}" == *"_dsb_tf_error_handler"* ]]
+  [[ "${trap_output}" == *"_dsb_tf_signal_handler"* ]]
+}
+
+@test "_dsb_tf_configure_shell does NOT install ERR trap" {
+  _dsb_tf_configure_shell || true
+
+  local trap_output
+  trap_output="$(trap -p ERR 2>/dev/null)" || true
+  _dsb_tf_restore_shell
+  [[ "${trap_output}" != *"_dsb_tf_error_handler"* ]]
 }
 
 @test "_dsb_tf_configure_shell sets logging flags to 1" {
@@ -50,6 +58,15 @@ teardown() {
   [[ "${info_val}" == "1" ]]
   [[ "${warn_val}" == "1" ]]
   [[ "${err_val}" == "1" ]]
+}
+
+@test "_dsb_tf_configure_shell clears the error stack" {
+  _dsbTfErrorStack=("stale: old error")
+  _dsb_tf_configure_shell || true
+
+  local stack_size=${#_dsbTfErrorStack[@]}
+  _dsb_tf_restore_shell
+  [[ "${stack_size}" -eq 0 ]]
 }
 
 # -- _dsb_tf_restore_shell --
@@ -72,51 +89,75 @@ teardown() {
   _dsb_tf_restore_shell
 
   local trap_output
-  trap_output="$(trap -p ERR 2>/dev/null)" || true
-  [[ "${trap_output}" != *"_dsb_tf_error_handler"* ]]
+  trap_output="$(trap -p SIGINT 2>/dev/null)" || true
+  [[ "${trap_output}" != *"_dsb_tf_signal_handler"* ]]
 }
 
-# -- _dsb_tf_error_handler --
+# -- error stack infrastructure --
 
-@test "_dsb_tf_error_handler logs error details" {
-  _dsb_tf_configure_shell || true
+@test "_dsb_tf_error_push adds entry with caller name" {
+  _dsb_tf_error_clear
+  # Call from a wrapper to get a meaningful caller name
+  _test_push_helper() {
+    _dsb_tf_error_push "test message"
+  }
+  _test_push_helper
+
+  [[ ${#_dsbTfErrorStack[@]} -eq 1 ]]
+  [[ "${_dsbTfErrorStack[0]}" == "_test_push_helper: test message" ]]
+}
+
+@test "_dsb_tf_error_clear empties the stack" {
+  _dsbTfErrorStack=("entry1" "entry2")
+  _dsb_tf_error_clear
+  [[ ${#_dsbTfErrorStack[@]} -eq 0 ]]
+}
+
+@test "_dsb_tf_error_dump outputs stack and clears it" {
+  _dsbTfErrorStack=("func1: error one" "func2: error two")
   _dsbTfLogErrors=1
 
-  # Capture output in a variable (run would work but let's avoid trap interference)
-  local handler_output
-  handler_output="$(_dsb_tf_error_handler 42 2>&1)" || true
-
-  # Restore before assertions
-  _dsb_tf_restore_shell
+  local dump_output
+  dump_output="$(_dsb_tf_error_dump 2>&1)"
 
   local clean
-  clean="$(strip_ansi "${handler_output}")"
-  [[ "${clean}" == *"Error occurred"* ]]
-  [[ "${clean}" == *"exit code"* ]]
+  clean="$(strip_ansi "${dump_output}")"
+
+  [[ "${clean}" == *"Error context:"* ]]
+  [[ "${clean}" == *"func1: error one"* ]]
+  [[ "${clean}" == *"func2: error two"* ]]
+
+  # Dump ran in subshell, so clear explicitly and verify clear works
+  _dsb_tf_error_clear
+  [[ ${#_dsbTfErrorStack[@]} -eq 0 ]]
 }
 
-@test "_dsb_tf_error_handler sets _dsbTfReturnCode" {
-  _dsb_tf_configure_shell || true
+@test "_dsb_tf_error_dump is silent when stack is empty" {
+  _dsb_tf_error_clear
+  _dsbTfLogErrors=1
 
-  _dsbTfLogErrors=0
-  _dsb_tf_error_handler 77 || true
+  local dump_output
+  dump_output="$(_dsb_tf_error_dump 2>&1)"
 
-  local saved_code="${_dsbTfReturnCode}"
-  _dsb_tf_restore_shell
+  [[ -z "${dump_output}" ]]
+}
 
-  [[ "${saved_code}" == "77" ]]
+@test "multiple pushes accumulate" {
+  _dsb_tf_error_clear
+  _dsb_tf_error_push "first"
+  _dsb_tf_error_push "second"
+  _dsb_tf_error_push "third"
+  [[ ${#_dsbTfErrorStack[@]} -eq 3 ]]
 }
 
 # -- _dsb_internal_error --
 
 @test "_dsb_internal_error logs with caller name" {
-  _dsb_tf_configure_shell || true
+  _dsb_tf_error_clear
   _dsbTfLogErrors=1
 
   local ie_output
   ie_output="$(_dsb_internal_error "test message" 2>&1)" || true
-
-  _dsb_tf_restore_shell
 
   local clean
   clean="$(strip_ansi "${ie_output}")"
@@ -124,10 +165,19 @@ teardown() {
   [[ "${clean}" == *"test message"* ]]
 }
 
-# -- _dsb_ie_raise_error --
+@test "_dsb_internal_error pushes to error stack" {
+  _dsb_tf_error_clear
 
-@test "_dsb_ie_raise_error returns 1" {
-  run _dsb_ie_raise_error
-  assert_failure
-  [[ "${status}" -eq 1 ]]
+  _dsb_internal_error "stack test" 2>/dev/null || true
+
+  [[ ${#_dsbTfErrorStack[@]} -eq 1 ]]
+  [[ "${_dsbTfErrorStack[0]}" == *"stack test"* ]]
+}
+
+@test "_dsb_internal_error does not return 1 itself" {
+  # _dsb_internal_error should just log+push, not return non-zero
+  _dsb_tf_error_clear
+  _dsb_internal_error "test" 2>/dev/null
+  local rc=$?
+  [[ "${rc}" -eq 0 ]]
 }
