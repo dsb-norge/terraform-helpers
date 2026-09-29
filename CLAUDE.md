@@ -1,5 +1,5 @@
 <!--
-  Scaffolded by https://github.com/dsb-infra/.github-private — customize freely.
+  Scaffolded automatically — customize freely.
   This file is NOT overwritten by the auto-generate script. It is yours to maintain.
 
   Read by: Claude Code, VS Code Copilot, GitHub.com Coding Agent.
