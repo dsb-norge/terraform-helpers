@@ -86,6 +86,7 @@ test/
   32_tf_unload.bats             # tf-unload-helpers: complete removal of helpers from shell.
   33_passthrough_and_log.bats   # Terraform arg passthrough, --log output capture, PIPESTATUS discipline.
   34_setup_commands.bats        # tf-install-helpers, tf-uninstall-helpers, tf-update-helpers, tf-reload-helpers.
+  37_providers_lock.bats        # Lock file maintenance: init with/without -upgrade, providers lock platforms.
 ```
 
 Files are numbered so output reads in a logical order, but **tests must not depend on execution order**. Each file is fully self-contained.
@@ -158,6 +159,29 @@ External tools are mocked via function overrides. Bash resolves functions before
 Each tool has `mock_<tool>` (available and working) and `mock_<tool>_not_installed` (returns error). Some have additional variants (e.g., `mock_az_not_logged_in`, `mock_terraform_init_fails`).
 
 `mock_standard_tools` installs all "available" mocks at once. `unmock_all` removes all overrides.
+
+### Asserting on terraform arguments
+
+`mock_terraform` appends each call to `_MOCK_TERRAFORM_CALLS`, but `run` executes in a subshell, so that array is empty again when the test reads it. To assert on the exact arguments or the order of terraform calls, use `mock_terraform_recording`. It writes one line per call (`"$*"`) to `${MOCK_TERRAFORM_CALLS_FILE}`, and the file survives `run`:
+
+```bash
+setup() {
+  # ...
+  mock_standard_tools
+  mock_terraform_recording   # after mock_standard_tools, so it wins
+  source "${SUT}"
+}
+
+@test "tf-upgrade-env locks for all platforms" {
+  run tf-upgrade-env dev
+  run terraform_calls_in "envs/dev" "providers lock"   # matching lines only
+  assert_output --partial "-platform=linux_arm64"
+}
+```
+
+Set `MOCK_TERRAFORM_FAIL_INIT` or `MOCK_TERRAFORM_FAIL_LOCK` to a glob, matched against the `-chdir` directory without its trailing slash, to make `init` or `providers lock` fail there (e.g. `'*'`, or `'*/envs/prod'`).
+
+Environment directories in `_dsbTfEnvsDirList` end with a slash, so a recorded call reads `-chdir=/.../envs/dev/ init ...`. `terraform_calls_in` allows for it.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add a new mock.
 
