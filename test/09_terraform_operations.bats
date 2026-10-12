@@ -158,6 +158,34 @@ teardown() {
   assert_failure
 }
 
+@test "tf-init-env reports failure when terraform init fails" {
+  mock_terraform_init_fails
+  mock_az
+  run tf-init-env "dev"
+  assert_failure
+  assert_output --partial "init in ./envs/dev"
+  assert_output --partial "terraform init failed in"
+}
+
+@test "tf-init-env-offline reports failure when terraform init fails" {
+  mock_terraform_init_fails
+  run tf-init-env-offline "dev"
+  assert_failure
+}
+
+@test "tf-upgrade-env reports failure when terraform init fails" {
+  mock_terraform_init_fails
+  mock_az
+  run tf-upgrade-env "dev"
+  assert_failure
+}
+
+@test "tf-upgrade-env-offline reports failure when terraform init fails" {
+  mock_terraform_init_fails
+  run tf-upgrade-env-offline "dev"
+  assert_failure
+}
+
 @test "tf-validate reports failure when terraform validate fails" {
   mock_terraform_validate_fails
   mock_az
