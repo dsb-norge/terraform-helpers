@@ -310,6 +310,67 @@ mock_terraform_plan_fails() {
   export -f terraform
 }
 
+# Records every call, one line per call ("$*"), in ${MOCK_TERRAFORM_CALLS_FILE}.
+# Use it to assert on the exact arguments and the order of terraform calls.
+# A file survives `run` (a subshell), the _MOCK_TERRAFORM_CALLS array does not.
+#
+# Failures can be injected with a glob matched against the -chdir directory
+# (without any trailing slash):
+#   MOCK_TERRAFORM_FAIL_INIT='*'            -> every 'init' fails
+#   MOCK_TERRAFORM_FAIL_LOCK='*/envs/prod'  -> 'providers lock' fails in envs/prod only
+mock_terraform_recording() {
+  export MOCK_TERRAFORM_CALLS_FILE="${BATS_TEST_TMPDIR}/terraform_calls.log"
+  : >"${MOCK_TERRAFORM_CALLS_FILE}"
+  export MOCK_TERRAFORM_FAIL_INIT="${MOCK_TERRAFORM_FAIL_INIT:-}"
+  export MOCK_TERRAFORM_FAIL_LOCK="${MOCK_TERRAFORM_FAIL_LOCK:-}"
+
+  terraform() {
+    echo "$*" >>"${MOCK_TERRAFORM_CALLS_FILE}"
+
+    case "$1" in
+      -version|--version) echo "Terraform v1.7.0 on linux_amd64"; return 0 ;;
+      -chdir=*)
+        local chdir_dir="${1#-chdir=}"
+        chdir_dir="${chdir_dir%/}"
+        shift
+        case "$1" in
+          init)
+            # shellcheck disable=SC2053 # glob match is intended
+            if [[ -n "${MOCK_TERRAFORM_FAIL_INIT}" ]] && [[ "${chdir_dir}" == ${MOCK_TERRAFORM_FAIL_INIT} ]]; then
+              echo "Error: Failed to query available provider packages" >&2
+              return 1
+            fi
+            echo "Terraform has been successfully initialized!"
+            return 0
+            ;;
+          providers)
+            if [[ "${2:-}" == "lock" ]]; then
+              # shellcheck disable=SC2053 # glob match is intended
+              if [[ -n "${MOCK_TERRAFORM_FAIL_LOCK}" ]] && [[ "${chdir_dir}" == ${MOCK_TERRAFORM_FAIL_LOCK} ]]; then
+                echo "Error: Could not retrieve providers for locking" >&2
+                return 1
+              fi
+              echo "Success! Terraform has updated the lock file."
+            fi
+            return 0
+            ;;
+        esac
+        ;;
+    esac
+    return 0
+  }
+  export -f terraform
+}
+
+# Print the recorded terraform calls whose -chdir directory ends with the given
+# path and whose subcommand is the given one, e.g.:
+#   terraform_calls_in "envs/dev" "providers lock"
+terraform_calls_in() {
+  local dir_suffix="${1}"
+  local subcommand="${2}"
+  command grep -E -- "^-chdir=[^ ]*/${dir_suffix}/? ${subcommand}( |$)" "${MOCK_TERRAFORM_CALLS_FILE}" || true
+}
+
 # ============================================================
 # jq -- we use the real jq if available, mock if not
 # ============================================================
