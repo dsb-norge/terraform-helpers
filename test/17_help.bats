@@ -179,6 +179,62 @@ teardown() {
   assert_clean_output_contains "tf-upgrade-offline"
 }
 
+@test "tf-help terraform lists the lock commands" {
+  output="$(tf-help terraform 2>&1)"
+  status=$?
+  assert_success
+  assert_clean_output_contains "tf-lock-env [env]"
+  assert_clean_output_contains "tf-lock-all"
+  assert_clean_output_contains "tf-lock-env-offline [env]"
+  assert_clean_output_contains "tf-lock-all-offline"
+}
+
+@test "tf-help offline lists the offline lock commands" {
+  output="$(tf-help offline 2>&1)"
+  status=$?
+  assert_success
+  assert_clean_output_contains "tf-lock-env-offline [env]"
+  assert_clean_output_contains "tf-lock-all-offline"
+}
+
+@test "tf-help tf-lock-env explains that it does not upgrade, and lists the platforms" {
+  output="$(tf-help tf-lock-env 2>&1)"
+  status=$?
+  assert_success
+  assert_clean_output_contains "tf-lock-env [env]"
+  assert_clean_output_contains "tf-lock-env-offline [env]"
+  assert_clean_output_contains "without -upgrade"
+  assert_clean_output_contains "windows_amd64 darwin_arm64 linux_amd64 linux_arm64"
+}
+
+@test "tf-help tf-lock-env takes its platform list from _dsbTfLockPlatforms" {
+  _dsbTfLockPlatforms=(linux_amd64 plan9_386)
+  output="$(tf-help tf-lock-env 2>&1)"
+  assert_clean_output_contains "linux_amd64 plan9_386"
+}
+
+@test "tf-help tf-lock-all-offline shows help for tf-lock-all" {
+  output="$(tf-help tf-lock-all-offline 2>&1)"
+  status=$?
+  assert_success
+  assert_clean_output_contains "tf-lock-all"
+  assert_clean_output_contains "tf-lock-all-offline"
+}
+
+@test "tf-help tf-upgrade-env points to tf-lock-env" {
+  output="$(tf-help tf-upgrade-env 2>&1)"
+  assert_clean_output_contains "tf-lock-env"
+}
+
+@test "the lock commands are listed by _dsb_tf_help_get_commands_supported_by_help" {
+  local commands
+  commands=" $(_dsb_tf_help_get_commands_supported_by_help) "
+  local cmd
+  for cmd in tf-lock-env tf-lock-env-offline tf-lock-all tf-lock-all-offline; do
+    [[ "${commands}" == *" ${cmd} "* ]]
+  done
+}
+
 # ---------------------------------------------------------------------------
 # Every command in help has a help entry (loop test)
 # ---------------------------------------------------------------------------

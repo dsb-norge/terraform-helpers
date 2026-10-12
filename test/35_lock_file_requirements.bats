@@ -149,6 +149,34 @@ teardown() {
   assert_success
 }
 
+@test "tf-lock-env succeeds without lock file (fresh repo)" {
+  setup_project_no_lock_files
+  mock_terraform_creates_lock
+  run tf-lock-env "dev"
+  assert_success
+}
+
+@test "tf-lock-env-offline succeeds without lock file (fresh repo)" {
+  setup_project_no_lock_files
+  mock_terraform_creates_lock
+  run tf-lock-env-offline "dev"
+  assert_success
+}
+
+@test "tf-lock-all succeeds without lock file (fresh repo)" {
+  setup_project_no_lock_files
+  mock_terraform_creates_lock
+  run tf-lock-all
+  assert_success
+}
+
+@test "tf-lock-all-offline succeeds without lock file (fresh repo)" {
+  setup_project_no_lock_files
+  mock_terraform_creates_lock
+  run tf-lock-all-offline
+  assert_success
+}
+
 @test "tf-upgrade-all-offline succeeds without lock file (fresh repo)" {
   setup_project_no_lock_files
   mock_terraform_creates_lock

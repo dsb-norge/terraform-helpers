@@ -913,6 +913,10 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-init-offline"
     "tf-init-env-offline"
     "tf-init-all-offline"
+    "tf-lock-env"
+    "tf-lock-env-offline"
+    "tf-lock-all"
+    "tf-lock-all-offline"
     "tf-fmt"
     "tf-fmt-fix"
     "tf-validate"
@@ -1197,6 +1201,10 @@ _dsb_tf_help_group_terraform() {
   _dsb_i "    tf-init-offline [env]     -> Same as 'tf-init', without backend"
   _dsb_i "    tf-init-env-offline [env] -> Same as 'tf-init-env', without backend"
   _dsb_i "    tf-init-all-offline       -> Same as 'tf-init-all', without backend"
+  _dsb_i "    tf-lock-env [env]         -> Add missing providers and platform hashes to the lock file, without upgrading"
+  _dsb_i "    tf-lock-all               -> Same as 'tf-lock-env', for all environments"
+  _dsb_i "    tf-lock-env-offline [env] -> Same as 'tf-lock-env', without backend"
+  _dsb_i "    tf-lock-all-offline       -> Same as 'tf-lock-all', without backend"
   _dsb_i "    tf-fmt                    -> Run syntax check recursively from current directory"
   _dsb_i "    tf-fmt-fix                -> Run syntax check and fix recursively from current directory"
   _dsb_i "    tf-validate [env]         -> Make Terraform validate the project with selected or given environment"
@@ -1223,6 +1231,8 @@ _dsb_tf_help_group_offline() {
   _dsb_i "    tf-init-offline [env]         -> Initialize selected or given environment (incl. main and local sub-modules)"
   _dsb_i "    tf-init-env-offline [env]     -> Initialize selected or given environment (environment directory only)"
   _dsb_i "    tf-init-all-offline           -> Initialize entire Terraform project, all environments"
+  _dsb_i "    tf-lock-env-offline [env]     -> Add missing providers and platform hashes to the lock file, without upgrading"
+  _dsb_i "    tf-lock-all-offline           -> Same as 'tf-lock-env-offline', for all environments"
   _dsb_i ""
   _dsb_i "  Upgrade Offline Commands:"
   _dsb_i "    tf-bump-env-offline [env]     -> Upgrade Terraform deps. for selected or given environment and list provider versions, latest vs. lock file"
@@ -1656,7 +1666,7 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade-env, tf-init, tf-init-all."
+    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade-env, tf-lock-env, tf-init, tf-init-all."
     ;;
   tf-init-all | tf-init-all-offline)
     _dsb_i "tf-init-all"
@@ -1668,7 +1678,46 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-upgrade, tf-plan, tf-apply, tf-upgrade-all, tf-bump-all"
+    _dsb_i "  Related commands: tf-upgrade, tf-plan, tf-apply, tf-upgrade-all, tf-lock-all, tf-bump-all"
+    ;;
+  tf-lock-env | tf-lock-env-offline)
+    _dsb_i "tf-lock-env [env]"
+    _dsb_i "tf-lock-env-offline [env]"
+    _dsb_i "  Update the lock file of the specified environment, without upgrading any provider."
+    _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i ""
+    _dsb_i "  Runs terraform init without -upgrade, then terraform providers lock for these platforms:"
+    _dsb_i "    ${_dsbTfLockPlatforms[*]}"
+    _dsb_i ""
+    _dsb_i "  A provider missing from the lock file is added, with hashes for all of the platforms."
+    _dsb_i "  For example a provider that a new module version requires."
+    _dsb_i "  Providers already in the lock file keep their locked version."
+    _dsb_i ""
+    _dsb_i "  If a locked version no longer meets its version constraint, terraform init fails and"
+    _dsb_i "  asks for -upgrade. Use 'tf-upgrade-env' for that."
+    _dsb_i ""
+    _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
+    _dsb_i ""
+    _dsb_i "  Note:"
+    _dsb_i "    This works on the environment directory only, not sub-modules and not the main module."
+    _dsb_i "    Use 'tf-lock-all' to update the lock files of all environments."
+    _dsb_i ""
+    _dsb_i "  Supports tab completion for environment."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-lock-all, tf-init-env, tf-upgrade-env."
+    ;;
+  tf-lock-all | tf-lock-all-offline)
+    _dsb_i "tf-lock-all"
+    _dsb_i "tf-lock-all-offline"
+    _dsb_i "  Update the lock files of all environments, without upgrading any provider."
+    _dsb_i ""
+    _dsb_i "  Does what 'tf-lock-env' does, in every environment directory, and nothing else."
+    _dsb_i "  The main module and local sub-modules are not touched, so no lock file is created there."
+    _dsb_i "  Use 'tf-init-all' to download their dependencies."
+    _dsb_i ""
+    _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-lock-env, tf-init-all, tf-upgrade-all."
     ;;
   tf-init-main)
     _dsb_i "tf-init-main:"
@@ -1917,9 +1966,11 @@ _dsb_tf_help_specific_command() {
     _dsb_i "    Use 'tf-upgrade' for a complete dependency upgrade and initialization of the environment."
     _dsb_i "    Or, use 'tf-upgrade-all' for a complete upgrade and initialization of the entire project."
     _dsb_i ""
+    _dsb_i "  To add a missing provider to the lock file without upgrading the others, use 'tf-lock-env'."
+    _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade, tf-upgrade-all, tf-bump."
+    _dsb_i "  Related commands: tf-init-main, tf-init-modules, tf-upgrade, tf-upgrade-all, tf-lock-env, tf-bump."
     ;;
   tf-upgrade-all | tf-upgrade-all-offline)
     _dsb_i "tf-upgrade-all"
@@ -1931,7 +1982,9 @@ _dsb_tf_help_specific_command() {
     _dsb_i ""
     _dsb_i "  When using the '-offline' variant terraform will not attempt to connect to the state backend."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-bump-all, tf-init, tf-plan, tf-apply, tf-bump-modules."
+    _dsb_i "  To add missing providers to the lock files without upgrading the others, use 'tf-lock-all'."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-bump-all, tf-init, tf-plan, tf-apply, tf-bump-modules, tf-lock-all."
     ;;
   tf-bump-cicd)
     _dsb_i "tf-bump-cicd:"
@@ -2296,6 +2349,8 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_available_envs tf-upgrade-env-offline
   complete -F _dsb_tf_completions_for_available_envs tf-upgrade
   complete -F _dsb_tf_completions_for_available_envs tf-upgrade-offline
+  complete -F _dsb_tf_completions_for_available_envs tf-lock-env
+  complete -F _dsb_tf_completions_for_available_envs tf-lock-env-offline
   complete -F _dsb_tf_completions_for_available_envs tf-validate
   complete -F _dsb_tf_completions_for_available_envs tf-plan
   complete -F _dsb_tf_completions_for_available_envs tf-apply
@@ -5233,7 +5288,8 @@ _dsb_tf_init_env_actual() {
   #   are hashed for the local platform only until providers lock runs
   #   providers lock keeps the versions the lock file already selects, so it adds hashes without upgrading
   if [ "${doUpgrade}" -eq 1 ] || [ "${doLock}" -eq 1 ]; then
-    _dsb_d "adding hashes to the lock file for platforms: ${_dsbTfLockPlatforms[*]}"
+    _dsb_d "adding hashes to the lock file"
+    _dsb_i "Adding provider hashes to the lock file for platforms: ${_dsbTfLockPlatforms[*]}"
 
     #   pipe to _dsb_tf_fixup_paths_from_stdin to make paths relative to the root directory
     terraform -chdir="${envDir}" providers lock "${_dsbTfLockPlatforms[@]/#/-platform=}" 2>&1 | _dsb_tf_fixup_paths_from_stdin
@@ -5624,6 +5680,69 @@ _dsb_tf_init_full_single_env() {
 
   _dsb_d "done"
   return "${returnCode}"
+}
+
+# what:
+#   updates the lock file of every environment, without upgrading any provider
+#   runs terraform init without -upgrade, then terraform providers lock, in each environment directory
+#   unlike _dsb_tf_init it does not initialize main or local sub-modules,
+#   so no lock file is created outside the environment directories, not even temporarily
+# input:
+#   $1: offline init, ie. with -backend=false (optional, defaults to 0)
+# on info:
+#   status messages are printed
+# returns:
+#   exit code directly
+_dsb_tf_lock_all_envs() {
+  local offlineInit="${1:-0}" # defaults to 0
+
+  _dsb_d "called with:"
+  _dsb_d "  offlineInit: ${offlineInit}"
+
+  # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so the environment list is current
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  # shellcheck disable=SC2181 # inline var assignment requires $?
+  if [ $? -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    _dsb_tf_error_push "directory check failed"
+    return 1
+  fi
+
+  local -a availableEnvs=()
+  mapfile -t availableEnvs < <(_dsb_tf_get_env_names)
+
+  _dsb_d "available envs: ${availableEnvs[*]}"
+
+  if [ "${#availableEnvs[@]}" -eq 0 ]; then
+    _dsb_e "No environments found in: ${_dsbTfEnvsDir}"
+    _dsb_e "  please run 'tf-list-envs' to list available environments"
+    _dsb_tf_error_push "no environments found in ${_dsbTfEnvsDir}"
+    return 1
+  fi
+
+  local -a failedEnvs=()
+  local envName
+  for envName in "${availableEnvs[@]}"; do
+    if ! _dsb_tf_init_env 0 1 "${offlineInit}" "${envName}"; then # $1 = 0 means do not -upgrade, $2 = 1 means providers lock
+      failedEnvs+=("${envName}")
+    fi
+  done
+
+  # "unselect" the environment to avoid the user starting to run commands in the wrong environment
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_clear_env || :
+
+  if [ "${#failedEnvs[@]}" -ne 0 ]; then
+    _dsb_e ""
+    _dsb_e "Providers lock failed for ${#failedEnvs[@]} of ${#availableEnvs[@]} environment(s): ${failedEnvs[*]}"
+    _dsb_e "  please review the output from each environment further up"
+    _dsb_tf_error_push "providers lock failed for: ${failedEnvs[*]}"
+    return 1
+  fi
+
+  _dsb_i ""
+  _dsb_i "Providers lock complete."
+  _dsb_d "done"
+  return 0
 }
 
 # what:
@@ -10215,6 +10334,60 @@ tf-init-all-offline() {
   else
     _dsb_tf_init 0 1 1 # $1 = 0 means do not -upgrade, $2 = 1 means clear env after, $3 = 1 means without backend
   fi
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-lock-env() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-lock-env "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  _dsb_tf_init_env 0 1 0 "${envName}" # $1 = 0 means do not -upgrade, $2 = 1 means providers lock, $3 = 0 means with backend
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-lock-env-offline() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-lock-env-offline "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local envName="${1:-}"
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  _dsb_tf_init_env 0 1 1 "${envName}" # $1 = 0 means do not -upgrade, $2 = 1 means providers lock, $3 = 1 means without backend
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-lock-all() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-lock-all "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  _dsb_tf_lock_all_envs 0 # $1 = 0 means with backend
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-lock-all-offline() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-lock-all-offline "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  _dsb_tf_lock_all_envs 1 # $1 = 1 means without backend
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump

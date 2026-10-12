@@ -132,6 +132,34 @@ setup_module_fixture() {
   assert_clean_output_contains "only available in Terraform project repos"
 }
 
+@test "project-only gating: tf-lock-env fails in module repo" {
+  setup_module_fixture
+  run tf-lock-env "dev"
+  assert_failure
+  assert_clean_output_contains "only available in Terraform project repos"
+}
+
+@test "project-only gating: tf-lock-env-offline fails in module repo" {
+  setup_module_fixture
+  run tf-lock-env-offline "dev"
+  assert_failure
+  assert_clean_output_contains "only available in Terraform project repos"
+}
+
+@test "project-only gating: tf-lock-all fails in module repo" {
+  setup_module_fixture
+  run tf-lock-all
+  assert_failure
+  assert_clean_output_contains "only available in Terraform project repos"
+}
+
+@test "project-only gating: tf-lock-all-offline fails in module repo" {
+  setup_module_fixture
+  run tf-lock-all-offline
+  assert_failure
+  assert_clean_output_contains "only available in Terraform project repos"
+}
+
 @test "tf-upgrade-all succeeds in module repo (ungated)" {
   setup_module_fixture
   run tf-upgrade-all

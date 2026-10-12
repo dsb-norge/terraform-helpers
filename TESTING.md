@@ -38,7 +38,7 @@ The test suite uses [bats-core](https://github.com/bats-core/bats-core) (Bash Au
 
 All dependencies are managed via npm and listed in `package.json`.
 
-**Current state**: 570 tests across 32 files. All external tools are mocked -- tests run without any dependencies installed.
+**Current state**: 697 tests across 35 files. All external tools are mocked -- tests run without any dependencies installed.
 
 ---
 

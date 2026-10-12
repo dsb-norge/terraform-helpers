@@ -4,7 +4,7 @@ Design and architecture reference. For the developer guide, see [CONTRIBUTING.md
 
 ## What This Script Is
 
-A collection of bash helper functions for working with DSB Terraform projects and module repos. It is **sourced** into the user's interactive shell (via `source <(curl ...)` or `eval "$(gh api ...)"`), and optionally installed locally. It provides 79 user-facing commands prefixed with `tf-` and `az-`. The script is a single file (~10900 lines, 255 functions) and requires no installation beyond sourcing (though local install is supported via `tf-install-helpers`).
+A collection of bash helper functions for working with DSB Terraform projects and module repos. It is **sourced** into the user's interactive shell (via `source <(curl ...)` or `eval "$(gh api ...)"`), and optionally installed locally. It provides 83 user-facing commands prefixed with `tf-` and `az-`. The script is a single file (~11600 lines, ~270 functions) and requires no installation beyond sourcing (though local install is supported via `tf-install-helpers`).
 
 The script automatically detects whether it's running in a **project repo** (has `main/` + `envs/`) or a **module repo** (has root `.tf` files, no `main/` or `envs/`) and adapts its behavior accordingly.
 
@@ -56,9 +56,29 @@ Module repos additionally enumerate: examples directory, test files (unit/integr
 
 ---
 
+## Lock Files (project repos)
+
+Each environment directory has a committed `.terraform.lock.hcl`, and project repos must have no lock file anywhere else. Main and local sub-modules have none of their own: when `tf-init`, `tf-init-all` or the upgrade commands initialize them, `_dsb_tf_init_dir` copies the environment's lock file in, initializes against the environment's `.terraform/providers`, and removes the copy again. That initialization is there to download their dependencies.
+
+`terraform init` hashes a provider it adds for the local platform only. `terraform providers lock` adds the hashes for every platform in `_dsbTfLockPlatforms`, the one place that list is kept. It runs in environment directories only, after init. Which command runs which:
+
+| Commands | `terraform init` | `providers lock` | Effect on the lock file |
+|---|---|---|---|
+| `tf-init*` | without `-upgrade` | no | adds missing providers, hashed for the local platform only |
+| `tf-lock*` | without `-upgrade` | yes | adds missing providers, hashed for all platforms; locked versions stay |
+| `tf-upgrade*`, `tf-bump*` | `-upgrade` | yes | moves providers to the newest allowed version, hashed for all platforms |
+
+The `tf-lock*` commands touch environment directories only. `tf-lock-all` runs what `tf-lock-env` runs in each environment (`_dsb_tf_lock_all_envs`) and never initializes main or local sub-modules, so it creates no lock file outside `envs/`, not even the temporary copy.
+
+`_dsb_tf_init_env_actual` and `_dsb_tf_init_env`, which work on one environment directory, take `doUpgrade` and `doLock` as their first two arguments. An upgrade always locks, whatever `doLock` says: until `providers lock` runs, a newly selected version is hashed for the local platform only.
+
+Module repos are different: their lock files are gitignored, and no command runs `providers lock` there.
+
+---
+
 ## Function Categories
 
-### Exposed functions (79, prefixed `tf-` and `az-`)
+### Exposed functions (83, prefixed `tf-` and `az-`)
 
 User-facing commands. Every exposed function includes the `set -e` neutralization guard and the configure/restore lifecycle.
 
@@ -70,6 +90,7 @@ User-facing commands. Every exposed function includes the `set -e` neutralizatio
 | Terraform (env) | `tf-init-env`, `tf-init-env-offline`, `tf-init-all`, `tf-init-all-offline`, `tf-init-main`, `tf-init-modules` |
 | Terraform (ops) | `tf-plan`, `tf-apply`, `tf-destroy` |
 | Upgrade (env) | `tf-upgrade-env`, `tf-upgrade-env-offline`, `tf-upgrade-all`, `tf-upgrade-all-offline` |
+| Lock (env) | `tf-lock-env`, `tf-lock-env-offline`, `tf-lock-all`, `tf-lock-all-offline` |
 | Bump (env) | `tf-bump-env`, `tf-bump-env-offline`, `tf-bump-all`, `tf-bump-all-offline` |
 | Provider (env) | `tf-show-all-provider-upgrades` |
 
@@ -194,7 +215,7 @@ Bash 4.3+ required. Unsupported platforms or old bash versions abort sourcing wi
 See [TESTING.md](TESTING.md) for the full guide.
 
 - **Framework**: bats-core with bats-support, bats-assert, bats-file
-- **Tests**: 570 across 32 files
+- **Tests**: 697 across 35 files
 - **Mocking**: All external tools mocked via function overrides
 - **CI**: GitHub Actions on PRs, posts updatable comment with results
 
@@ -204,11 +225,11 @@ See [TESTING.md](TESTING.md) for the full guide.
 
 | File | Purpose |
 |---|---|
-| `dsb-tf-proj-helpers.sh` | The script (~10900 lines, 255 functions) |
+| `dsb-tf-proj-helpers.sh` | The script (~11600 lines, ~270 functions) |
 | [README.md](README.md) | User-facing: how to load and use |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | This document |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Developer guide: patterns, conventions, how to add features |
 | [TESTING.md](TESTING.md) | Test suite guide: how to run, write, and maintain tests |
 | `package.json` | npm manifest for test dependencies |
 | `.github/workflows/tests.yml` | CI workflow for running tests on PRs |
-| `test/` | Test suite (30 `.bats` files, helpers, fixtures) |
+| `test/` | Test suite (35 `.bats` files, helpers, fixtures) |
