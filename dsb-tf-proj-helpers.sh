@@ -179,6 +179,9 @@ declare -g _dsbTfRealpathCmd="" # the command to use for realpath
 declare -g _dsbTfCutCmd=""      # the command to use for cut
 declare -g _dsbTfMvCmd=""       # the command to use for mv
 
+# platforms that 'terraform providers lock' records hashes for, the one place this list is kept
+declare -ga _dsbTfLockPlatforms=(windows_amd64 darwin_arm64 linux_amd64 linux_arm64)
+
 declare -g _dsbTfSelectedEnv=""                        # the currently selected environment is persisted here
 declare -g _dsbTfSelectedEnvDir=""                     # full path to the directory of the currently selected environment
 declare -g _dsbTfSelectedEnvLockFile=""                # full path to the lock file of the currently selected environment
@@ -5145,18 +5148,21 @@ _dsb_tf_terraform_preflight() {
 #   the function that runs terraform init in selected environment
 #   this function does not perform any pre flight checks
 #   if $1 is set to 1 (do upgrade), it will run terraform init -upgrade
+#   if $1 or $2 is set to 1, it then runs terraform providers lock for all platforms in _dsbTfLockPlatforms
 # input:
 #   $1: do upgrade (optional, defaults to 0)
-#   $2: offline init, ie. with -backend=false (optional, defaults to 0)
-#   $3..: extra terraform arguments (optional, passed through to terraform init)
+#   $2: do lock, ie. add hashes for all platforms to the lock file (optional, defaults to 0)
+#   $3: offline init, ie. with -backend=false (optional, defaults to 0)
+#   $4..: extra terraform arguments (optional, passed through to terraform init)
 # on info:
 #   nothing
 # returns:
 #   1 when terraform returns non-zero exit code, otherwise 0
 _dsb_tf_init_env_actual() {
   local doUpgrade="${1:-0}"   # defaults to 0
-  local offlineInit="${2:-0}" # defaults to 0
-  shift 2 || shift $# || :
+  local doLock="${2:-0}"      # defaults to 0
+  local offlineInit="${3:-0}" # defaults to 0
+  shift 3 || shift $# || :
   local -a passthroughArgs=("$@")
 
   local envDir="${_dsbTfSelectedEnvDir}"
@@ -5167,6 +5173,7 @@ _dsb_tf_init_env_actual() {
 
   _dsb_d "called with:"
   _dsb_d "  doUpgrade: ${doUpgrade}"
+  _dsb_d "  doLock: ${doLock}"
   _dsb_d "  offlineInit: ${offlineInit}"
   _dsb_d "  envDir: ${envDir}"
   _dsb_d "  subId: ${subId}"
@@ -5222,12 +5229,14 @@ _dsb_tf_init_env_actual() {
   fi
 
   # make sure hashes for all required platforms are available in the lock file
-  if [ "${doUpgrade}" -eq 1 ]; then
-    _dsb_d "adding hashes to the lock file"
+  #   an upgrade always locks: init -upgrade can select new versions, and those
+  #   are hashed for the local platform only until providers lock runs
+  #   providers lock keeps the versions the lock file already selects, so it adds hashes without upgrading
+  if [ "${doUpgrade}" -eq 1 ] || [ "${doLock}" -eq 1 ]; then
+    _dsb_d "adding hashes to the lock file for platforms: ${_dsbTfLockPlatforms[*]}"
 
-    # hardcoded to windows, macOS and linux
     #   pipe to _dsb_tf_fixup_paths_from_stdin to make paths relative to the root directory
-    terraform -chdir="${envDir}" providers lock -platform=windows_amd64 -platform=darwin_arm64 -platform=linux_amd64 -platform=linux_arm64 2>&1 | _dsb_tf_fixup_paths_from_stdin
+    terraform -chdir="${envDir}" providers lock "${_dsbTfLockPlatforms[@]/#/-platform=}" 2>&1 | _dsb_tf_fixup_paths_from_stdin
     if [ "${PIPESTATUS[0]}" -ne 0 ]; then
       _dsb_d "adding hashes to the lock file failed"
       _dsb_tf_error_push "terraform providers lock failed in ${envDir}"
@@ -5242,11 +5251,13 @@ _dsb_tf_init_env_actual() {
 
 # what:
 #   runs terraform init in the the given environment directory
-#   if $2 is set to 1 (do upgrade), it will run terraform init -upgrade
+#   if $1 is set to 1 (do upgrade), it will run terraform init -upgrade
+#   if $1 or $2 is set to 1, it then runs terraform providers lock for all platforms
 # input:
 #   $1: do upgrade
-#   $2: offline init, ie. with -backend=false (optional, defaults to 0)
-#   $3: environment directory (optional, defaults to selected environment directory)
+#   $2: do lock (optional, defaults to 0)
+#   $3: offline init, ie. with -backend=false (optional, defaults to 0)
+#   $4: environment name (optional, defaults to selected environment)
 # on info:
 #   nothing
 # returns:
@@ -5254,11 +5265,13 @@ _dsb_tf_init_env_actual() {
 _dsb_tf_init_env() {
   local returnCode=0
   local doUpgrade="${1}"
-  local offlineInit="${2:-0}" # defaults to 0
-  local selectedEnv="${3:-${_dsbTfSelectedEnv:-}}"
+  local doLock="${2:-0}"      # defaults to 0
+  local offlineInit="${3:-0}" # defaults to 0
+  local selectedEnv="${4:-${_dsbTfSelectedEnv:-}}"
 
   _dsb_d "called with:"
   _dsb_d "  doUpgrade: ${doUpgrade}"
+  _dsb_d "  doLock: ${doLock}"
   _dsb_d "  offlineInit: ${offlineInit}"
   _dsb_d "  selectedEnv: ${selectedEnv}"
 
@@ -5269,7 +5282,7 @@ _dsb_tf_init_env() {
 
   _dsb_i ""
   _dsb_i "Initializing environment: $(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvDir}")"
-  if ! _dsb_tf_init_env_actual "${doUpgrade}" "${offlineInit}"; then
+  if ! _dsb_tf_init_env_actual "${doUpgrade}" "${doLock}" "${offlineInit}"; then
     _dsb_e "init in ./$(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvDir:-}") failed"
     _dsb_tf_error_push "init of environment '${selectedEnv}' failed"
     returnCode=1
@@ -5523,7 +5536,7 @@ _dsb_tf_init() {
       local envDir="${_dsbTfSelectedEnvDir}" # available thanks to _dsb_tf_terraform_preflight
       _dsb_d "    envDir: ${envDir}"
 
-      if ! _dsb_tf_init_env_actual "${doUpgrade}" "${offlineInit}" "${passthroughArgs[@]}"; then
+      if ! _dsb_tf_init_env_actual "${doUpgrade}" "${doUpgrade}" "${offlineInit}" "${passthroughArgs[@]}"; then # $1 = do upgrade, $2 = do lock: lock when upgrading
         _dsb_e "  init in ./$(_dsb_tf_get_rel_dir "${envDir:-}") failed"
         ((initEnvStatus += 1))
       else
@@ -10059,7 +10072,7 @@ tf-init-env() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
-  _dsb_tf_init_env 0 0 "${envName}" # $1 = 0 means do not -upgrade, $2 = 0 means with backend
+  _dsb_tf_init_env 0 0 0 "${envName}" # $1 = 0 means do not -upgrade, $2 = 0 means no providers lock, $3 = 0 means with backend
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
@@ -10073,7 +10086,7 @@ tf-init-env-offline() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
-  _dsb_tf_init_env 0 1 "${envName}" # $1 = 0 means do not -upgrade, $2 = 1 means without backend
+  _dsb_tf_init_env 0 0 1 "${envName}" # $1 = 0 means do not -upgrade, $2 = 0 means no providers lock, $3 = 1 means without backend
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
@@ -10468,7 +10481,7 @@ tf-upgrade-env() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
-  _dsb_tf_init_env 1 0 "${envName}" # $1 = 1 means do-upgrade, $2 = 0 means with backend
+  _dsb_tf_init_env 1 1 0 "${envName}" # $1 = 1 means do-upgrade, $2 = 1 means providers lock, $3 = 0 means with backend
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
@@ -10482,7 +10495,7 @@ tf-upgrade-env-offline() {
   local envName="${1:-}"
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
-  _dsb_tf_init_env 1 1 "${envName}" # $1 = 1 means do-upgrade, $2 = 1 means without backend
+  _dsb_tf_init_env 1 1 1 "${envName}" # $1 = 1 means do-upgrade, $2 = 1 means providers lock, $3 = 1 means without backend
   local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
