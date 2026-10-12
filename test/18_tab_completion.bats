@@ -378,6 +378,7 @@ teardown() {
   # Commands using basic env completion
   for cmd in tf-set-env tf-check-env tf-select-env tf-init-env tf-init-env-offline \
     tf-init tf-init-offline tf-upgrade-env tf-upgrade-env-offline tf-upgrade tf-upgrade-offline \
+    tf-lock-env tf-lock-env-offline \
     tf-validate tf-destroy tf-show-provider-upgrades \
     tf-bump tf-bump-offline tf-bump-env tf-bump-env-offline; do
     run complete -p "${cmd}"
