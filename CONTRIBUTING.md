@@ -28,6 +28,20 @@ See [TESTING.md](TESTING.md) for the full testing guide.
 
 ---
 
+## Public Repository
+
+This repository is public. Nothing internal to the organizations that use it may appear here. That covers code, comments, tests, fixtures, docs, commit messages, branch names and pull request text.
+
+Do not name or link:
+
+- private repositories, or pull requests, issues and commits in them
+- internal hostnames, URLs, subscription or tenant IDs, and resource names
+- colleagues, teams, or internal systems and processes
+
+Describe the situation instead, for example "a module bump that brings in a new provider". Keep the internal links in the internal ticket or conversation that prompted the change.
+
+---
+
 ## Code Organization
 
 The script is a single file (`dsb-tf-proj-helpers.sh`, ~11600 lines, ~270 functions) organized in a strict top-to-bottom dependency order:
