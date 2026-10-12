@@ -23,6 +23,7 @@ Read CONTRIBUTING.md before making any code changes.
 
 ## Critical constraints
 
+- **This repository is public.** No internal names or references: no private repos, their PRs, issues or commits, internal hostnames, IDs, colleagues or teams. That applies to code, comments, tests, docs, commit messages, branch names and PR text. Describe the situation instead. See CONTRIBUTING.md "Public Repository".
 - **No `set -e`, no ERR trap, no `pipefail` during execution.** All error handling is explicit. See CONTRIBUTING.md "Error Handling" section.
 - **Every exposed function** must have: `set -e` neutralization guard, `_dsb_tf_configure_shell`/`_dsb_tf_restore_shell` lifecycle, `_dsb_tf_error_dump` on failure.
 - **Every `return 1`** in internal functions must be preceded by `_dsb_tf_error_push "message"`.
