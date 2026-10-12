@@ -216,3 +216,36 @@ assert_no_providers_lock_calls() {
   run terraform_calls_in "envs/prod" "providers lock"
   assert_output "$(expected_lock_call prod)"
 }
+
+# -------------------------------------------------------
+# the platform list is kept in one place
+# -------------------------------------------------------
+
+@test "_dsbTfLockPlatforms lists the four supported platforms" {
+  [ "${_dsbTfLockPlatforms[*]}" == "windows_amd64 darwin_arm64 linux_amd64 linux_arm64" ]
+}
+
+@test "the script hard-codes no -platform= flag outside _dsbTfLockPlatforms" {
+  run command grep -nE -- '-platform=[a-z]' "${SUT}"
+  assert_failure
+}
+
+@test "providers lock uses whatever _dsbTfLockPlatforms holds" {
+  _dsbTfLockPlatforms=(linux_amd64)
+  run tf-upgrade-env dev
+  assert_success
+
+  run terraform_calls_in "envs/dev" "providers lock"
+  assert_output "-chdir=${_dsbTfEnvsDirList[dev]} providers lock -platform=linux_amd64"
+}
+
+@test "_dsbTfLockPlatforms survives an exposed command" {
+  tf-init-env dev >/dev/null 2>&1 || true
+  [ "${#_dsbTfLockPlatforms[@]}" -eq 4 ]
+}
+
+@test "re-sourcing the script restores _dsbTfLockPlatforms" {
+  _dsbTfLockPlatforms=(only_this_one)
+  source "${SUT}"
+  [ "${_dsbTfLockPlatforms[*]}" == "windows_amd64 darwin_arm64 linux_amd64 linux_arm64" ]
+}
