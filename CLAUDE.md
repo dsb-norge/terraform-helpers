@@ -11,7 +11,7 @@
 
 ## What this is
 
-A single bash script (`dsb-tf-proj-helpers.sh`, ~10900 lines) sourced into the user's interactive shell. It provides ~79 `tf-*` and `az-*` commands for Terraform project and module development. **It must never crash or corrupt the user's shell.**
+A single bash script (`dsb-tf-proj-helpers.sh`, ~11600 lines) sourced into the user's interactive shell. It provides ~83 `tf-*` and `az-*` commands for Terraform project and module development. **It must never crash or corrupt the user's shell.**
 
 ## Key documentation
 
@@ -30,6 +30,7 @@ Read CONTRIBUTING.md before making any code changes.
 - **Source-time init code**: every command that can fail must use `|| :` fallback. This is load-bearing for `set -e` callers.
 - **The `{ }` download guard** wrapping the entire file prevents partial-download execution. Do not remove.
 - **Lock files in module repos are gitignored.** Never check for their existence as a prerequisite.
+- **Lock files in project repos live in `envs/<env>/` only.** Never leave one in `main/` or `modules/`. Run `providers lock` in environment directories only, with the platforms from `_dsbTfLockPlatforms`; never hard-code `-platform=` (a test enforces it). Initializing main and modules is for downloading dependencies (`tf-init`, `tf-init-all`); lock commands do not do it. See ARCHITECTURE.md "Lock Files".
 
 ## Repo type detection
 
@@ -39,7 +40,7 @@ The script detects project repos (`main/` + `envs/`) vs module repos (root `.tf`
 
 ```bash
 npm install    # install bats-core
-npm test       # run 570 tests with parallel execution
+npm test       # run ~700 tests with parallel execution
 ```
 
 All external tools are mocked. Tests run without az, gh, terraform, etc. installed. Use TDD when possible — write failing test first, then implement. Run full suite after every change.
