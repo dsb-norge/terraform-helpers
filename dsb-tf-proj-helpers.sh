@@ -5188,6 +5188,7 @@ _dsb_tf_init_env_actual() {
       _dsb_d "found, renaming ..."
       if ! "${_dsbTfMvCmd}" --force "${localStateFile}" "${localStateFileOld}"; then
         _dsb_d "terraform init failed, during rename of local state file"
+        _dsb_tf_error_push "failed to move local state file aside: ${localStateFile}"
         return 1
       fi
     fi
@@ -5206,6 +5207,7 @@ _dsb_tf_init_env_actual() {
       "${_dsbTfMvCmd}" --force "${localStateFileOld}" "${localStateFile}" || :
     fi
 
+    _dsb_tf_error_push "terraform init failed in ${envDir}"
     return 1
   fi
 
@@ -5214,6 +5216,7 @@ _dsb_tf_init_env_actual() {
     _dsb_d "attempting to restore tfstate file ... "
     if ! "${_dsbTfMvCmd}" --force "${localStateFileOld}" "${localStateFile}"; then
       _dsb_d "terraform init failed, during restore of local state file"
+      _dsb_tf_error_push "failed to restore local state file: ${localStateFile}"
       return 1
     fi
   fi
@@ -5227,6 +5230,7 @@ _dsb_tf_init_env_actual() {
     terraform -chdir="${envDir}" providers lock -platform=windows_amd64 -platform=darwin_arm64 -platform=linux_amd64 -platform=linux_arm64 2>&1 | _dsb_tf_fixup_paths_from_stdin
     if [ "${PIPESTATUS[0]}" -ne 0 ]; then
       _dsb_d "adding hashes to the lock file failed"
+      _dsb_tf_error_push "terraform providers lock failed in ${envDir}"
       return 1
     fi
 
@@ -5259,21 +5263,19 @@ _dsb_tf_init_env() {
   _dsb_d "  selectedEnv: ${selectedEnv}"
 
   if ! _dsb_tf_terraform_preflight "${selectedEnv}" "${offlineInit}" 1; then # $3 = 1: skip lock check, init creates it
-
-
+    _dsb_tf_error_push "preflight checks failed for environment: ${selectedEnv:-<none>}"
     return 1
-
-
   fi
 
   _dsb_i ""
   _dsb_i "Initializing environment: $(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvDir}")"
   if ! _dsb_tf_init_env_actual "${doUpgrade}" "${offlineInit}"; then
     _dsb_e "init in ./$(_dsb_tf_get_rel_dir "${_dsbTfSelectedEnvDir:-}") failed"
+    _dsb_tf_error_push "init of environment '${selectedEnv}' failed"
     returnCode=1
   fi
 
-  return 0
+  return "${returnCode}"
 }
 
 # what:

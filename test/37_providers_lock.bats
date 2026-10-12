@@ -183,7 +183,23 @@ assert_no_providers_lock_calls() {
 @test "tf-upgrade-env does not run providers lock when init fails" {
   export MOCK_TERRAFORM_FAIL_INIT='*'
   run tf-upgrade-env dev
+  assert_failure
   assert_no_providers_lock_calls
+}
+
+@test "tf-upgrade-env fails and says so when providers lock fails" {
+  export MOCK_TERRAFORM_FAIL_LOCK='*'
+  export _dsbTfLogErrors=1
+  run tf-upgrade-env dev
+  assert_failure
+  assert_output --partial "Could not retrieve providers for locking"
+  assert_output --partial "terraform providers lock failed in"
+}
+
+@test "tf-upgrade-env-offline fails when providers lock fails" {
+  export MOCK_TERRAFORM_FAIL_LOCK='*'
+  run tf-upgrade-env-offline dev
+  assert_failure
 }
 
 @test "tf-upgrade fails when providers lock fails" {
