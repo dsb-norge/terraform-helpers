@@ -483,9 +483,19 @@ setup_module_repo() {
 
 @test "tf-lint in a module repo names tf-init when the root is not initialized" {
   setup_module_repo
+  printf 'module "naming" {\n  source = "./modules/naming"\n  name   = "x"\n}\n' >main.naming.tf
   run tf-lint
   assert_failure
   assert_clean_output_contains "tf-init"
+}
+
+@test "tf-lint lints a root that calls no modules also when terraform init left no .terraform" {
+  # terraform init creates no .terraform where there is nothing to install, ex. an empty module
+  setup_module_repo
+  run tf-lint
+  assert_success
+  run lint_chdirs
+  assert_output "${module_dir}"
 }
 
 @test "tf-lint in a module repo writes the default config at the module root when it has none" {
