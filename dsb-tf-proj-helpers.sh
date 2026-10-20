@@ -175,6 +175,10 @@ declare -gA _dsbTfModulesDirList # Associative array, key is module name, value 
 declare -g _dsbTfTflintWrapperDir=""  # directory where the tflint wrapper script will be placed
 declare -g _dsbTfTflintWrapperPath="" # full path to the tflint wrapper script
 
+declare -g _dsbTfTflintVersion=""       # tflint version the lint commands use, ex. v0.61.0
+declare -g _dsbTfTflintVersionSource="" # where that version came from, for messages
+declare -g _dsbTfTflintBin=""           # path to that tflint binary in the per-user cache
+
 declare -g _dsbTfRealpathCmd="" # the command to use for realpath
 declare -g _dsbTfCutCmd=""      # the command to use for cut
 declare -g _dsbTfMvCmd=""       # the command to use for mv
@@ -6135,6 +6139,402 @@ _dsb_tf_destroy_env() {
 # Linting functions
 #
 ###################################################################################################
+
+# what:
+#   the directory of the per-user tflint cache, it holds one subdirectory per tflint version
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos the directory path
+_dsb_tf_tflint_cache_dir() {
+  echo "${XDG_CACHE_HOME:-${HOME}/.cache}/dsb-tf-proj-helpers/tflint"
+}
+
+# what:
+#   the platform part of the names of tflint's release archives, ex. linux_amd64
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos the platform, returns 1 when the platform is unsupported
+_dsb_tf_tflint_platform() {
+  local os arch
+  case "$(uname -s)" in
+  Linux) os="linux" ;;
+  Darwin) os="darwin" ;;
+  *) os="" ;;
+  esac
+  case "$(uname -m)" in
+  x86_64 | amd64) arch="amd64" ;;
+  aarch64 | arm64) arch="arm64" ;;
+  *) arch="" ;;
+  esac
+
+  if [ -z "${os}" ] || [ -z "${arch}" ]; then
+    return 1
+  fi
+
+  echo "${os}_${arch}"
+}
+
+# what:
+#   normalizes a tflint version to the form of its release tags, ex. 0.61.0 -> v0.61.0
+# input:
+#   $1: version, with or without the v prefix
+# on info:
+#   nothing
+# returns:
+#   echos the normalized version, returns 1 when the input is not a full version
+_dsb_tf_tflint_normalize_version() {
+  local version="${1:-}"
+  if [[ "${version}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "v${version#v}"
+    return 0
+  fi
+  return 1
+}
+
+# what:
+#   picks the highest of the given tflint versions
+# input:
+#   lines on stdin, each a normalized version, optionally followed by a tab and more text
+# on info:
+#   nothing
+# returns:
+#   echos the line with the highest version
+_dsb_tf_tflint_highest_version_line() {
+  # sort numerically on major, minor and patch, after dropping the v prefix
+  sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | sed 's/^/v/'
+}
+
+# what:
+#   lists the tflint-version inputs of the workflows that call the shared workflow of github-actions-terraform:
+#   terraform-ci-cd-default.yml in a project repo, terraform-module-ci.yaml in a module repo
+#   these are the versions CI lints with
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos one line per input found: <value><tab><workflow file>
+_dsb_tf_tflint_versions_from_workflows() {
+  local sharedWorkflowRe='^dsb-norge/github-actions-terraform/\.github/workflows/terraform-ci-cd-default\.yml@'
+  if [ "${_dsbTfRepoType}" == "module" ]; then
+    sharedWorkflowRe='^dsb-norge/github-actions-terraform/\.github/workflows/terraform-module-ci\.yaml@'
+  fi
+
+  local workflowFile value
+  for workflowFile in "${_dsbTfRootDir}"/.github/workflows/*.yml "${_dsbTfRootDir}"/.github/workflows/*.yaml; do
+    [ -f "${workflowFile}" ] || continue
+    _dsb_d "looking for tflint-version in: ${workflowFile}"
+    while IFS= read -r value; do
+      if [ -n "${value}" ]; then
+        printf '%s\t%s\n' "${value}" "${workflowFile}"
+      fi
+    done < <(DSB_TF_SHARED_WORKFLOW_RE="${sharedWorkflowRe}" yq eval '.jobs[] | select((.uses // "") | test(strenv(DSB_TF_SHARED_WORKFLOW_RE))) | .with."tflint-version" // ""' "${workflowFile}" 2>/dev/null)
+  done
+}
+
+# what:
+#   looks up the latest release of tflint, with gh when authenticated, else with curl
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos the version, ex. v0.61.0, returns 1 when it cannot be looked up
+_dsb_tf_tflint_latest_release() {
+  local tag=""
+  if _dsbTfLogErrors=0 _dsb_tf_check_gh_auth; then
+    tag=$(gh api -H "Accept: application/vnd.github.v3+json" '/repos/terraform-linters/tflint/releases/latest' --jq '.tag_name' 2>/dev/null) || tag=""
+  fi
+  if [ -z "${tag}" ]; then
+    _dsb_d "looking up the latest tflint release with curl"
+    tag=$(curl -fsSL 'https://api.github.com/repos/terraform-linters/tflint/releases/latest' 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null) || tag=""
+  fi
+  _dsb_tf_tflint_normalize_version "${tag}"
+}
+
+# what:
+#   the newest tflint version in the per-user cache
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos the version, returns 1 when the cache holds none
+_dsb_tf_tflint_newest_cached_version() {
+  local cacheDir versionDir
+  local -a cachedVersions=()
+  cacheDir="$(_dsb_tf_tflint_cache_dir)"
+  for versionDir in "${cacheDir}"/v*/; do
+    versionDir="${versionDir%/}"
+    if [ -x "${versionDir}/tflint" ] && _dsb_tf_tflint_normalize_version "$(basename "${versionDir}")" &>/dev/null; then
+      cachedVersions+=("$(basename "${versionDir}")")
+    fi
+  done
+  if [ "${#cachedVersions[@]}" -eq 0 ]; then
+    return 1
+  fi
+  printf '%s\n' "${cachedVersions[@]}" | _dsb_tf_tflint_highest_version_line
+}
+
+# what:
+#   works out which tflint version the lint commands use, the one CI uses:
+#     - the version given with --use-version, if any
+#     - else the tflint-version of the workflow(s) that call the shared workflow, the highest of them
+#     - 'latest' there, or no such workflow: the latest release of tflint
+#   when the latest release cannot be looked up, the newest version in the cache is used
+# input:
+#   $1: version given with --use-version (optional), a version or 'latest'
+# on info:
+#   warning when falling back to the cache
+# returns:
+#   exit code directly
+#   sets _dsbTfTflintVersion and _dsbTfTflintVersionSource
+_dsb_tf_tflint_resolve_version() {
+  local useVersion="${1:-}"
+  _dsbTfTflintVersion=""
+  _dsbTfTflintVersionSource=""
+
+  local wanted="" source=""
+  if [ -n "${useVersion}" ]; then
+    if [ "${useVersion}" == "latest" ]; then
+      wanted="latest"
+      source="--use-version latest"
+    elif wanted=$(_dsb_tf_tflint_normalize_version "${useVersion}"); then
+      source="--use-version"
+    else
+      _dsb_e "'${useVersion}' is not a tflint version, expected a version like 'v0.61.0' or 'latest'."
+      _dsb_tf_error_push "invalid tflint version: ${useVersion}"
+      return 1
+    fi
+  else
+    local -a pinnedVersions=()
+    local latestIn=""
+    if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_yq; then
+      _dsb_w "yq not found, cannot read tflint-version from the GitHub workflows."
+    else
+      local value workflowFile normalized
+      while IFS=$'\t' read -r value workflowFile; do
+        if [ "${value}" == "latest" ]; then
+          latestIn="${workflowFile}"
+        elif normalized=$(_dsb_tf_tflint_normalize_version "${value}"); then
+          pinnedVersions+=("${normalized}"$'\t'"${workflowFile}")
+        else
+          _dsb_d "ignoring tflint-version '${value}' in ${workflowFile}"
+        fi
+      done < <(_dsb_tf_tflint_versions_from_workflows)
+    fi
+
+    if [ -n "${latestIn}" ]; then
+      # 'latest' is at least as high as any pinned version
+      wanted="latest"
+      source="tflint-version 'latest' in $(_dsb_tf_get_rel_dir "${latestIn}")"
+    elif [ "${#pinnedVersions[@]}" -gt 0 ]; then
+      local highest
+      highest=$(printf '%s\n' "${pinnedVersions[@]}" | _dsb_tf_tflint_highest_version_line)
+      wanted="${highest%%$'\t'*}"
+      source="tflint-version in $(_dsb_tf_get_rel_dir "${highest#*$'\t'}")"
+    else
+      wanted="latest"
+      source="no tflint-version in a workflow calling the shared workflow"
+    fi
+  fi
+
+  if [ "${wanted}" == "latest" ]; then
+    local latestVersion cachedVersion
+    if latestVersion=$(_dsb_tf_tflint_latest_release); then
+      wanted="${latestVersion}"
+      source="${source}, latest release"
+    elif cachedVersion=$(_dsb_tf_tflint_newest_cached_version); then
+      _dsb_w "Could not look up the latest tflint release, using the newest tflint in the cache: ${cachedVersion}"
+      wanted="${cachedVersion}"
+      source="${source}, newest cached version"
+    else
+      _dsb_e "Could not look up the latest tflint release, and no tflint is cached."
+      _dsb_e "  check the network connection, or give a version with --use-version <version>"
+      _dsb_tf_error_push "failed to look up the latest tflint release"
+      return 1
+    fi
+  fi
+
+  _dsbTfTflintVersion="${wanted}"
+  _dsbTfTflintVersionSource="${source}"
+  _dsb_d "tflint version: ${_dsbTfTflintVersion} (${_dsbTfTflintVersionSource})"
+  return 0
+}
+
+# what:
+#   sha256 checksum of a file
+# input:
+#   $1: file path
+# on info:
+#   nothing
+# returns:
+#   echos the checksum, empty when no tool for it is available
+_dsb_tf_sha256() {
+  local file="${1}"
+  if command -v sha256sum &>/dev/null; then
+    sha256sum "${file}" | awk '{print $1}'
+  elif command -v shasum &>/dev/null; then
+    shasum -a 256 "${file}" | awk '{print $1}'
+  fi
+}
+
+# what:
+#   downloads a tflint release archive and the release's checksums.txt
+#   with gh when authenticated, falling back to curl
+# input:
+#   $1: version, ex. v0.61.0
+#   $2: archive name, ex. tflint_linux_amd64.zip
+#   $3: directory to download into
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+_dsb_tf_tflint_download_release() {
+  local version="${1}"
+  local zipName="${2}"
+  local destDir="${3}"
+
+  if _dsbTfLogErrors=0 _dsb_tf_check_gh_auth; then
+    _dsb_d "downloading tflint ${version} with gh"
+    if gh release download "${version}" --repo terraform-linters/tflint --pattern "${zipName}" --pattern checksums.txt --dir "${destDir}" &>/dev/null; then
+      return 0
+    fi
+    _dsb_d "gh release download failed, trying curl"
+  fi
+
+  local baseUrl="https://github.com/terraform-linters/tflint/releases/download/${version}"
+  _dsb_d "downloading tflint ${version} with curl from ${baseUrl}"
+  if ! curl -fsSL -o "${destDir}/${zipName}" "${baseUrl}/${zipName}" ||
+    ! curl -fsSL -o "${destDir}/checksums.txt" "${baseUrl}/checksums.txt"; then
+    _dsb_tf_error_push "failed to download tflint ${version} release assets"
+    return 1
+  fi
+  return 0
+}
+
+# what:
+#   makes sure the given tflint version is in the per-user cache, and selects it
+#   a missing version is downloaded, verified against the release's checksums.txt, and installed as
+#   <cache dir>/<version>/tflint, nothing is written into the repository
+# input:
+#   $1: version, ex. v0.61.0
+# on info:
+#   status messages are printed
+# returns:
+#   exit code directly
+#   sets _dsbTfTflintBin
+_dsb_tf_tflint_install() {
+  local version="${1}"
+  _dsbTfTflintBin=""
+
+  local versionDir bin
+  versionDir="$(_dsb_tf_tflint_cache_dir)/${version}"
+  bin="${versionDir}/tflint"
+
+  if [ -x "${bin}" ]; then
+    _dsb_d "tflint ${version} found in the cache: ${bin}"
+    _dsbTfTflintBin="${bin}"
+    return 0
+  fi
+
+  local platform
+  if ! platform=$(_dsb_tf_tflint_platform); then
+    _dsb_e "Installing tflint on operating system '$(uname -s)' and architecture '$(uname -m)' is unsupported."
+    _dsb_tf_error_push "unsupported platform for tflint: $(uname -s) $(uname -m)"
+    return 1
+  fi
+
+  if ! unzip -v &>/dev/null; then
+    _dsb_e "unzip not found, it is needed to install tflint."
+    _dsb_e "  make sure unzip is available in your PATH, ex. 'sudo apt-get install unzip'"
+    _dsb_tf_error_push "unzip not found"
+    return 1
+  fi
+
+  local zipName="tflint_${platform}.zip"
+  local tmpDir
+  if ! tmpDir=$(mktemp -d); then
+    _dsb_tf_error_push "failed to create a temporary directory"
+    return 1
+  fi
+
+  _dsb_i "Installing tflint ${version} into ${versionDir} ..."
+
+  if ! _dsb_tf_tflint_download_release "${version}" "${zipName}" "${tmpDir}"; then
+    rm -rf "${tmpDir}"
+    _dsb_e "Failed to download tflint ${version} (${zipName}) from https://github.com/terraform-linters/tflint/releases"
+    _dsb_tf_error_push "download of tflint ${version} failed"
+    return 1
+  fi
+
+  local expectedSum actualSum
+  expectedSum=$(awk -v name="${zipName}" '$2 == name || $2 == "*" name { print $1; exit }' "${tmpDir}/checksums.txt" 2>/dev/null)
+  actualSum=$(_dsb_tf_sha256 "${tmpDir}/${zipName}")
+  if [ -z "${expectedSum}" ] || [ "${expectedSum}" != "${actualSum}" ]; then
+    rm -rf "${tmpDir}"
+    _dsb_e "The checksum of ${zipName} does not match the checksums.txt of tflint ${version}, refusing to install it."
+    _dsb_e "  expected : ${expectedSum:-<not listed in checksums.txt>}"
+    _dsb_e "  actual   : ${actualSum:-<could not compute, sha256sum or shasum is needed>}"
+    _dsb_tf_error_push "checksum verification of tflint ${version} failed"
+    return 1
+  fi
+
+  if ! unzip -o -q "${tmpDir}/${zipName}" -d "${tmpDir}/extracted" &>/dev/null || [ ! -f "${tmpDir}/extracted/tflint" ]; then
+    rm -rf "${tmpDir}"
+    _dsb_e "Failed to extract tflint from ${zipName}"
+    _dsb_tf_error_push "extraction of tflint ${version} failed"
+    return 1
+  fi
+
+  # move into place under a temporary name first, so an interrupted install never leaves a partial binary
+  if ! mkdir -p "${versionDir}" ||
+    ! "${_dsbTfMvCmd}" -f "${tmpDir}/extracted/tflint" "${bin}.tmp.$$" ||
+    ! chmod +x "${bin}.tmp.$$" ||
+    ! "${_dsbTfMvCmd}" -f "${bin}.tmp.$$" "${bin}"; then
+    rm -rf "${tmpDir}"
+    rm -f "${bin}.tmp.$$"
+    _dsb_e "Failed to install tflint into ${versionDir}"
+    _dsb_tf_error_push "install of tflint ${version} into the cache failed"
+    return 1
+  fi
+  rm -rf "${tmpDir}"
+
+  _dsbTfTflintBin="${bin}"
+  return 0
+}
+
+# what:
+#   resolves the tflint version and makes sure it is installed, see _dsb_tf_tflint_resolve_version
+# input:
+#   $1: version given with --use-version (optional)
+# on info:
+#   which tflint version is used, and why
+# returns:
+#   exit code directly
+#   sets _dsbTfTflintVersion, _dsbTfTflintVersionSource and _dsbTfTflintBin
+_dsb_tf_tflint_prepare() {
+  local useVersion="${1:-}"
+
+  if ! _dsb_tf_tflint_resolve_version "${useVersion}"; then
+    _dsb_tf_error_push "could not work out which tflint version to use"
+    return 1
+  fi
+
+  if ! _dsb_tf_tflint_install "${_dsbTfTflintVersion}"; then
+    _dsb_tf_error_push "could not install tflint ${_dsbTfTflintVersion}"
+    return 1
+  fi
+
+  _dsb_i "Using tflint ${_dsbTfTflintVersion} (${_dsbTfTflintVersionSource})"
+  return 0
+}
 
 # what:
 #   downloads the tflint wrapper script and store it locally

@@ -85,6 +85,37 @@ mock_gh() {
           token) echo "gho_mocktoken123"; return 0 ;;
         esac
         ;;
+      release)
+        # 'gh release download <tag> --repo <repo> --pattern <asset>... --dir <dir>'
+        # copies the assets from ${MOCK_TFLINT_RELEASE_DIR} (see mock_tflint_release),
+        # and fails like gh does when it is not set or an asset is missing
+        if [[ "${2:-}" == "download" ]]; then
+          echo "$*" >>"${MOCK_GH_RELEASE_CALLS_FILE:-/dev/null}"
+          local dest="" pattern
+          local -a patterns=()
+          local i=1
+          while [[ $i -le $# ]]; do
+            local arg="${!i}"
+            case "${arg}" in
+              --dir|-D) ((i++)) ; dest="${!i}" ;;
+              --pattern|-p) ((i++)) ; patterns+=("${!i}") ;;
+            esac
+            ((i++))
+          done
+          if [[ -z "${MOCK_TFLINT_RELEASE_DIR:-}" ]] || [[ -z "${dest}" ]]; then
+            echo "release not found" >&2
+            return 1
+          fi
+          for pattern in "${patterns[@]}"; do
+            if [[ ! -f "${MOCK_TFLINT_RELEASE_DIR}/${pattern}" ]]; then
+              echo "no assets match the file pattern" >&2
+              return 1
+            fi
+            cp "${MOCK_TFLINT_RELEASE_DIR}/${pattern}" "${dest}/"
+          done
+        fi
+        return 0
+        ;;
       api)
         # $2 is typically -H, $3 is the header, then we might have more flags
         # find the API path -- scan args for something starting with / or repos/
@@ -414,6 +445,17 @@ mock_yq() {
       --version) echo "yq (https://github.com/mikefarah/yq/) version v4.40.5" ; return 0 ;;
       eval)
         shift
+        # The lint commands read the tflint-version input of the job that calls
+        # the shared workflow (regex in DSB_TF_SHARED_WORKFLOW_RE). Emulated with
+        # grep, so a test sets the result through the workflow files it writes.
+        if [[ "$*" == *'"tflint-version"'* ]] && [[ -n "${DSB_TF_SHARED_WORKFLOW_RE:-}" ]]; then
+          local wf="${!#}"
+          if command grep -Eq "uses:[[:space:]]*[\"']?${DSB_TF_SHARED_WORKFLOW_RE#^}" "${wf}"; then
+            command grep -E '^[[:space:]]*tflint-version:' "${wf}" |
+              sed -E "s/^[[:space:]]*tflint-version:[[:space:]]*//; s/[[:space:]]+#.*$//; s/[\"']//g"
+          fi
+          return 0
+        fi
         # For reading: just return a canned value
         if [[ "$*" == *"-i"* ]]; then
           # write mode -- do nothing
@@ -518,6 +560,24 @@ mock_curl() {
       *raw.githubusercontent.com*tflint*)
         response='#!/usr/bin/env bash
 echo "mock tflint wrapper"'
+        ;;
+      *api.github.com/repos/terraform-linters/tflint/releases/latest*)
+        response='{"tag_name":"v0.55.0"}'
+        ;;
+      *github.com/terraform-linters/tflint/releases/download/*)
+        # release assets come from ${MOCK_TFLINT_RELEASE_DIR} (see mock_tflint_release),
+        # a missing one fails like 'curl -f' on a 404
+        echo "${url}" >>"${MOCK_CURL_CALLS_FILE:-/dev/null}"
+        local asset="${url##*/}"
+        if [[ -z "${MOCK_TFLINT_RELEASE_DIR:-}" ]] || [[ ! -f "${MOCK_TFLINT_RELEASE_DIR}/${asset}" ]]; then
+          return 22
+        fi
+        if [[ -n "${output_file}" ]]; then
+          cp "${MOCK_TFLINT_RELEASE_DIR}/${asset}" "${output_file}"
+        else
+          cat "${MOCK_TFLINT_RELEASE_DIR}/${asset}"
+        fi
+        return 0
         ;;
       *)
         response="mock-curl-response"
@@ -636,6 +696,154 @@ mock_terraform_docs_not_installed() {
 }
 
 # ============================================================
+# unzip
+# ============================================================
+# 'unzip -o -q <zip> -d <dir>' extracts the fake tflint in ${MOCK_TFLINT_PAYLOAD}
+mock_unzip() {
+  unzip() {
+    if [[ "${1:-}" == "-v" ]]; then
+      echo "UnZip 6.00 of 20 April 2009, mock"
+      return 0
+    fi
+    local dest=""
+    local i=1
+    while [[ $i -le $# ]]; do
+      local arg="${!i}"
+      if [[ "${arg}" == "-d" ]]; then
+        ((i++))
+        dest="${!i}"
+      fi
+      ((i++))
+    done
+    if [[ -z "${dest}" ]] || [[ ! -f "${MOCK_TFLINT_PAYLOAD:-}" ]]; then
+      echo "unzip: cannot find or open archive" >&2
+      return 9
+    fi
+    # like unzip, create the destination directory
+    mkdir -p "${dest}"
+    cp "${MOCK_TFLINT_PAYLOAD}" "${dest}/tflint"
+  }
+  export -f unzip
+}
+
+mock_unzip_not_installed() {
+  unzip() { echo "command not found: unzip" >&2; return 127; }
+  export -f unzip
+}
+
+# ============================================================
+# tflint
+# ============================================================
+# The lint commands run tflint from their own per-user cache,
+# ${XDG_CACHE_HOME}/dsb-tf-proj-helpers/tflint/<version>/tflint, which
+# test_helper points at the test's directory. These helpers put a fake tflint
+# there (install_fake_tflint), or serve a fake release to download it from
+# (mock_tflint_release).
+#
+# The fake records one line per call in ${MOCK_TFLINT_CALLS_FILE}:
+#   pwd=<cwd>|tf_data_dir=<TF_DATA_DIR>|github_token=<GITHUB_TOKEN>|args=<args>
+# copies the manifest it finds in TF_DATA_DIR to ${MOCK_TFLINT_MANIFESTS_DIR}
+# (see fake_tflint_manifest_for), and exits 2 for a lint run whose --chdir
+# matches the glob in ${MOCK_TFLINT_FAIL_DIR}. 'tflint --init' exits with
+# ${MOCK_TFLINT_INIT_EXIT:-0}.
+
+# the platform part of the release archive name, as the script works it out
+fake_tflint_platform() {
+  local os arch
+  case "$(command uname -s)" in
+    Linux) os="linux" ;;
+    Darwin) os="darwin" ;;
+  esac
+  case "$(command uname -m)" in
+    x86_64 | amd64) arch="amd64" ;;
+    aarch64 | arm64) arch="arm64" ;;
+  esac
+  echo "${os}_${arch}"
+}
+
+write_fake_tflint() {
+  local path="${1}"
+  mkdir -p "$(dirname "${path}")"
+  cat >"${path}" <<'FAKE_TFLINT'
+#!/usr/bin/env bash
+chdir=""
+for arg in "$@"; do
+  case "${arg}" in
+    --chdir=*) chdir="${arg#--chdir=}" ;;
+  esac
+done
+echo "pwd=${PWD}|tf_data_dir=${TF_DATA_DIR:-}|github_token=${GITHUB_TOKEN:-}|args=$*" >>"${MOCK_TFLINT_CALLS_FILE:-/dev/null}"
+if [[ -n "${TF_DATA_DIR:-}" ]] && [[ -n "${MOCK_TFLINT_MANIFESTS_DIR:-}" ]] && [[ -f "${TF_DATA_DIR}/modules/modules.json" ]]; then
+  mkdir -p "${MOCK_TFLINT_MANIFESTS_DIR}"
+  cp "${TF_DATA_DIR}/modules/modules.json" "${MOCK_TFLINT_MANIFESTS_DIR}/${chdir//\//_}.json"
+fi
+case " $* " in
+  *" --version "*) echo "TFLint version 0.55.0"; exit 0 ;;
+  *" --init "*) exit "${MOCK_TFLINT_INIT_EXIT:-0}" ;;
+esac
+# shellcheck disable=SC2053 # glob match is intended
+if [[ -n "${MOCK_TFLINT_FAIL_DIR:-}" ]] && [[ "${chdir%/}" == ${MOCK_TFLINT_FAIL_DIR} ]]; then
+  echo "1 issue(s) found:"
+  exit 2
+fi
+exit 0
+FAKE_TFLINT
+  chmod +x "${path}"
+}
+
+_fake_tflint_recording_env() {
+  export MOCK_TFLINT_CALLS_FILE="${BATS_TEST_TMPDIR}/tflint_calls.log"
+  export MOCK_TFLINT_MANIFESTS_DIR="${BATS_TEST_TMPDIR}/tflint_manifests"
+  touch "${MOCK_TFLINT_CALLS_FILE}"
+}
+
+# put a fake tflint in the cache, as if the lint commands had installed it
+#   $1: version (optional, defaults to v0.55.0, the latest release mock_gh and mock_curl report)
+install_fake_tflint() {
+  local version="${1:-v0.55.0}"
+  _fake_tflint_recording_env
+  write_fake_tflint "${XDG_CACHE_HOME}/dsb-tf-proj-helpers/tflint/${version}/tflint"
+}
+
+# serve a fake tflint release for gh and curl to download, with a matching checksums.txt
+mock_tflint_release() {
+  _fake_tflint_recording_env
+  export MOCK_TFLINT_RELEASE_DIR="${BATS_TEST_TMPDIR}/tflint-release"
+  export MOCK_TFLINT_PAYLOAD="${BATS_TEST_TMPDIR}/tflint-payload/tflint"
+  export MOCK_GH_RELEASE_CALLS_FILE="${BATS_TEST_TMPDIR}/gh_release_calls.log"
+  export MOCK_CURL_CALLS_FILE="${BATS_TEST_TMPDIR}/curl_calls.log"
+  touch "${MOCK_GH_RELEASE_CALLS_FILE}" "${MOCK_CURL_CALLS_FILE}"
+  mkdir -p "${MOCK_TFLINT_RELEASE_DIR}"
+  write_fake_tflint "${MOCK_TFLINT_PAYLOAD}"
+  local zip
+  zip="tflint_$(fake_tflint_platform).zip"
+  echo "fake tflint release archive" >"${MOCK_TFLINT_RELEASE_DIR}/${zip}"
+  local sum
+  if command -v sha256sum &>/dev/null; then
+    sum=$(sha256sum "${MOCK_TFLINT_RELEASE_DIR}/${zip}" | cut -d' ' -f1)
+  else
+    sum=$(shasum -a 256 "${MOCK_TFLINT_RELEASE_DIR}/${zip}" | cut -d' ' -f1)
+  fi
+  {
+    echo "1111111111111111111111111111111111111111111111111111111111111111  tflint_windows_amd64.zip"
+    echo "${sum}  ${zip}"
+  } >"${MOCK_TFLINT_RELEASE_DIR}/checksums.txt"
+  mock_unzip
+}
+
+# path of the copy the fake tflint made of the manifest it was given for a directory
+#   $1: absolute directory, as passed in --chdir
+fake_tflint_manifest_for() {
+  local dir="${1}"
+  echo "${MOCK_TFLINT_MANIFESTS_DIR}/${dir//\//_}.json"
+}
+
+# the recorded lint runs (not --init, not --version), one per line
+tflint_lint_calls() {
+  command grep -v -E '(=| )--(init|version)( |$)' "${MOCK_TFLINT_CALLS_FILE}" || true
+}
+
+# ============================================================
 # Aggregate helpers
 # ============================================================
 
@@ -652,13 +860,14 @@ mock_standard_tools() {
   mock_go
   mock_realpath
   mock_terraform_docs
+  mock_unzip
 }
 
 # Remove all mock function overrides
 unmock_all() {
   local cmds=(
     az gh terraform jq yq hcledit terraform-config-inspect
-    curl go realpath uname terraform-docs
+    curl go realpath uname terraform-docs unzip
   )
   for cmd in "${cmds[@]}"; do
     unset -f "${cmd}" 2>/dev/null || true

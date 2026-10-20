@@ -20,6 +20,10 @@ load "${HELPERS_DIR}/assertion_helper"
 # Path to the script under test
 export SUT="${PROJECT_DIR}/dsb-tf-proj-helpers.sh"
 
+# The lint commands install tflint into ${XDG_CACHE_HOME:-$HOME/.cache}.
+# Point it at the test's own directory so no test reads or writes the user's cache.
+export XDG_CACHE_HOME="${BATS_TEST_TMPDIR:-${BATS_FILE_TMPDIR:-/tmp}}/xdg-cache"
+
 # Default setup: mute logging so tests aren't noisy
 # Individual tests/files can override this
 default_test_setup() {
