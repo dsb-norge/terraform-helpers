@@ -1,0 +1,42 @@
+{
+  "Modules": [
+    {
+      "Key": "",
+      "Source": "",
+      "Dir": "."
+    },
+    {
+      "Key": "main",
+      "Source": "../../main",
+      "Dir": "../../main"
+    },
+    {
+      "Key": "main.naming",
+      "Source": "registry.terraform.io/Azure/naming/azurerm",
+      "Version": "0.4.1",
+      "Dir": ".terraform/modules/main.naming"
+    },
+    {
+      "Key": "main.networking",
+      "Source": "../modules/networking",
+      "Dir": "../../modules/networking"
+    },
+    {
+      "Key": "main.networking.subnets",
+      "Source": "registry.terraform.io/Azure/subnets/azurerm",
+      "Version": "1.0.0",
+      "Dir": ".terraform/modules/main.networking.subnets"
+    },
+    {
+      "Key": "naming",
+      "Source": "registry.terraform.io/Azure/naming/azurerm",
+      "Version": "0.4.1",
+      "Dir": ".terraform/modules/naming"
+    },
+    {
+      "Key": "naming.inner",
+      "Source": "./modules/inner",
+      "Dir": ".terraform/modules/naming/modules/inner"
+    }
+  ]
+}

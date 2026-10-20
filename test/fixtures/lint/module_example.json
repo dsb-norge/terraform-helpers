@@ -1,0 +1,30 @@
+{
+  "Modules": [
+    {
+      "Key": "",
+      "Source": "",
+      "Dir": "."
+    },
+    {
+      "Key": "example",
+      "Source": "../../",
+      "Dir": "../.."
+    },
+    {
+      "Key": "example.naming",
+      "Source": "./modules/naming",
+      "Dir": "../../modules/naming"
+    },
+    {
+      "Key": "helper",
+      "Source": "./modules/helper",
+      "Dir": "modules/helper"
+    },
+    {
+      "Key": "remote",
+      "Source": "registry.terraform.io/Azure/naming/azurerm",
+      "Version": "0.4.1",
+      "Dir": ".terraform/modules/remote"
+    }
+  ]
+}

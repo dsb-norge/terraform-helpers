@@ -85,12 +85,10 @@ setup_module_fixture() {
 
 # -- tf-lint in module repo --
 
-@test "tf-lint succeeds in module repo with pre-installed wrapper" {
+@test "tf-lint succeeds in an initialized module repo" {
   setup_module_fixture
-  # Pre-install the tflint wrapper
-  mkdir -p "${_MODULE_DIR}/.tflint"
-  echo '#!/usr/bin/env bash' > "${_MODULE_DIR}/.tflint/tflint.sh"
-  echo 'echo "mock tflint"' >> "${_MODULE_DIR}/.tflint/tflint.sh"
+  install_fake_tflint
+  mkdir -p "${_MODULE_DIR}/.terraform"
   run tf-lint
   assert_success
 }

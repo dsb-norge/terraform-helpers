@@ -112,10 +112,10 @@ _mock_hcledit_recording_plugin_sets() {
     for ((i = 0; i < ${#args[@]}; i++)); do
       [[ "${args[i]}" == "--file" ]] && file="${args[i + 1]}"
     done
-    case "$1 $2" in
+    case "${1:-} ${2:-}" in
       "block list") echo "plugin.azurerm" ;;
       "attribute get")
-        if [[ "$3" == *.source ]]; then echo '"github.com/terraform-linters/tflint-ruleset-azurerm"'; else echo '"0.1.0"'; fi
+        if [[ "${3:-}" == *.source ]]; then echo '"github.com/terraform-linters/tflint-ruleset-azurerm"'; else echo '"0.1.0"'; fi
         ;;
       "attribute set") echo "${file}" >>"${MOCK_HCLEDIT_SETS_FILE}" ;;
     esac

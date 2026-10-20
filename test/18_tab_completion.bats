@@ -138,7 +138,7 @@ teardown() {
   [[ "${reply_str}" == *"prod"* ]]
 }
 
-@test "tf-lint completion second arg returns flags" {
+@test "tf-lint completion second arg returns --use-version, and none of the old wrapper flags" {
   COMP_WORDS=("tf-lint" "dev" "")
   COMP_CWORD=2
   COMPREPLY=()
@@ -146,9 +146,41 @@ teardown() {
   _dsb_tf_completions_for_tf_lint
 
   local reply_str="${COMPREPLY[*]}"
-  [[ "${reply_str}" == *"--force-install"* ]]
-  [[ "${reply_str}" == *"--help"* ]]
-  [[ "${reply_str}" == *"--use-version"* ]]
+  [[ "${reply_str}" == "--use-version" ]]
+}
+
+@test "tf-lint completion returns --use-version for a flag in first position" {
+  COMP_WORDS=("tf-lint" "--")
+  COMP_CWORD=1
+  COMPREPLY=()
+
+  _dsb_tf_completions_for_tf_lint
+
+  local reply_str="${COMPREPLY[*]}"
+  [[ "${reply_str}" == "--use-version" ]]
+}
+
+@test "tf-lint completion returns nothing after --use-version" {
+  COMP_WORDS=("tf-lint" "dev" "--use-version" "")
+  COMP_CWORD=3
+  COMPREPLY=()
+
+  _dsb_tf_completions_for_tf_lint
+
+  [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+@test "tf-lint-all completion returns --use-version" {
+  COMP_WORDS=("tf-lint-all" "")
+  COMP_CWORD=1
+  COMPREPLY=()
+
+  _dsb_tf_completions_for_lint_flags
+
+  local reply_str="${COMPREPLY[*]}"
+  [[ "${reply_str}" == "--use-version" ]]
+  run complete -p tf-lint-all
+  assert_output --partial "_dsb_tf_completions_for_lint_flags"
 }
 
 # -- Example name completion (module repo) --
@@ -202,11 +234,15 @@ teardown() {
   source "${SUT}"
 
   # Most singular example commands use the basic example name completion
-  for cmd in tf-init-example tf-validate-example tf-lint-example tf-docs-example; do
+  for cmd in tf-init-example tf-validate-example tf-docs-example; do
     run complete -p "${cmd}"
     assert_success
     assert_output --partial "_dsb_tf_completions_for_example_names"
   done
+  # tf-lint-example also completes --use-version
+  run complete -p tf-lint-example
+  assert_success
+  assert_output --partial "_dsb_tf_completions_for_lint_examples"
   # tf-test-example uses flag-aware version
   run complete -p tf-test-example
   assert_success
@@ -221,11 +257,15 @@ teardown() {
   source "${SUT}"
 
   # Most plural example commands use the basic example name completion
-  for cmd in tf-init-all-examples tf-validate-all-examples tf-lint-all-examples; do
+  for cmd in tf-init-all-examples tf-validate-all-examples; do
     run complete -p "${cmd}"
     assert_success
     assert_output --partial "_dsb_tf_completions_for_example_names"
   done
+  # tf-lint-all-examples also completes --use-version
+  run complete -p tf-lint-all-examples
+  assert_success
+  assert_output --partial "_dsb_tf_completions_for_lint_examples"
   # tf-test-all-examples uses flag-aware version with parallel support
   run complete -p tf-test-all-examples
   assert_success
@@ -243,6 +283,25 @@ teardown() {
   COMP_CWORD=2
   _dsb_tf_completions_for_example_names
   [[ "${#COMPREPLY[@]}" -eq 0 ]]
+}
+
+@test "example lint completion returns example names, then --use-version" {
+  local module_dir
+  module_dir="$(create_module_project)"
+  cd "${module_dir}"
+  mock_standard_tools
+  source "${SUT}"
+
+  COMP_WORDS=("tf-lint-example" "")
+  COMP_CWORD=1
+  _dsb_tf_completions_for_lint_examples
+  [[ "${COMPREPLY[*]}" == *"01-basic"* ]]
+  [[ "${COMPREPLY[*]}" == *"02-advanced"* ]]
+
+  COMP_WORDS=("tf-lint-example" "01-basic" "")
+  COMP_CWORD=2
+  _dsb_tf_completions_for_lint_examples
+  [[ "${COMPREPLY[*]}" == "--use-version" ]]
 }
 
 # -- Test name completion --
