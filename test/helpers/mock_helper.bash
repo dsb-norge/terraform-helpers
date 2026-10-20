@@ -741,7 +741,7 @@ mock_unzip_not_installed() {
 # (mock_tflint_release).
 #
 # The fake records one line per call in ${MOCK_TFLINT_CALLS_FILE}:
-#   pwd=<cwd>|tf_data_dir=<TF_DATA_DIR>|github_token=<GITHUB_TOKEN>|args=<args>
+#   bin=<path run>|pwd=<cwd>|tf_data_dir=<TF_DATA_DIR>|github_token=<GITHUB_TOKEN>|args=<args>
 # copies the manifest it finds in TF_DATA_DIR to ${MOCK_TFLINT_MANIFESTS_DIR}
 # (see fake_tflint_manifest_for), and exits 2 for a lint run whose --chdir
 # matches the glob in ${MOCK_TFLINT_FAIL_DIR}. 'tflint --init' exits with
@@ -772,7 +772,7 @@ for arg in "$@"; do
     --chdir=*) chdir="${arg#--chdir=}" ;;
   esac
 done
-echo "pwd=${PWD}|tf_data_dir=${TF_DATA_DIR:-}|github_token=${GITHUB_TOKEN:-}|args=$*" >>"${MOCK_TFLINT_CALLS_FILE:-/dev/null}"
+echo "bin=${0}|pwd=${PWD}|tf_data_dir=${TF_DATA_DIR:-}|github_token=${GITHUB_TOKEN:-}|args=$*" >>"${MOCK_TFLINT_CALLS_FILE:-/dev/null}"
 if [[ -n "${TF_DATA_DIR:-}" ]] && [[ -n "${MOCK_TFLINT_MANIFESTS_DIR:-}" ]] && [[ -f "${TF_DATA_DIR}/modules/modules.json" ]]; then
   mkdir -p "${MOCK_TFLINT_MANIFESTS_DIR}"
   cp "${TF_DATA_DIR}/modules/modules.json" "${MOCK_TFLINT_MANIFESTS_DIR}/${chdir//\//_}.json"

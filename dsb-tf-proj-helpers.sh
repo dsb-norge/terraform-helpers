@@ -172,12 +172,10 @@ declare -gA _dsbTfEnvsDirList    # Associative array, key is environment name, v
 declare -ga _dsbTfAvailableEnvs  # Indexed array, list of available environment names in the project
 declare -gA _dsbTfModulesDirList # Associative array, key is module name, value is directory
 
-declare -g _dsbTfTflintWrapperDir=""  # directory where the tflint wrapper script will be placed
-declare -g _dsbTfTflintWrapperPath="" # full path to the tflint wrapper script
-
 declare -g _dsbTfTflintVersion=""       # tflint version the lint commands use, ex. v0.61.0
 declare -g _dsbTfTflintVersionSource="" # where that version came from, for messages
 declare -g _dsbTfTflintBin=""           # path to that tflint binary in the per-user cache
+declare -g _dsbTfTflintConfigFile=""    # tflint config of the root being linted
 
 declare -g _dsbTfRealpathCmd="" # the command to use for realpath
 declare -g _dsbTfCutCmd=""      # the command to use for cut
@@ -1091,7 +1089,7 @@ _dsb_tf_help_help() {
     _dsb_i "  tf-init-all              -> Initialize module root and all examples"
     _dsb_i "  tf-validate              -> Validate Terraform module at root"
     _dsb_i "  tf-validate-all          -> Validate module root and all examples"
-    _dsb_i "  tf-lint                  -> Run tflint at root"
+    _dsb_i "  tf-lint                  -> Lint the module root and its sub-modules"
     _dsb_i "  tf-lint-all              -> Lint module root and all examples"
     _dsb_i "  tf-fmt-fix               -> Run syntax check and fix recursively from current directory"
     _dsb_i "  tf-upgrade               -> Upgrade Terraform dependencies at root"
@@ -1179,9 +1177,9 @@ _dsb_tf_help_group_checks() {
 _dsb_tf_help_group_general() {
   _dsb_i "  General Commands:"
   _dsb_i "    tf-status             -> Show status of tools, authentication, and environment"
-  _dsb_i "    tf-lint [env]         -> Run tflint for the selected or given environment"
+  _dsb_i "    tf-lint [env]         -> Lint the selected or given environment with tflint (module repo: the module root)"
   _dsb_i "    tf-clean              -> Look for and delete '.terraform' directories"
-  _dsb_i "    tf-clean-tflint       -> Look for and delete '.tflint' directories"
+  _dsb_i "    tf-clean-tflint       -> Look for and delete '.tflint' directories, left by earlier versions of tf-lint"
   _dsb_i "    tf-clean-all          -> Look for and delete both '.terraform' and '.tflint' directories"
 }
 
@@ -1274,8 +1272,8 @@ _dsb_tf_help_group_examples() {
   _dsb_i "    tf-init-example <example>           -> Initialize a specific example directory"
   _dsb_i "    tf-validate-all-examples [example] -> Validate all or a specific example directory"
   _dsb_i "    tf-validate-example <example>       -> Validate a specific example directory"
-  _dsb_i "    tf-lint-all-examples [example]     -> Run tflint on all or a specific example directory"
-  _dsb_i "    tf-lint-example <example>           -> Run tflint on a specific example directory"
+  _dsb_i "    tf-lint-all-examples [example]     -> Lint all or a specific example directory"
+  _dsb_i "    tf-lint-example <example>           -> Lint a specific example directory, with the module root's config"
 }
 
 _dsb_tf_help_group_testing() {
@@ -1329,6 +1327,13 @@ _dsb_tf_help_group_flags() {
   _dsb_i "      tf-test-all-integrations --max-parallel=3  -> run 3 tests at a time"
   _dsb_i "      tf-test-all-examples --max-parallel=2      -> test 2 examples at a time"
   _dsb_i "      tf-test-all-integrations --max-parallel=1  -> run one at a time (sequential)"
+  _dsb_i ""
+  _dsb_i "  --use-version <version>  (tflint version)"
+  _dsb_i "    Lint with the given tflint version instead of the one the GitHub workflow gives."
+  _dsb_i "    A version like v0.61.0, or 'latest'. Also accepted as --use-version=<version>."
+  _dsb_i ""
+  _dsb_i "    Supported by:"
+  _dsb_i "      tf-lint, tf-lint-all, tf-lint-example, tf-lint-all-examples"
   _dsb_i ""
   _dsb_i "  Terraform passthrough flags  (single dash)"
   _dsb_i "    Flags starting with a single dash are passed through directly to terraform."
@@ -1404,7 +1409,7 @@ _dsb_tf_help_commands() {
     _dsb_i "    tf-init-all-offline   -> Same as tf-init-all (no backend in module repos)"
     _dsb_i "    tf-validate           -> Validate Terraform module at root"
     _dsb_i "    tf-validate-all       -> Validate module root and all examples"
-    _dsb_i "    tf-lint               -> Run tflint at module root"
+    _dsb_i "    tf-lint               -> Lint the module root and its sub-modules"
     _dsb_i "    tf-lint-all           -> Lint module root and all examples"
     _dsb_i "    tf-outputs            -> Show Terraform outputs at module root"
     _dsb_i "    tf-fmt                -> Run syntax check recursively from current directory"
@@ -1555,30 +1560,33 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Show the status of tools, authentication, and environment."
     ;;
   tf-lint)
-    _dsb_i "tf-lint [env] [wrapper script flags]:"
-    _dsb_i "  Run tflint for the specified environment."
+    _dsb_i "tf-lint [env] [--use-version <version>]:"
+    _dsb_i "  Lint the specified environment with tflint."
     _dsb_i "  If environment is not specified, the selected environment is used."
+    _dsb_i "  In module repos it lints the module root and its local sub-modules, see 'tf-help tf-lint-all'."
+    _dsb_i ""
+    _dsb_i "  It follows the lint contract CI follows, so a local lint gives the result CI gives:"
+    _dsb_i "    https://github.com/dsb-norge/github-actions-terraform/blob/main/docs/Linting.md"
+    _dsb_i "    - The environment is linted first, once per *.tfvars file in it (other than terraform.tfvars"
+    _dsb_i "      and *.auto.tfvars, which tflint reads itself), or once when it has none."
+    _dsb_i "    - Then every local module directory in its .terraform/modules/modules.json, each on its own,"
+    _dsb_i "      against the modules the environment installed, without var files. Nothing is written into them."
+    _dsb_i "    - All of them with the environment's .tflint.hcl, else the repository root's .tflint.hcl."
+    _dsb_i "      When there is neither, the default config is written into the environment directory,"
+    _dsb_i "      with its plugins bumped to their latest versions. Review it and commit it."
+    _dsb_i ""
+    _dsb_i "  The environment must be initialized, for example with 'tf-init-env-offline <env>'."
+    _dsb_i ""
+    _dsb_i "  tflint version:"
+    _dsb_i "    The tflint-version of the GitHub workflow that calls the shared terraform workflow, which"
+    _dsb_i "    is the version CI lints with. The latest release when it is 'latest' or not set."
+    _dsb_i "    Use '--use-version <version>' to lint with another, ex. '--use-version v0.61.0' or '--use-version latest'."
+    _dsb_i "    tflint is installed once per user and version, into \${XDG_CACHE_HOME:-~/.cache}/dsb-tf-proj-helpers/tflint/,"
+    _dsb_i "    and the download is verified against the release's checksums."
     _dsb_i ""
     _dsb_i "  Supports tab completion for environment."
     _dsb_i ""
-    _dsb_i "  Note that this uses an external TFLint wrapper script from:"
-    _dsb_i "    https://github.com/dsb-norge/terraform-tflint-wrappers/blob/main/tflint_linux.sh"
-    _dsb_i ""
-    _dsb_i "  About the wrapper script:"
-    _dsb_i "    - It will be cached locally in the project directory under './.tflint'"
-    _dsb_i "    - It will not be updated automatically by tf-helpers"
-    _dsb_i "    - To update the wrapper script, first run tf-clean-tflint, then run tf-lint."
-    _dsb_i "    - The script supports flags to control it's operation, some examples:"
-    _dsb_i "      - Skip checking if latest tflint is installed locally:"
-    _dsb_i "          tf-lint --skip-check"
-    _dsb_i "      - Use specific TFLint version:"
-    _dsb_i "          tf-lint --use-version 'v0.54.0'"
-    _dsb_i "      - Force re-download of TFLint plugins:"
-    _dsb_i "          tf-lint --re-init"
-    _dsb_i "      - See more options by running:"
-    _dsb_i "          tf-lint --help"
-    _dsb_i ""
-    _dsb_i "  Related commands: tf-init, tf-validate."
+    _dsb_i "  Related commands: tf-lint-all, tf-init-env-offline, tf-bump-tflint-plugins."
     ;;
   tf-clean)
     _dsb_i "tf-clean:"
@@ -1589,6 +1597,9 @@ _dsb_tf_help_specific_command() {
   tf-clean-tflint)
     _dsb_i "tf-clean-tflint:"
     _dsb_i "  Look for and delete '.tflint' directories."
+    _dsb_i ""
+    _dsb_i "  Earlier versions of tf-lint installed tflint into such directories, tf-lint no longer does."
+    _dsb_i "  tflint now lives in a per-user cache, see 'tf-help tf-lint'."
     _dsb_i ""
     _dsb_i "  Related commands: tf-clean, tf-clean-all."
     ;;
@@ -1791,11 +1802,12 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Related commands: tf-validate, tf-init-all."
     ;;
   tf-lint-all)
-    _dsb_i "tf-lint-all:"
-    _dsb_i "  Lint all Terraform configurations."
+    _dsb_i "tf-lint-all [--use-version <version>]:"
+    _dsb_i "  Lint all Terraform configurations, each as 'tf-lint' does, see 'tf-help tf-lint'."
     _dsb_i ""
-    _dsb_i "  In project repos, runs tflint for all environments."
-    _dsb_i "  In module repos, lints the module root and all examples."
+    _dsb_i "  In project repos, lints every environment."
+    _dsb_i "  In module repos, lints the module root and its local sub-modules, then every example"
+    _dsb_i "  (see 'tf-help tf-lint-example')."
     _dsb_i ""
     _dsb_i "  Related commands: tf-lint, tf-validate-all."
     ;;
@@ -2094,20 +2106,24 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Related commands: tf-validate-all-examples, tf-init-example."
     ;;
   tf-lint-all-examples)
-    _dsb_i "tf-lint-all-examples [example]:"
-    _dsb_i "  Run tflint on all or a specific example directory (module repo only)."
+    _dsb_i "tf-lint-all-examples [example] [--use-version <version>]:"
+    _dsb_i "  Lint all or a specific example directory (module repo only)."
     _dsb_i ""
-    _dsb_i "  Lints each example using the root .tflint.hcl configuration."
+    _dsb_i "  Lints each example as 'tf-lint-example' does, see 'tf-help tf-lint-example'."
     _dsb_i ""
     _dsb_i "  Supports tab completion for example names."
     _dsb_i ""
     _dsb_i "  Related commands: tf-lint-example, tf-init-all-examples, tf-validate-all-examples."
     ;;
   tf-lint-example)
-    _dsb_i "tf-lint-example <example>:"
-    _dsb_i "  Run tflint on a specific example directory (module repo only)."
+    _dsb_i "tf-lint-example <example> [--use-version <version>]:"
+    _dsb_i "  Lint a specific example directory (module repo only)."
     _dsb_i ""
-    _dsb_i "  Uses the root .tflint.hcl configuration."
+    _dsb_i "  The example is linted as a root, by the same contract as 'tf-lint' (see 'tf-help tf-lint'),"
+    _dsb_i "  always with the module root's .tflint.hcl, never a config in the example directory."
+    _dsb_i "  It covers the example directory and the local module directories inside it."
+    _dsb_i "  The module root and its sub-modules are linted by 'tf-lint'."
+    _dsb_i "  The example must be initialized first (run tf-init-example <example>)."
     _dsb_i "  Requires an example name. Supports tab completion."
     _dsb_i ""
     _dsb_i "  Related commands: tf-lint-all-examples, tf-init-example."
@@ -2367,34 +2383,110 @@ _dsb_tf_register_completions_for_available_envs() {
   complete -F _dsb_tf_completions_for_available_envs tf-outputs
 }
 
-# special for tf-lint
-# supports [env] and wrapper script flags
+# for the lint commands
 # --------------------------------------------------
+
+# returns 0 when the word before the current one is --use-version, whose value is not completed
+_dsb_tf_completing_use_version_value() {
+  [[ ${COMP_CWORD} -ge 1 ]] && [[ "${COMP_WORDS[COMP_CWORD - 1]}" == "--use-version" ]]
+}
+
+# like _dsb_tf_count_positional_args, also skipping the value that follows --use-version
+_dsb_tf_count_lint_positional_args() {
+  local count=0
+  local i
+  for ((i = 1; i < COMP_CWORD; i++)); do
+    if [[ "${COMP_WORDS[$i]}" == "--use-version" ]]; then
+      ((i++))
+    elif [[ "${COMP_WORDS[$i]}" != -* ]]; then
+      ((count++))
+    fi
+  done
+  echo "${count}"
+}
+
+# tf-lint: [env] in project repos, and --use-version
 _dsb_tf_completions_for_tf_lint() {
-  local cur
+  local cur="${COMP_WORDS[COMP_CWORD]}"
   COMPREPLY=()
-  cur="${COMP_WORDS[COMP_CWORD]}"
+
+  if _dsb_tf_completing_use_version_value; then
+    return
+  fi
+
+  if [[ "${cur}" == -* ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "--use-version" -- "${cur}")
+    return
+  fi
 
   # always enumerate, we do not know the directory the function is called from
   # note: debug mode must be disabled, otherwise the debug output will mess up the completions
   _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
 
-  if [[ ${COMP_CWORD} -eq 1 ]]; then
-    # complete for the first argument
+  local posCount
+  posCount=$(_dsb_tf_count_lint_positional_args)
+  if [[ "${posCount}" -eq 0 ]] && [[ "${_dsbTfRepoType:-}" != "module" ]]; then
     # only complete if _dsbTfAvailableEnvs is set
     if [[ -v _dsbTfAvailableEnvs ]]; then
       if [[ -n "${_dsbTfAvailableEnvs[*]}" ]]; then
         mapfile -t COMPREPLY < <(compgen -W "${_dsbTfAvailableEnvs[*]}" -- "${cur}")
       fi
     fi
-  elif [[ ${COMP_CWORD} -ge 2 && ${COMP_WORDS[0]} == "tf-lint" ]]; then
-    # complete for the second argument and beyond
-    mapfile -t COMPREPLY < <(compgen -W "--force-install --help --re-init --remove --skip-latest-check --uninstall --use-version" -- "${cur}")
+  else
+    mapfile -t COMPREPLY < <(compgen -W "--use-version" -- "${cur}")
+  fi
+}
+
+# tf-lint-all, tf-lint-tfstate: --use-version only
+_dsb_tf_completions_for_lint_flags() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  if _dsb_tf_completing_use_version_value; then
+    return
+  fi
+  mapfile -t COMPREPLY < <(compgen -W "--use-version" -- "${cur}")
+}
+
+# tf-lint-example, tf-lint-all-examples: [example] and --use-version
+_dsb_tf_completions_for_lint_examples() {
+  local cur="${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=()
+
+  if _dsb_tf_completing_use_version_value; then
+    return
+  fi
+
+  if [[ "${cur}" == -* ]]; then
+    mapfile -t COMPREPLY < <(compgen -W "--use-version" -- "${cur}")
+    return
+  fi
+
+  _dsbTfLogDebug=0 _dsb_tf_enumerate_directories || :
+
+  local posCount
+  posCount=$(_dsb_tf_count_lint_positional_args)
+  if [[ "${posCount}" -eq 0 ]]; then
+    if declare -p _dsbTfExamplesDirList &>/dev/null; then
+      local -a exNames=()
+      local _exKey
+      for _exKey in "${!_dsbTfExamplesDirList[@]}"; do
+        exNames+=("${_exKey}")
+      done
+      if [[ -n "${exNames[*]}" ]]; then
+        mapfile -t COMPREPLY < <(compgen -W "${exNames[*]}" -- "${cur}")
+      fi
+    fi
+  else
+    mapfile -t COMPREPLY < <(compgen -W "--use-version" -- "${cur}")
   fi
 }
 
 _dsb_tf_register_completions_for_tf_lint() {
   complete -F _dsb_tf_completions_for_tf_lint tf-lint
+  complete -F _dsb_tf_completions_for_lint_flags tf-lint-all
+  complete -F _dsb_tf_completions_for_lint_examples tf-lint-example
+  complete -F _dsb_tf_completions_for_lint_examples tf-lint-all-examples
 }
 
 # for tf-help
@@ -2467,8 +2559,6 @@ _dsb_tf_register_completions_for_example_names() {
   complete -F _dsb_tf_completions_for_example_names tf-init-example
   complete -F _dsb_tf_completions_for_example_names tf-validate-all-examples
   complete -F _dsb_tf_completions_for_example_names tf-validate-example
-  complete -F _dsb_tf_completions_for_example_names tf-lint-all-examples
-  complete -F _dsb_tf_completions_for_example_names tf-lint-example
   complete -F _dsb_tf_completions_for_example_names tf-test-all-examples
   complete -F _dsb_tf_completions_for_example_names tf-test-example
   complete -F _dsb_tf_completions_for_example_names tf-docs-example
@@ -3739,8 +3829,6 @@ _dsb_tf_fixup_paths_from_stdin() {
 #       - _dsbTfEnvsDirList
 #       - _dsbTfAvailableEnvs
 #       - _dsbTfSelectedEnvDir
-#     - _dsbTfTflintWrapperDir
-#     - _dsbTfTflintWrapperPath
 _dsb_tf_enumerate_directories() {
   _dsbTfRootDir="$(pwd)"
 
@@ -3765,9 +3853,6 @@ _dsb_tf_enumerate_directories() {
   _dsbTfModulesDir="${_dsbTfRootDir}/modules"
   _dsbTfMainDir="${_dsbTfRootDir}/main"
   _dsbTfEnvsDir="${_dsbTfRootDir}/envs"
-
-  _dsbTfTflintWrapperDir="${_dsbTfRootDir}/.tflint"
-  _dsbTfTflintWrapperPath="${_dsbTfTflintWrapperDir}/tflint.sh"
 
   _dsbTfModulesDirList=()
   if [ -d "${_dsbTfModulesDir}" ]; then
@@ -6220,6 +6305,7 @@ _dsb_tf_tflint_highest_version_line() {
 #   nothing
 # returns:
 #   echos one line per input found: <value><tab><workflow file>
+#   messages go to stderr, callers capture stdout
 _dsb_tf_tflint_versions_from_workflows() {
   local sharedWorkflowRe='^dsb-norge/github-actions-terraform/\.github/workflows/terraform-ci-cd-default\.yml@'
   if [ "${_dsbTfRepoType}" == "module" ]; then
@@ -6229,7 +6315,7 @@ _dsb_tf_tflint_versions_from_workflows() {
   local workflowFile value
   for workflowFile in "${_dsbTfRootDir}"/.github/workflows/*.yml "${_dsbTfRootDir}"/.github/workflows/*.yaml; do
     [ -f "${workflowFile}" ] || continue
-    _dsb_d "looking for tflint-version in: ${workflowFile}"
+    _dsb_d "looking for tflint-version in: ${workflowFile}" >&2
     while IFS= read -r value; do
       if [ -n "${value}" ]; then
         printf '%s\t%s\n' "${value}" "${workflowFile}"
@@ -6246,13 +6332,14 @@ _dsb_tf_tflint_versions_from_workflows() {
 #   nothing
 # returns:
 #   echos the version, ex. v0.61.0, returns 1 when it cannot be looked up
+#   messages go to stderr, callers capture stdout
 _dsb_tf_tflint_latest_release() {
   local tag=""
   if _dsbTfLogErrors=0 _dsb_tf_check_gh_auth; then
     tag=$(gh api -H "Accept: application/vnd.github.v3+json" '/repos/terraform-linters/tflint/releases/latest' --jq '.tag_name' 2>/dev/null) || tag=""
   fi
   if [ -z "${tag}" ]; then
-    _dsb_d "looking up the latest tflint release with curl"
+    _dsb_d "looking up the latest tflint release with curl" >&2
     tag=$(curl -fsSL 'https://api.github.com/repos/terraform-linters/tflint/releases/latest' 2>/dev/null | jq -r '.tag_name // empty' 2>/dev/null) || tag=""
   fi
   _dsb_tf_tflint_normalize_version "${tag}"
@@ -6280,6 +6367,45 @@ _dsb_tf_tflint_newest_cached_version() {
     return 1
   fi
   printf '%s\n' "${cachedVersions[@]}" | _dsb_tf_tflint_highest_version_line
+}
+
+# what:
+#   the tflint version the workflows give, the one CI lints with, without looking anything up:
+#     - the tflint-version of the workflow(s) that call the shared workflow, the highest of them
+#     - 'latest' when one of them says 'latest', or when there is no such workflow
+# input:
+#   none
+# on info:
+#   nothing
+# returns:
+#   echos <version or 'latest'><tab><where it came from>
+#   messages go to stderr, callers capture stdout
+_dsb_tf_tflint_workflow_version() {
+  local -a pinnedVersions=()
+  local latestIn=""
+  if _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_yq; then
+    local value workflowFile normalized
+    while IFS=$'\t' read -r value workflowFile; do
+      if [ "${value}" == "latest" ]; then
+        latestIn="${workflowFile}"
+      elif normalized=$(_dsb_tf_tflint_normalize_version "${value}"); then
+        pinnedVersions+=("${normalized}"$'\t'"${workflowFile}")
+      else
+        _dsb_d "ignoring tflint-version '${value}' in ${workflowFile}" >&2
+      fi
+    done < <(_dsb_tf_tflint_versions_from_workflows)
+  fi
+
+  if [ -n "${latestIn}" ]; then
+    # 'latest' is at least as high as any pinned version
+    printf '%s\t%s\n' "latest" "tflint-version 'latest' in $(_dsb_tf_get_rel_dir "${latestIn}")"
+  elif [ "${#pinnedVersions[@]}" -gt 0 ]; then
+    local highest
+    highest=$(printf '%s\n' "${pinnedVersions[@]}" | _dsb_tf_tflint_highest_version_line)
+    printf '%s\t%s\n' "${highest%%$'\t'*}" "tflint-version in $(_dsb_tf_get_rel_dir "${highest#*$'\t'}")"
+  else
+    printf '%s\t%s\n' "latest" "no tflint-version in a workflow calling the shared workflow"
+  fi
 }
 
 # what:
@@ -6313,36 +6439,13 @@ _dsb_tf_tflint_resolve_version() {
       return 1
     fi
   else
-    local -a pinnedVersions=()
-    local latestIn=""
     if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_yq; then
       _dsb_w "yq not found, cannot read tflint-version from the GitHub workflows."
-    else
-      local value workflowFile normalized
-      while IFS=$'\t' read -r value workflowFile; do
-        if [ "${value}" == "latest" ]; then
-          latestIn="${workflowFile}"
-        elif normalized=$(_dsb_tf_tflint_normalize_version "${value}"); then
-          pinnedVersions+=("${normalized}"$'\t'"${workflowFile}")
-        else
-          _dsb_d "ignoring tflint-version '${value}' in ${workflowFile}"
-        fi
-      done < <(_dsb_tf_tflint_versions_from_workflows)
     fi
-
-    if [ -n "${latestIn}" ]; then
-      # 'latest' is at least as high as any pinned version
-      wanted="latest"
-      source="tflint-version 'latest' in $(_dsb_tf_get_rel_dir "${latestIn}")"
-    elif [ "${#pinnedVersions[@]}" -gt 0 ]; then
-      local highest
-      highest=$(printf '%s\n' "${pinnedVersions[@]}" | _dsb_tf_tflint_highest_version_line)
-      wanted="${highest%%$'\t'*}"
-      source="tflint-version in $(_dsb_tf_get_rel_dir "${highest#*$'\t'}")"
-    else
-      wanted="latest"
-      source="no tflint-version in a workflow calling the shared workflow"
-    fi
+    local workflowVersion
+    workflowVersion=$(_dsb_tf_tflint_workflow_version)
+    wanted="${workflowVersion%%$'\t'*}"
+    source="${workflowVersion#*$'\t'}"
   fi
 
   if [ "${wanted}" == "latest" ]; then
@@ -6537,106 +6640,610 @@ _dsb_tf_tflint_prepare() {
 }
 
 # what:
-#   downloads the tflint wrapper script and store it locally
-#   Note: this function does not perform any pre flight checks
+#   the default tflint config, written into a root that has none (see _dsb_tf_tflint_resolve_config)
+#   it is the default the retired tflint wrapper shipped, kept here so the CLI needs nothing else to lint
 # input:
 #   none
 # on info:
 #   nothing
 # returns:
+#   echos the config
+_dsb_tf_tflint_default_config() {
+  cat <<'DSB_TF_DEFAULT_TFLINT_CONFIG'
+# ---------------------------------------------------------------------------------------------------------------------
+# Configuring TFLint
+#   https://github.com/terraform-linters/tflint/blob/master/docs/user-guide/config.md
+config {
+  call_module_type = "all"
+}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# plugin: TFLint Ruleset for Terraform Language - https://github.com/terraform-linters/tflint-ruleset-terraform
+# built-in plugin
+plugin "terraform" {
+  enabled = true
+  # enable all, explicitly disable some below
+  preset = "all"
+}
+
+# overrides for: TFLint Ruleset for Terraform Language - https://github.com/terraform-linters/tflint-ruleset-terraform/tree/main/docs/rules
+# explicitly disable select rules
+rule "terraform_required_providers" { enabled = false } # Require that all providers have version constraints through required_providers
+rule "terraform_required_version" { enabled = false }   # Disallow terraform declarations without require_version
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# plugin: TFLint Ruleset for terraform-provider-azurerm - https://github.com/terraform-linters/tflint-ruleset-azurerm/tree/master
+plugin "azurerm" {
+  enabled = true
+  version = "0.28.0"
+  source  = "github.com/terraform-linters/tflint-ruleset-azurerm"
+}
+
+# overrides for: TFLint Ruleset for terraform-provider-azurerm - https://github.com/terraform-linters/tflint-ruleset-azurerm/tree/master/docs
+# none. all rules enabled by default
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# plugin: TFLint Ruleset for terraform-provider-basic-ext - https://github.com/Azure/tflint-ruleset-basic-ext/tree/master
+plugin "basic-ext" {
+  enabled     = true
+  version     = "0.7.2"
+  source      = "github.com/Azure/tflint-ruleset-basic-ext"
+  signing_key = <<-KEY
+    -----BEGIN PGP PUBLIC KEY BLOCK-----
+
+    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
+    =nfI3
+    -----END PGP PUBLIC KEY BLOCK-----
+    KEY
+}
+
+# overrides for: TFLint Ruleset for terraform-provider-basic-ext - https://github.com/Azure/tflint-ruleset-basic-ext/tree/master/docs
+# all rules disabled by default, explicitly enable select rules
+rule "terraform_variable_separate" { enabled = true }        # Checks whether variables are declared in a file with other types of blocks declared
+rule "terraform_output_separate" { enabled = true }          # Checks whether outputs are declared in a file with other types of blocks declared
+rule "terraform_variable_order" { enabled = true }           # Recommend order for variable blocks. First default value variables, then the rest. Each group sorted in alphabetic order
+rule "terraform_output_order" { enabled = true }             # Recommend order for output blocks. Sorted in alphabetic order
+rule "terraform_resource_data_arg_layout" { enabled = true } # Recommend argument order within resource/data blocks. Arguments are grouped into: head-meta (for-each/count, provider), attr, block, tail-meta (lifecycle, depends_on)
+rule "terraform_locals_order" { enabled = false }            # We use logical ordering of locals, not alphabetic order
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# plugin: TFLint Ruleset for terraform-provider-azurerm-ext - https://github.com/Azure/tflint-ruleset-azurerm-ext/tree/master
+plugin "azurerm-ext" {
+  enabled     = true
+  version     = "0.6.1"
+  source      = "github.com/Azure/tflint-ruleset-azurerm-ext"
+  signing_key = <<-KEY
+    -----BEGIN PGP PUBLIC KEY BLOCK-----
+
+    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
+    =nfI3
+    -----END PGP PUBLIC KEY BLOCK-----
+    KEY
+}
+
+# overrides for: TFLint Ruleset for terraform-provider-azurerm-ext - https://github.com/Azure/tflint-ruleset-azurerm-ext/tree/master/docs
+# all rules disabled by default, explicitly enable all
+rule "azurerm_arg_order" { enabled = true }    # Recommend proper argument order within azurerm provider/resource/data blocks The arguments are split into the following types: head-meta (provider, for-each/count), attr(required, optional), block(required, optional), tail-meta (depends_on, lifecycle) The arguments with different types would be sorted in the order above and split by a blank line, while the arguments with the same type would be sorted in alphabetic order.
+rule "azurerm_resource_tag" { enabled = true } # Check whether the tags argument is set if it's supported in a (nested block of) Azurerm resource
+DSB_TF_DEFAULT_TFLINT_CONFIG
+}
+
+# what:
+#   writes the default tflint config into a root, tells the user to commit it, and bumps its plugins
+#   to their latest versions when hcledit and GitHub authentication are available
+# input:
+#   $1: root directory, absolute
+# on info:
+#   what was written, and what to do next
+# returns:
 #   exit code directly
-_dsb_tf_install_tflint_wrapper() {
+_dsb_tf_tflint_write_default_config() {
+  local rootDir="${1}"
+  local configFile="${rootDir}/.tflint.hcl"
 
-  _dsb_d "_dsbTfTflintWrapperDir: ${_dsbTfTflintWrapperDir:-}"
-  _dsb_d "_dsbTfTflintWrapperPath: ${_dsbTfTflintWrapperPath:-}"
-
-  local wrapperDir="${_dsbTfTflintWrapperDir:-}"
-  local wrapperPath="${_dsbTfTflintWrapperPath:-}"
-  local wrapperApiUrl="/repos/dsb-norge/terraform-tflint-wrappers/contents/tflint_linux.sh"
-  local wrapperPublicUrl="https://raw.githubusercontent.com/dsb-norge/terraform-tflint-wrappers/main/tflint_linux.sh"
-
-  if [ -z "${wrapperDir}" ] || [ -z "${wrapperPath}" ]; then
-    _dsb_internal_error "Internal error: expected to find tflint wrapper directory and path." \
-      "  expected in: _dsbTfTflintWrapperDir and _dsbTfTflintWrapperPath"
+  if ! _dsb_tf_tflint_default_config >"${configFile}"; then
+    _dsb_e "Failed to write the default tflint config to ${configFile}"
+    _dsb_tf_error_push "failed to write ${configFile}"
     return 1
   fi
 
-  if [ -f "${wrapperPath}" ]; then
-    _dsb_d "tflint wrapper already exists at: ${wrapperPath}"
+  _dsb_w "No tflint config found, wrote the default config to: $(_dsb_tf_get_rel_dir "${configFile}")"
+  _dsb_w "  review it and commit it, CI lints with the same config and fails without one"
+  if command -v git &>/dev/null && git -C "${rootDir}" check-ignore -q "${configFile}" 2>/dev/null; then
+    _dsb_w "  note: .gitignore ignores this file, change .gitignore so that it can be committed"
+  fi
+
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_hcledit ||
+    ! _dsbTfLogErrors=0 _dsb_tf_check_gh_auth; then
+    _dsb_w "  its plugin versions are those of the default, run 'tf-bump-tflint-plugins' to update them"
+    _dsb_w "  (that needs hcledit and GitHub authentication)"
     return 0
   fi
 
-  if [ ! -d "${wrapperDir}" ]; then
-    _dsb_d "creating tflint wrapper directory at: ${wrapperDir}"
-    mkdir -p "${wrapperDir}"
+  # shellcheck disable=SC2034 # read through a nameref by the bump
+  local -a writtenTflintConfigFiles=("${configFile}")
+  if ! _dsb_tf_bump_tflint_plugin_versions writtenTflintConfigFiles; then
+    _dsb_w "Could not bump the plugins in $(_dsb_tf_get_rel_dir "${configFile}"), run 'tf-bump-tflint-plugins' to update them"
   fi
-
-  _dsb_d "downloading tflint wrapper"
-  _dsb_d "  from: ${wrapperApiUrl}"
-  _dsb_d "  to: ${wrapperPath}"
-
-  if _dsbTfLogErrors=0 _dsb_tf_check_gh_cli; then
-    _dsb_d "trying with GitHub CLI"
-    if ! gh api -H 'Accept: application/vnd.github.v3.raw' "${wrapperApiUrl}" 2>/dev/null >"${wrapperPath}"; then
-      _dsb_d "failed using GitHub CLI, trying with curl and public URL"
-
-      if ! curl -sSL -o "${wrapperPath}" "${wrapperPublicUrl}"; then
-        _dsb_d "curl also failed"
-        return 1
-      fi
-    fi
-  else
-    _dsb_d "GitHub CLI not available, trying with curl and public URL"
-
-    if ! curl -sSL -o "${wrapperPath}" "${wrapperPublicUrl}"; then
-      _dsb_d "curl fails"
-      return 1
-    fi
-  fi
-
   return 0
 }
 
 # what:
-#   runs tflint in the selected environment directory
+#   works out the tflint config for a root, used for every directory the root's lint covers:
+#     - <root>/.tflint.hcl
+#     - else the repository root's .tflint.hcl
+#     - else the default config, written into the root (never into a project repository's root)
+# input:
+#   $1: directory whose config is used: the root, or for a module example the module root
+# on info:
+#   messages when the default config is written
+# returns:
+#   exit code directly
+#   sets _dsbTfTflintConfigFile
+_dsb_tf_tflint_resolve_config() {
+  local configRootDir="${1}"
+  _dsbTfTflintConfigFile=""
+
+  if [ -f "${configRootDir}/.tflint.hcl" ]; then
+    _dsbTfTflintConfigFile="${configRootDir}/.tflint.hcl"
+  elif [ -f "${_dsbTfRootDir}/.tflint.hcl" ]; then
+    _dsbTfTflintConfigFile="${_dsbTfRootDir}/.tflint.hcl"
+  else
+    if ! _dsb_tf_tflint_write_default_config "${configRootDir}"; then
+      _dsb_tf_error_push "no tflint config for ${configRootDir}"
+      return 1
+    fi
+    _dsbTfTflintConfigFile="${configRootDir}/.tflint.hcl"
+  fi
+
+  _dsb_d "tflint config: ${_dsbTfTflintConfigFile}"
+  return 0
+}
+
+# what:
+#   true when module key $1 is shorter than module key $2:
+#   fewer segments, then fewer characters, then first in sort order
+# input:
+#   $1: module key, ex. main.network
+#   $2: module key
+# on info:
+#   nothing
+# returns:
+#   0 when $1 is shorter, else 1
+_dsb_tf_module_key_is_shorter() {
+  local keyA="${1}"
+  local keyB="${2}"
+  local dotsA="${keyA//[^.]/}"
+  local dotsB="${keyB//[^.]/}"
+  if [ "${#dotsA}" -ne "${#dotsB}" ]; then
+    [ "${#dotsA}" -lt "${#dotsB}" ]
+    return
+  fi
+  if [ "${#keyA}" -ne "${#keyB}" ]; then
+    [ "${#keyA}" -lt "${#keyB}" ]
+    return
+  fi
+  [[ "${keyA}" < "${keyB}" ]]
+}
+
+# what:
+#   lists the local module directories in a root's module manifest, .terraform/modules/modules.json,
+#   the directories its lint covers besides the root itself:
+#   every directory not under .terraform/ (remote modules and anything inside them are left out),
+#   each with the shortest module key it is reached through
+# input:
+#   $1: root directory, absolute
+#   $2: scope directory (optional), when set only directories inside it are listed
+# on info:
+#   warning for a directory in the manifest that does not exist
+# returns:
+#   echos one line per directory, sorted by directory: <module key><tab><absolute directory>
+#   returns 1 when the manifest cannot be read
+#   messages go to stderr, callers capture stdout
+_dsb_tf_tflint_module_dirs() {
+  local rootDir="${1}"
+  local scopeDir="${2:-}"
+  local manifest="${rootDir}/.terraform/modules/modules.json"
+
+  if [ ! -f "${manifest}" ]; then
+    _dsb_d "no module manifest in ${rootDir}" >&2
+    return 0
+  fi
+
+  local entries
+  if ! entries=$(jq -r '.Modules[] | select(.Key != "") | select(.Dir | startswith(".terraform") | not) | [.Key, .Dir] | @tsv' "${manifest}"); then
+    _dsb_e "Failed to read the module manifest: ${manifest}" >&2
+    _dsb_tf_error_push "failed to read ${manifest}"
+    return 1
+  fi
+
+  local -A keyByDir=()
+  local key dir candidateDir absDir
+  while IFS=$'\t' read -r key dir; do
+    [ -n "${key}" ] || continue
+    if [[ "${dir}" == /* ]]; then
+      candidateDir="${dir}"
+    else
+      candidateDir="${rootDir}/${dir}"
+    fi
+    if ! absDir=$(cd "${candidateDir}" 2>/dev/null && pwd); then
+      _dsb_w "The directory of module '${key}' in $(_dsb_tf_get_rel_dir "${manifest}") does not exist: ${dir}" >&2
+      _dsb_w "  consider initializing again" >&2
+      continue
+    fi
+    if [ "${absDir}" == "${rootDir}" ]; then
+      continue
+    fi
+    if [ -n "${scopeDir}" ] && [[ "${absDir}" != "${scopeDir}/"* ]]; then
+      _dsb_d "leaving out ${absDir}, outside ${scopeDir}" >&2
+      continue
+    fi
+    if [ -z "${keyByDir[${absDir}]:-}" ] || _dsb_tf_module_key_is_shorter "${key}" "${keyByDir[${absDir}]}"; then
+      keyByDir["${absDir}"]="${key}"
+    fi
+  done <<<"${entries}"
+
+  for absDir in "${!keyByDir[@]}"; do
+    printf '%s\t%s\n' "${keyByDir[${absDir}]}" "${absDir}"
+  done | sort -t $'\t' -k2,2
+}
+
+# what:
+#   writes the module manifest a module directory is linted against, derived from its root's:
+#   the entries at or below the directory's module key, that prefix stripped, every Dir made absolute
+# input:
+#   $1: root directory, absolute
+#   $2: module key of the directory
+#   $3: directory to use as TF_DATA_DIR, the manifest goes into its modules/modules.json
+# on info:
+#   nothing
+# returns:
+#   exit code directly
+_dsb_tf_tflint_write_derived_manifest() {
+  local rootDir="${1}"
+  local moduleKey="${2}"
+  local dataDir="${3}"
+
+  if ! mkdir -p "${dataDir}/modules"; then
+    _dsb_tf_error_push "failed to create ${dataDir}/modules"
+    return 1
+  fi
+
+  # shellcheck disable=SC2016 # $root and $key are jq variables
+  if ! jq --arg root "${rootDir}" --arg key "${moduleKey}" '{Modules: [
+      .Modules[]
+      | select(.Key == $key or (.Key | startswith($key + ".")))
+      | .Key |= (if . == $key then "" else ltrimstr($key + ".") end)
+      | .Dir |= (if startswith("/") then . else $root + "/" + . end)
+    ]}' "${rootDir}/.terraform/modules/modules.json" >"${dataDir}/modules/modules.json"; then
+    _dsb_tf_error_push "failed to derive the module manifest for module key '${moduleKey}'"
+    return 1
+  fi
+  return 0
+}
+
+# what:
+#   runs tflint once, from the repository root so the paths in its output are relative to it
+# input:
+#   $1: directory to lint, absolute
+#   $2: tflint config file, absolute
+#   $3: var file, absolute (optional, empty for none)
+#   $4: TF_DATA_DIR (optional, empty for none)
+# on info:
+#   tflint's output
+# returns:
+#   tflint's exit code
+_dsb_tf_tflint_run() {
+  local lintDir="${1}"
+  local configFile="${2}"
+  local varFile="${3:-}"
+  local dataDir="${4:-}"
+
+  local -a tflintArgs=("--config=${configFile}" "--chdir=${lintDir}")
+  if [ -n "${varFile}" ]; then
+    tflintArgs+=("--var-file=${varFile}")
+  fi
+
+  _dsb_d "running: TF_DATA_DIR=${dataDir} ${_dsbTfTflintBin} ${tflintArgs[*]}"
+
+  # subshells: the user's working directory and environment stay as they are, also on Ctrl+C
+  if [ -n "${dataDir}" ]; then
+    (cd "${_dsbTfRootDir}" && TF_DATA_DIR="${dataDir}" "${_dsbTfTflintBin}" "${tflintArgs[@]}")
+  else
+    (cd "${_dsbTfRootDir}" && "${_dsbTfTflintBin}" "${tflintArgs[@]}")
+  fi
+}
+
+# what:
+#   lints a root by the lint contract, https://github.com/dsb-norge/github-actions-terraform/blob/main/docs/Linting.md
+#     - the root, once per explicit var file in it (*.tfvars other than terraform.tfvars and *.auto.tfvars),
+#       once without when it has none
+#     - then every local module directory in the root's module manifest, each as its own root,
+#       without var files, against a manifest derived from the root's in a temporary TF_DATA_DIR
+#     - the same config for all of them, see _dsb_tf_tflint_resolve_config
+#   the root must be initialized, and tflint prepared with _dsb_tf_tflint_prepare
+# input:
+#   $1: root directory
+#   $2: directory whose config is used, the root itself except for module examples
+#   $3: the command that initializes the root, named when it is not initialized
+#   $4: scope directory (optional), only module directories inside it are linted
+# on info:
+#   tflint's output and a summary of every run
+# returns:
+#   exit code directly, 1 when any run fails
+_dsb_tf_tflint_lint_root() {
+  local rootDir="${1%/}"
+  local configRootDir="${2%/}"
+  local initCommand="${3}"
+  local scopeDir="${4:-}"
+  scopeDir="${scopeDir%/}"
+
+  local relRoot
+  relRoot="$(_dsb_tf_get_rel_dir "${rootDir}")"
+
+  if [ ! -d "${rootDir}/.terraform" ]; then
+    _dsb_e "'${relRoot}' is not initialized, please run '${initCommand}' first"
+    _dsb_tf_error_push "'${relRoot}' is not initialized"
+    return 1
+  fi
+
+  if [ -z "${_dsbTfTflintBin:-}" ]; then
+    _dsb_internal_error "Internal error: expected tflint to be prepared." \
+      "  expected in: _dsbTfTflintBin"
+    return 1
+  fi
+
+  # same form as the module directories, so they compare equal
+  rootDir="$(cd "${rootDir}" && pwd)"
+
+  if ! _dsb_tf_tflint_resolve_config "${configRootDir}"; then
+    _dsb_tf_error_push "no tflint config for '${relRoot}'"
+    return 1
+  fi
+  local configFile="${_dsbTfTflintConfigFile}"
+
+  local -a varFiles=()
+  local varFile
+  for varFile in "${rootDir}"/*.tfvars; do
+    [ -f "${varFile}" ] || continue
+    case "$(basename "${varFile}")" in
+    terraform.tfvars | *.auto.tfvars) continue ;; # tflint loads these itself
+    esac
+    varFiles+=("${varFile}")
+  done
+
+  local moduleDirLines
+  if ! moduleDirLines=$(_dsb_tf_tflint_module_dirs "${rootDir}" "${scopeDir}"); then
+    _dsb_tf_error_push "could not list the module directories of '${relRoot}'"
+    return 1
+  fi
+
+  _dsb_i ""
+  _dsb_i "Linting: ${relRoot}"
+  _dsb_i "  config: $(_dsb_tf_get_rel_dir "${configFile}")"
+
+  # plugins, once for the root: every directory uses the same config
+  local ghToken=""
+  if _dsbTfLogErrors=0 _dsb_tf_check_gh_auth; then
+    ghToken=$(gh auth token 2>/dev/null) || ghToken=""
+  fi
+  local initOutput
+  initOutput=$(mktemp) || initOutput="/dev/null"
+  if [ -n "${ghToken}" ]; then
+    (cd "${_dsbTfRootDir}" && GITHUB_TOKEN="${ghToken}" "${_dsbTfTflintBin}" --init "--config=${configFile}" "--chdir=${rootDir}") >"${initOutput}" 2>&1
+  else
+    (cd "${_dsbTfRootDir}" && "${_dsbTfTflintBin}" --init "--config=${configFile}" "--chdir=${rootDir}") >"${initOutput}" 2>&1
+  fi
+  local initRC=$?
+  if [ "${initRC}" -ne 0 ]; then
+    cat "${initOutput}" 2>/dev/null || :
+    rm -f "${initOutput}" 2>/dev/null || :
+    _dsb_e "tflint failed to initialize the plugins in $(_dsb_tf_get_rel_dir "${configFile}")"
+    _dsb_tf_error_push "tflint --init failed for '${relRoot}'"
+    return 1
+  fi
+  rm -f "${initOutput}" 2>/dev/null || :
+
+  local -a runNames=()
+  local -a runResults=()
+  local runRC
+
+  # the root, once per var file
+  if [ "${#varFiles[@]}" -eq 0 ]; then
+    _dsb_i ""
+    _dsb_i "Linting directory: ${relRoot}"
+    _dsb_tf_tflint_run "${rootDir}" "${configFile}"
+    runRC=$?
+    runNames+=("${relRoot}")
+    runResults+=("${runRC}")
+  else
+    for varFile in "${varFiles[@]}"; do
+      local runName
+      runName="${relRoot} (var file: $(_dsb_tf_get_rel_dir "${varFile}"))"
+      _dsb_i ""
+      _dsb_i "Linting directory: ${runName}"
+      _dsb_tf_tflint_run "${rootDir}" "${configFile}" "${varFile}"
+      runRC=$?
+      runNames+=("${runName}")
+      runResults+=("${runRC}")
+    done
+  fi
+
+  # the module directories, each against a manifest derived from the root's
+  if [ -n "${moduleDirLines}" ]; then
+    local dataDirsParent
+    if ! dataDirsParent=$(mktemp -d); then
+      _dsb_tf_error_push "failed to create a temporary directory"
+      return 1
+    fi
+
+    local moduleKey moduleDir moduleIndex=0
+    while IFS=$'\t' read -r moduleKey moduleDir; do
+      local relModuleDir dataDir
+      relModuleDir="$(_dsb_tf_get_rel_dir "${moduleDir}")"
+      dataDir="${dataDirsParent}/${moduleIndex}"
+      ((moduleIndex++))
+      _dsb_i ""
+      _dsb_i "Linting directory: ${relModuleDir} (module '${moduleKey}' of ${relRoot})"
+      if ! _dsb_tf_tflint_write_derived_manifest "${rootDir}" "${moduleKey}" "${dataDir}"; then
+        _dsb_e "Failed to prepare the module manifest for ${relModuleDir}"
+        runRC=1
+      else
+        _dsb_tf_tflint_run "${moduleDir}" "${configFile}" "" "${dataDir}"
+        runRC=$?
+      fi
+      runNames+=("${relModuleDir}")
+      runResults+=("${runRC}")
+    done <<<"${moduleDirLines}"
+
+    rm -rf "${dataDirsParent}" || :
+  fi
+
+  # summary
+  local returnCode=0
+  local idx
+  _dsb_i ""
+  _dsb_i "TFLint summary for ${relRoot}:"
+  for idx in "${!runNames[@]}"; do
+    if [ "${runResults[idx]}" -eq 0 ]; then
+      _dsb_i "  \e[32m☑\e[0m  success -> ${runNames[idx]}"
+    else
+      _dsb_i "  \e[31m☒\e[0m  failure -> ${runNames[idx]}"
+      returnCode=1
+    fi
+  done
+
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_push "tflint reported issues in '${relRoot}'"
+  fi
+  return "${returnCode}"
+}
+
+# what:
+#   lints an environment by the lint contract, see _dsb_tf_tflint_lint_root
 #   if environment is not supplied, uses the selected environment
 # input:
 #   $1: environment name (optional)
+#   $2: tflint version given with --use-version (optional)
+#   $3: skip preparing tflint, set to 1 when the caller has done it (optional, defaults to 0)
 # on info:
 #   status messages and linting results are printed
 # returns:
 #   exit code directly
-_dsb_tf_run_tflint() {
-  local returnCode=0
+_dsb_tf_lint_env() {
   local selectedEnv="${1:-${_dsbTfSelectedEnv:-}}"
-  shift || :
-  local lintArguments="$*"
-  local githubAuthAvailable=1 # assume available until proven otherwise
+  local useVersion="${2:-}"
+  local skipPrepare="${3:-0}"
 
   _dsb_d "called with:"
   _dsb_d " - selectedEnv: ${selectedEnv}"
-  _dsb_d " - lintArguments: ${lintArguments}"
+  _dsb_d " - useVersion: ${useVersion}"
+  _dsb_d " - skipPrepare: ${skipPrepare}"
 
   if [ -z "${selectedEnv}" ]; then
     _dsb_e "No environment selected, please run 'tf-select-env' or 'tf-set-env <env>'"
+    _dsb_tf_error_push "no environment selected"
     return 1
-  fi
-
-  # check that gh cli is installed and user is logged in
-  if ! _dsbTfLogErrors=0 _dsb_tf_check_gh_auth; then
-    _dsb_d "GitHub authentication unavailable, proceeding without GitHub authentication"
-    githubAuthAvailable=0
   fi
 
   # validate the environment (linting is local, does not need Azure or lock file)
   if ! _dsb_tf_set_env_offline "${selectedEnv}" 1; then # $2 = 1: skip lock check
-    return 1
-  fi
-
-  # make sure tflint is installed
-  #   function falls back to using curl if gh cli fails, ie. if not authenticated with GitHub
-  if ! _dsbTfLogErrors=0 _dsb_tf_install_tflint_wrapper; then
-    _dsb_e "Failed to install tflint wrapper, consider enabling debug logging"
+    _dsb_tf_error_push "environment '${selectedEnv}' could not be selected"
     return 1
   fi
 
@@ -6648,70 +7255,52 @@ _dsb_tf_run_tflint() {
     return 1
   fi
 
-  local _savedPwd="${PWD}"
-  if ! cd "${envDir}"; then
-    _dsb_tf_error_push "failed to change to environment directory: ${envDir}"
-    return 1
-  fi
-
-  # get GitHub API token
-  local ghToken
-  if [ "${githubAuthAvailable}" -ne 1 ]; then
-    _dsb_d "GitHub authentication unavailable, proceeding without API token"
-    ghToken=""
-  else
-    _dsb_d "GitHub authentication available, attempting to get API token"
-    if ! ghToken=$(gh auth token 2>/dev/null); then
-      _dsb_w "Failed to get GitHub API token even though authentication is available, attempting to proceed without API token"
-      ghToken=""
+  if [ "${skipPrepare}" -ne 1 ]; then
+    if ! _dsb_tf_tflint_prepare "${useVersion}"; then
+      _dsb_tf_error_push "tflint is not available"
+      return 1
     fi
   fi
 
-  # invoke the tflint wrapper script
-  #   output from the command will have paths relative to the current environment directory
-  #   pipe all output (stdout and stderr) to _dsb_tf_fixup_paths_from_stdin to make they are relative to the root directory
-  # shellcheck disable=SC2086 # lintArguments is intentionally unquoted for word splitting
-  GITHUB_TOKEN=${ghToken} bash -s -- ${lintArguments} <"${_dsbTfTflintWrapperPath}" 2>&1 | _dsb_tf_fixup_paths_from_stdin
-  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
-    _dsb_i_append "" # newline without any prefix
-    _dsb_w "tflint operation resulted in non-zero exit code."
-    returnCode=1
-  else
-    returnCode=0
+  if ! _dsb_tf_tflint_lint_root "${envDir}" "${envDir}" "tf-init-env-offline ${selectedEnv}"; then
+    _dsb_tf_error_push "lint of environment '${selectedEnv}' failed"
+    return 1
   fi
-
-  cd "${_savedPwd}" || _dsb_w "Failed to restore working directory"
-
-  _dsb_d "done"
-
-
-  return "${returnCode}"
+  return 0
 }
 
 # what:
 #   lint all environments in a project repo
-#   iterates all environments, runs tflint in each
+#   prepares tflint once, then lints each environment by the lint contract
 # input:
-#   none
+#   $1: tflint version given with --use-version (optional)
 # on info:
 #   per-environment status messages
 # returns:
 #   exit code directly
 _dsb_tf_lint_all_project() {
+  local useVersion="${1:-}"
   _dsb_d "called"
   _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
   local dirCheckStatus=$?
   if [ "${dirCheckStatus}" -ne 0 ]; then
     _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    _dsb_tf_error_push "directory check failed"
     return 1
   fi
 
   local -a availableEnvs=()
-  mapfile -t availableEnvs < <(_dsb_tf_get_env_names)
+  mapfile -t availableEnvs < <(_dsb_tf_get_env_names | sort)
   local envCount=${#availableEnvs[@]}
 
   if [ "${envCount}" -eq 0 ]; then
     _dsb_e "No environments found."
+    _dsb_tf_error_push "no environments found"
+    return 1
+  fi
+
+  if ! _dsb_tf_tflint_prepare "${useVersion}"; then
+    _dsb_tf_error_push "tflint is not available"
     return 1
   fi
 
@@ -6720,11 +7309,11 @@ _dsb_tf_lint_all_project() {
   local failCount=0
 
   _dsb_i "Linting all environments ..."
+  local envName
   for envName in "${availableEnvs[@]}"; do
     _dsb_i ""
     _dsb_i "Linting environment: ${envName}"
-    _dsb_d "linting environment: ${envName}"
-    if ! _dsb_tf_run_tflint "${envName}"; then
+    if ! _dsb_tf_lint_env "${envName}" "${useVersion}" 1; then # $3 = 1: tflint is prepared
       _dsb_tf_error_push "tflint failed for environment: ${envName}"
       returnCode=1
       ((failCount++))
@@ -6745,25 +7334,32 @@ _dsb_tf_lint_all_project() {
 
 # what:
 #   lint module root and all examples in a module repo
+#   the root lint covers the root and its submodules, each example lint the example and the local directories inside it
 # input:
-#   none
+#   $1: tflint version given with --use-version (optional)
 # on info:
 #   status messages are printed
 # returns:
 #   exit code directly
 _dsb_tf_lint_all_module() {
+  local useVersion="${1:-}"
   _dsb_d "called"
   local returnCode=0
 
   _dsb_i "Linting module root and all examples ..."
 
-  _dsb_tf_lint_module_root
+  if ! _dsb_tf_tflint_prepare "${useVersion}"; then
+    _dsb_tf_error_push "tflint is not available"
+    return 1
+  fi
+
+  _dsb_tf_lint_module_root "${useVersion}" 1 # $2 = 1: tflint is prepared
   local rootRC=$?
   if [ "${rootRC}" -ne 0 ]; then
     returnCode=1
   fi
 
-  _dsb_tf_lint_examples
+  _dsb_tf_lint_examples "" "${useVersion}" 1 # $3 = 1: tflint is prepared
   local examplesRC=$?
   if [ "${examplesRC}" -ne 0 ]; then
     returnCode=1
@@ -6776,6 +7372,10 @@ _dsb_tf_lint_all_module() {
   fi
   return "${returnCode}"
 }
+
+
+
+
 
 ###################################################################################################
 #
@@ -8661,26 +9261,22 @@ _dsb_tf_validate_module_root() {
   return 0
 }
 
+
 # what:
-#   runs tflint at the module root directory
+#   runs tflint at the module root directory by the lint contract: the root and its submodules
 #   used for module repos -- no environment selection
 # input:
-#   $@: optional lint arguments
+#   $1: tflint version given with --use-version (optional)
+#   $2: skip preparing tflint, set to 1 when the caller has done it (optional, defaults to 0)
 # on info:
 #   status messages are printed
 # returns:
 #   exit code directly
 _dsb_tf_lint_module_root() {
-  local lintArguments="$*"
-  local githubAuthAvailable=1
+  local useVersion="${1:-}"
+  local skipPrepare="${2:-0}"
 
-  _dsb_d "called with lintArguments: ${lintArguments}"
-
-  # check that gh cli is installed and user is logged in
-  if ! _dsbTfLogErrors=0 _dsb_tf_check_gh_auth; then
-    _dsb_d "GitHub authentication unavailable, proceeding without GitHub authentication"
-    githubAuthAvailable=0
-  fi
+  _dsb_d "called with useVersion: ${useVersion}, skipPrepare: ${skipPrepare}"
 
   # enumerate directories with current directory as root and
   # check if the current root directory is a valid module repo
@@ -8688,48 +9284,22 @@ _dsb_tf_lint_module_root() {
   local dirCheckStatus=$?
   if [ "${dirCheckStatus}" -ne 0 ]; then
     _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    _dsb_tf_error_push "directory check failed"
     return 1
   fi
 
-  # make sure tflint wrapper is installed
-  if ! _dsbTfLogErrors=0 _dsb_tf_install_tflint_wrapper; then
-    _dsb_e "Failed to install tflint wrapper, consider enabling debug logging"
-    return 1
-  fi
-
-  local _savedPwd="${PWD}"
-  if ! cd "${_dsbTfRootDir}"; then
-    _dsb_tf_error_push "failed to change to root directory: ${_dsbTfRootDir}"
-    return 1
-  fi
-
-  # get GitHub API token
-  local ghToken
-  if [ "${githubAuthAvailable}" -ne 1 ]; then
-    _dsb_d "GitHub authentication unavailable, proceeding without API token"
-    ghToken=""
-  else
-    _dsb_d "GitHub authentication available, attempting to get API token"
-    if ! ghToken=$(gh auth token 2>/dev/null); then
-      _dsb_w "Failed to get GitHub API token, attempting to proceed without API token"
-      ghToken=""
+  if [ "${skipPrepare}" -ne 1 ]; then
+    if ! _dsb_tf_tflint_prepare "${useVersion}"; then
+      _dsb_tf_error_push "tflint is not available"
+      return 1
     fi
   fi
 
-  # invoke the tflint wrapper script
-  # shellcheck disable=SC2086 # lintArguments is intentionally unquoted for word splitting
-  GITHUB_TOKEN=${ghToken} bash -s -- ${lintArguments} <"${_dsbTfTflintWrapperPath}" 2>&1 | _dsb_tf_fixup_paths_from_stdin
-  local returnCode=0
-  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
-    _dsb_i_append "" # newline without any prefix
-    _dsb_w "tflint operation resulted in non-zero exit code."
-    returnCode=1
+  if ! _dsb_tf_tflint_lint_root "${_dsbTfRootDir}" "${_dsbTfRootDir}" "tf-init"; then
+    _dsb_tf_error_push "lint of the module root failed"
+    return 1
   fi
-
-  cd "${_savedPwd}" || _dsb_w "Failed to restore working directory"
-
-  _dsb_d "done"
-  return "${returnCode}"
+  return 0
 }
 
 # what:
@@ -9098,32 +9668,30 @@ _dsb_tf_validate_examples() {
   return "${returnCode}"
 }
 
+
 # what:
-#   runs tflint on one or all example directories using root .tflint.hcl config
+#   lints one or all example directories by the lint contract, each example as a root:
+#     - always with the module root's .tflint.hcl, there is no per-example config
+#     - covering the example directory and the local module directories inside it,
+#       the module root and its submodules are linted by the root lint (tf-lint)
 # input:
 #   $1: exampleName (optional, if empty runs on all examples)
+#   $2: tflint version given with --use-version (optional)
+#   $3: skip preparing tflint, set to 1 when the caller has done it (optional, defaults to 0)
 # on info:
 #   per-example status messages
 # returns:
 #   exit code directly
 _dsb_tf_lint_examples() {
   local exampleFilter="${1:-}"
-  local githubAuthAvailable=1
-
-  if ! _dsbTfLogErrors=0 _dsb_tf_check_gh_auth; then
-    _dsb_d "GitHub authentication unavailable, proceeding without GitHub authentication"
-    githubAuthAvailable=0
-  fi
+  local useVersion="${2:-}"
+  local skipPrepare="${3:-0}"
 
   _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
   local dirCheckStatus=$?
   if [ "${dirCheckStatus}" -ne 0 ]; then
     _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
-    return 1
-  fi
-
-  if ! _dsbTfLogErrors=0 _dsb_tf_install_tflint_wrapper; then
-    _dsb_e "Failed to install tflint wrapper, consider enabling debug logging"
+    _dsb_tf_error_push "directory check failed"
     return 1
   fi
 
@@ -9131,6 +9699,7 @@ _dsb_tf_lint_examples() {
   if [ -n "${exampleFilter}" ]; then
     if [ -z "${_dsbTfExamplesDirList[${exampleFilter}]:-}" ]; then
       _dsb_e "Example '${exampleFilter}' not found."
+      _dsb_tf_error_push "example '${exampleFilter}' not found"
       return 1
     fi
     exampleNames=("${exampleFilter}")
@@ -9148,13 +9717,10 @@ _dsb_tf_lint_examples() {
 
   mapfile -t exampleNames < <(printf '%s\n' "${exampleNames[@]}" | sort)
 
-  # get GitHub API token
-  local ghToken
-  if [ "${githubAuthAvailable}" -ne 1 ]; then
-    ghToken=""
-  else
-    if ! ghToken=$(gh auth token 2>/dev/null); then
-      ghToken=""
+  if [ "${skipPrepare}" -ne 1 ]; then
+    if ! _dsb_tf_tflint_prepare "${useVersion}"; then
+      _dsb_tf_error_push "tflint is not available"
+      return 1
     fi
   fi
 
@@ -9163,29 +9729,21 @@ _dsb_tf_lint_examples() {
   local failCount=0
 
   _dsb_i "Linting examples ..."
+  local exName
   for exName in "${exampleNames[@]}"; do
     local exDir="${_dsbTfExamplesDirList[${exName}]}"
-    _dsb_i "  Linting example: ${exName}"
+    _dsb_i ""
+    _dsb_i "Linting example: ${exName}"
 
-    local _savedPwd="${PWD}"
-    if ! cd "${exDir}"; then
-      _dsb_tf_error_push "failed to change to example directory: ${exDir}"
-      returnCode=1
-      ((failCount++))
-      continue
-    fi
-
-    # shellcheck disable=SC2086 # intentional
-    GITHUB_TOKEN=${ghToken} bash -s -- --config "${_dsbTfRootDir}/.tflint.hcl" <"${_dsbTfTflintWrapperPath}" 2>&1 | _dsb_tf_fixup_paths_from_stdin
-    if [ "${PIPESTATUS[0]}" -ne 0 ]; then
-      _dsb_w "  tflint failed for example: ${exName}"
+    # $2: the module root's config, $4: only directories inside the example
+    if ! _dsb_tf_tflint_lint_root "${exDir}" "${_dsbTfRootDir}" "tf-init-example ${exName}" "${exDir}"; then
+      _dsb_w "tflint failed for example: ${exName}"
+      _dsb_tf_error_push "tflint failed for example: ${exName}"
       returnCode=1
       ((failCount++))
     else
       ((successCount++))
     fi
-
-    cd "${_savedPwd}" || _dsb_w "Failed to restore working directory"
   done
 
   _dsb_i ""
@@ -9745,17 +10303,17 @@ _dsb_tf_versions() {
     _dsb_i "  Terraform CLI:  not installed"
   fi
 
-  # TFLint version (via wrapper or direct)
-  if [ -f "${_dsbTfTflintWrapperPath:-/dev/null}" ]; then
-    _dsb_i "  TFLint wrapper: installed at ${_dsbTfTflintWrapperPath}"
+  # TFLint: the version the lint commands use, as the workflows give it (nothing is looked up here)
+  local tflintWorkflowVersion tflintVersion tflintVersionSource
+  tflintWorkflowVersion=$(_dsb_tf_tflint_workflow_version)
+  tflintVersion="${tflintWorkflowVersion%%$'\t'*}"
+  tflintVersionSource="${tflintWorkflowVersion#*$'\t'}"
+  if [ "${tflintVersion}" == "latest" ]; then
+    _dsb_i "  TFLint:         latest release, looked up when linting (${tflintVersionSource})"
+  elif [ -x "$(_dsb_tf_tflint_cache_dir)/${tflintVersion}/tflint" ]; then
+    _dsb_i "  TFLint:         ${tflintVersion} (${tflintVersionSource}), installed"
   else
-    local tflintVersion=""
-    if command -v tflint &>/dev/null; then
-      tflintVersion=$(tflint --version 2>/dev/null | head -1) || tflintVersion="unknown"
-      _dsb_i "  TFLint:         ${tflintVersion}"
-    else
-      _dsb_i "  TFLint:         not installed (wrapper not yet downloaded)"
-    fi
+    _dsb_i "  TFLint:         ${tflintVersion} (${tflintVersionSource}), installed on first lint"
   fi
   _dsb_i ""
 
@@ -10974,27 +11532,88 @@ tf-destroy() {
 # Linting functions
 # -----------------
 
+# what:
+#   parses the arguments of the lint commands, called before _dsb_tf_configure_shell
+#   sets these variables, which the caller declares local:
+#     lintPositional      : the first positional argument (environment or example name)
+#     lintUseVersion      : the version given with --use-version / --use-version=<version>
+#     lintArgsError       : an error message when the arguments are invalid
+#     lintUnknownFlags    : array of flags that are not ours, warned about and ignored
+# input:
+#   $@: the command's arguments
+# returns:
+#   nothing
+_dsb_tf_lint_parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --use-version)
+      if [[ $# -lt 2 ]] || [[ "${2}" == -* ]]; then
+        lintArgsError="--use-version needs a version, ex. '--use-version v0.61.0' or '--use-version latest'"
+        shift
+      else
+        lintUseVersion="${2}"
+        shift 2
+      fi
+      ;;
+    --use-version=*)
+      lintUseVersion="${1#--use-version=}"
+      if [ -z "${lintUseVersion}" ]; then
+        lintArgsError="--use-version needs a version, ex. '--use-version=v0.61.0' or '--use-version=latest'"
+      fi
+      shift
+      ;;
+    -*)
+      lintUnknownFlags+=("$1")
+      shift
+      ;;
+    *)
+      if [ -z "${lintPositional}" ]; then
+        lintPositional="$1"
+      else
+        lintUnknownFlags+=("$1")
+      fi
+      shift
+      ;;
+    esac
+  done
+}
+
+# what:
+#   reports what _dsb_tf_lint_parse_args found wrong, called after _dsb_tf_configure_shell
+# input:
+#   none, reads lintArgsError and lintUnknownFlags from the caller
+# returns:
+#   1 when the arguments are invalid, else 0
+_dsb_tf_lint_check_args() {
+  local unknownFlag
+  for unknownFlag in "${lintUnknownFlags[@]}"; do
+    _dsb_w "Ignoring unknown argument '${unknownFlag}', see 'tf-help tf-lint' for the supported flags"
+  done
+  if [ -n "${lintArgsError}" ]; then
+    _dsb_e "${lintArgsError}"
+    _dsb_tf_error_push "invalid arguments: ${lintArgsError}"
+    return 1
+  fi
+  return 0
+}
+
 tf-lint() {
   if [[ "${-}" == *e* ]]; then set +e; tf-lint "$@"; local rc=$?; set -e; return "${rc}"; fi
-  local lintArguments=()
-  local envName=""
-
-  # check if the first argument is a flag or an environment name
-  if [[ ${1:-} == -* ]]; then
-    lintArguments=("$@")
-  else
-    envName="${1:-}"
-    shift || :
-    lintArguments=("$@")
-  fi
+  local lintPositional="" lintUseVersion="" lintArgsError=""
+  local -a lintUnknownFlags=()
+  _dsb_tf_lint_parse_args "$@"
 
   _dsb_tf_configure_shell
-  if [ "${_dsbTfRepoType}" == "module" ]; then
-    _dsb_tf_lint_module_root "${lintArguments[@]}"
+  local returnCode=0
+  if ! _dsb_tf_lint_check_args; then
+    returnCode=1
+  elif [ "${_dsbTfRepoType}" == "module" ]; then
+    _dsb_tf_lint_module_root "${lintUseVersion}"
+    returnCode=$?
   else
-    _dsb_tf_run_tflint "${envName}" "${lintArguments[@]}"
+    _dsb_tf_lint_env "${lintPositional}" "${lintUseVersion}"
+    returnCode=$?
   fi
-  local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
   fi
@@ -11004,13 +11623,21 @@ tf-lint() {
 
 tf-lint-all() {
   if [[ "${-}" == *e* ]]; then set +e; tf-lint-all "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local lintPositional="" lintUseVersion="" lintArgsError=""
+  local -a lintUnknownFlags=()
+  _dsb_tf_lint_parse_args "$@"
+
   _dsb_tf_configure_shell
-  if [ "${_dsbTfRepoType}" == "module" ]; then
-    _dsb_tf_lint_all_module
+  local returnCode=0
+  if ! _dsb_tf_lint_check_args; then
+    returnCode=1
+  elif [ "${_dsbTfRepoType}" == "module" ]; then
+    _dsb_tf_lint_all_module "${lintUseVersion}"
+    returnCode=$?
   else
-    _dsb_tf_lint_all_project
+    _dsb_tf_lint_all_project "${lintUseVersion}"
+    returnCode=$?
   fi
-  local returnCode=$?
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
   fi
@@ -11397,11 +12024,19 @@ tf-validate-example() {
 
 tf-lint-all-examples() {
   if [[ "${-}" == *e* ]]; then set +e; tf-lint-all-examples "$@"; local rc=$?; set -e; return "${rc}"; fi
-  local exampleName="${1:-}"
+  local lintPositional="" lintUseVersion="" lintArgsError=""
+  local -a lintUnknownFlags=()
+  _dsb_tf_lint_parse_args "$@"
+
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
-  _dsb_tf_lint_examples "${exampleName}"
-  local returnCode=$?
+  local returnCode=0
+  if ! _dsb_tf_lint_check_args; then
+    returnCode=1
+  else
+    _dsb_tf_lint_examples "${lintPositional}" "${lintUseVersion}"
+    returnCode=$?
+  fi
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_tf_error_dump
   fi
@@ -11411,18 +12046,26 @@ tf-lint-all-examples() {
 
 tf-lint-example() {
   if [[ "${-}" == *e* ]]; then set +e; tf-lint-example "$@"; local rc=$?; set -e; return "${rc}"; fi
-  local exampleName="${1:-}"
+  local lintPositional="" lintUseVersion="" lintArgsError=""
+  local -a lintUnknownFlags=()
+  _dsb_tf_lint_parse_args "$@"
+
   _dsb_tf_configure_shell
   if ! _dsb_tf_require_module_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
-  if [ -z "${exampleName}" ]; then
+  if [ -z "${lintPositional}" ]; then
     _dsb_e "No example specified."
-    _dsb_e "  usage: tf-lint-example <example-name>"
+    _dsb_e "  usage: tf-lint-example <example-name> [--use-version <version>]"
     _dsb_e "  available examples: $(printf '%s\n' "${!_dsbTfExamplesDirList[@]}" | sort | paste -sd', ')"
     _dsb_tf_error_push "no example name provided"
     _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1
   fi
-  _dsb_tf_lint_examples "${exampleName}"
-  local returnCode=$?
+  local returnCode=0
+  if ! _dsb_tf_lint_check_args; then
+    returnCode=1
+  else
+    _dsb_tf_lint_examples "${lintPositional}" "${lintUseVersion}"
+    returnCode=$?
+  fi
   if [ "${returnCode}" -ne 0 ]; then _dsb_tf_error_dump; fi
   _dsb_tf_restore_shell
   return "${returnCode}"

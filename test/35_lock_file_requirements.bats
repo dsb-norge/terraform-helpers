@@ -259,6 +259,8 @@ teardown() {
 
 @test "tf-lint succeeds without lock file" {
   setup_project_no_lock_files
+  install_fake_tflint
+  mkdir -p envs/dev/.terraform
   run tf-lint "dev"
   assert_success
 }
@@ -299,6 +301,8 @@ teardown() {
 
 @test "tf-lint succeeds with lock file" {
   setup_project_with_lock_files
+  install_fake_tflint
+  mkdir -p envs/dev/.terraform
   run tf-lint "dev"
   assert_success
 }

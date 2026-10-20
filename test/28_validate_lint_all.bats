@@ -79,20 +79,18 @@ setup_project_fixture() {
   assert_function_exists "tf-lint-all"
 }
 
-@test "tf-lint-all succeeds in module repo with pre-installed wrapper" {
+@test "tf-lint-all succeeds in an initialized module repo" {
   setup_module_fixture
-  mkdir -p "${_MODULE_DIR}/.tflint"
-  echo '#!/usr/bin/env bash' > "${_MODULE_DIR}/.tflint/tflint.sh"
-  echo 'echo "mock tflint"' >> "${_MODULE_DIR}/.tflint/tflint.sh"
+  install_fake_tflint
+  mkdir -p "${_MODULE_DIR}/.terraform" "${_MODULE_DIR}/examples/01-basic/.terraform" "${_MODULE_DIR}/examples/02-advanced/.terraform"
   run tf-lint-all
   assert_success
 }
 
 @test "tf-lint-all in module repo lints root and examples" {
   setup_module_fixture
-  mkdir -p "${_MODULE_DIR}/.tflint"
-  echo '#!/usr/bin/env bash' > "${_MODULE_DIR}/.tflint/tflint.sh"
-  echo 'echo "mock tflint"' >> "${_MODULE_DIR}/.tflint/tflint.sh"
+  install_fake_tflint
+  mkdir -p "${_MODULE_DIR}/.terraform" "${_MODULE_DIR}/examples/01-basic/.terraform" "${_MODULE_DIR}/examples/02-advanced/.terraform"
   _dsbTfLogInfo=1
   run tf-lint-all
   assert_success
