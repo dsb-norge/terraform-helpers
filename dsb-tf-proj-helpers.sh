@@ -7392,13 +7392,15 @@ _dsb_tf_get_latest_tflint_plugin_version() {
 #   note:
 #     blindly updates the version to the latest version (if there's a difference), version constraints and partial version values are not considered
 # input:
-#   none
+#   $1: name of a global array holding the config files to bump (optional)
+#       defaults to _dsbTfLintConfigFilesList, every .tflint.hcl file in the project
 # on info:
 #   status messages are printed
 # returns:
 #   exit code directly
 _dsb_tf_bump_tflint_plugin_versions() {
   local returnCode=0
+  local configFilesVarName="${1:-_dsbTfLintConfigFilesList}"
 
   # check if the current root directory is a valid Terraform project
   # _dsb_tf_check_current_dir calls _dsb_tf_enumerate_directories, so we don't need to call it again in this function
@@ -7423,11 +7425,20 @@ _dsb_tf_bump_tflint_plugin_versions() {
     return 1
   fi
 
-  _dsb_i "Bump versions of plugins in all tflint configuration files in the project:"
+  if [ "${configFilesVarName}" == "_dsbTfLintConfigFilesList" ]; then
+    _dsb_i "Bump versions of plugins in all tflint configuration files in the project:"
+  else
+    local -n _configFilesRef="${configFilesVarName}"
+    local _configFile
+    _dsb_i "Bump versions of plugins in tflint configuration file(s):"
+    for _configFile in "${_configFilesRef[@]}"; do
+      _dsb_i "  - $(_dsb_tf_get_rel_dir "${_configFile}")"
+    done
+  fi
 
-  # locate tflint plugins in the project
+  # locate tflint plugins in the config files
   _dsb_i "  Enumerating tflint plugins ..."
-  if ! _dsb_tf_enumerate_hcl_blocks_meta "plugin" "_dsbTfLintConfigFilesList"; then # $1: hclBlockTypeToLookFor, $2: globalFileListVariableName
+  if ! _dsb_tf_enumerate_hcl_blocks_meta "plugin" "${configFilesVarName}"; then # $1: hclBlockTypeToLookFor, $2: globalFileListVariableName
     _dsb_e "Failed to enumerate tflint plugins meta data, consider enabling debug logging"
     return 1 # caller reads returnCode
   fi
