@@ -1,0 +1,20 @@
+{
+  "Modules": [
+    {
+      "Key": "",
+      "Source": "",
+      "Dir": "."
+    },
+    {
+      "Key": "state_container",
+      "Source": "registry.terraform.io/dsb-norge/terraform-state-container/azurerm",
+      "Version": "1.0.0",
+      "Dir": ".terraform/modules/state_container"
+    },
+    {
+      "Key": "fork",
+      "Source": "./modules/fork",
+      "Dir": "modules/fork"
+    }
+  ]
+}

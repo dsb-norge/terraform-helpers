@@ -90,6 +90,37 @@ teardown() {
   [[ ! -d "${project_dir}/.tflint" ]]
 }
 
+@test "tf-clean-tflint also removes the .tflint directories earlier versions left in environments and _terraform-state" {
+  mkdir -p "${project_dir}/envs/dev/.tflint" "${project_dir}/envs/_terraform-state/.tflint"
+
+  run bash -c "
+    cd '${project_dir}'
+    source '${SUT}' 2>/dev/null
+    export _dsbTfLogInfo=0
+    export _dsbTfLogWarnings=0
+    export _dsbTfLogErrors=0
+    echo 'y' | tf-clean-tflint
+  "
+  assert_success
+  [[ ! -d "${project_dir}/envs/dev/.tflint" ]]
+  [[ ! -d "${project_dir}/envs/_terraform-state/.tflint" ]]
+}
+
+@test "tf-clean also removes .terraform in _terraform-state" {
+  mkdir -p "${project_dir}/envs/_terraform-state/.terraform"
+
+  run bash -c "
+    cd '${project_dir}'
+    source '${SUT}' 2>/dev/null
+    export _dsbTfLogInfo=0
+    export _dsbTfLogWarnings=0
+    export _dsbTfLogErrors=0
+    echo 'y' | tf-clean
+  "
+  assert_success
+  [[ ! -d "${project_dir}/envs/_terraform-state/.terraform" ]]
+}
+
 # -------------------------------------------------------
 # tf-clean-all
 # -------------------------------------------------------

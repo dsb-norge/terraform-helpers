@@ -582,6 +582,262 @@ setup_module_repo() {
 }
 
 # -------------------------------------------------------
+# _terraform-state
+# -------------------------------------------------------
+
+# an envs/_terraform-state directory like the project template's: one directory
+# for every environment's state storage, values per environment in env.<env>.tfvars,
+# and a terraform mock whose init creates .terraform as terraform would
+setup_tfstate() {
+  tfstate_dir="${project_dir}/envs/_terraform-state"
+  mkdir -p "${tfstate_dir}"
+  printf 'module "state_container" {\n  source  = "dsb-norge/terraform-state-container/azurerm"\n  version = "1.0.0"\n}\n' >"${tfstate_dir}/main.tf"
+  touch "${tfstate_dir}/env.dev.tfvars" "${tfstate_dir}/env.prod.tfvars"
+  mock_terraform_recording
+  terraform() {
+    echo "$*" >>"${MOCK_TERRAFORM_CALLS_FILE}"
+    case "${1:-}" in
+      -chdir=*)
+        local dir="${1#-chdir=}"
+        case "${2:-}" in
+          init) mkdir -p "${dir}/.terraform/modules" ;;
+          validate)
+            if [[ -n "${MOCK_TERRAFORM_FAIL_VALIDATE:-}" ]]; then
+              echo "Error: Unsupported argument" >&2
+              return 1
+            fi
+            echo "Success! The configuration is valid."
+            ;;
+        esac
+        ;;
+    esac
+    return 0
+  }
+  export -f terraform
+}
+
+@test "tf-lint-tfstate initializes _terraform-state offline when it is not initialized" {
+  setup_tfstate
+  run tf-lint-tfstate
+  assert_success
+  run terraform_calls_in "envs/_terraform-state" "init"
+  assert_output "-chdir=${tfstate_dir} init -backend=false -input=false"
+}
+
+@test "tf-lint-tfstate does not initialize _terraform-state again" {
+  setup_tfstate
+  init_root envs/_terraform-state
+  run tf-lint-tfstate
+  assert_success
+  run terraform_calls_in "envs/_terraform-state" "init"
+  assert_output ""
+}
+
+@test "tf-lint-tfstate lints _terraform-state once per env.*.tfvars" {
+  setup_tfstate
+  run tf-lint-tfstate
+  assert_success
+  run lint_calls_in "${tfstate_dir}"
+  assert_equal "${#lines[@]}" 2
+  assert_line --partial "--chdir=${tfstate_dir} --var-file=${tfstate_dir}/env.dev.tfvars"
+  assert_line --partial "--chdir=${tfstate_dir} --var-file=${tfstate_dir}/env.prod.tfvars"
+}
+
+@test "tf-lint-tfstate lints the local modules of _terraform-state, without var files" {
+  setup_tfstate
+  init_root envs/_terraform-state tfstate.json
+  mkdir -p "${tfstate_dir}/modules/fork"
+  run tf-lint-tfstate
+  assert_success
+  run lint_calls_in "${tfstate_dir}/modules/fork"
+  assert_equal "${#lines[@]}" 1
+  refute_output --partial "--var-file"
+}
+
+@test "tf-lint-tfstate needs no Azure subscription" {
+  setup_tfstate
+  mock_az_not_logged_in
+  run tf-lint-tfstate
+  assert_success
+}
+
+@test "tf-lint-tfstate writes the default config into _terraform-state when there is none" {
+  setup_tfstate
+  rm .tflint.hcl
+  mock_hcledit_not_installed
+  run tf-lint-tfstate
+  assert_success
+  [[ -f "${tfstate_dir}/.tflint.hcl" ]]
+  [[ ! -e "${project_dir}/.tflint.hcl" ]]
+}
+
+@test "tf-lint-tfstate --use-version lints with that tflint version" {
+  setup_tfstate
+  install_fake_tflint "v0.50.0"
+  run tf-lint-tfstate --use-version v0.50.0
+  assert_success
+  run tflint_lint_calls
+  assert_output --partial "bin=${XDG_CACHE_HOME}/dsb-tf-proj-helpers/tflint/v0.50.0/tflint|"
+}
+
+@test "tf-lint-tfstate fails in a project without _terraform-state" {
+  run tf-lint-tfstate
+  assert_failure
+  assert_clean_output_contains "envs/_terraform-state"
+}
+
+@test "tf-lint-tfstate is only available in project repos" {
+  cd "$(create_module_project)"
+  source "${SUT}"
+  run tf-lint-tfstate
+  assert_failure
+  assert_clean_output_contains "only available in Terraform project repos"
+}
+
+@test "tf-lint _terraform-state points at tf-lint-tfstate" {
+  setup_tfstate
+  run tf-lint _terraform-state
+  assert_failure
+  assert_clean_output_contains "tf-lint-tfstate"
+}
+
+@test "tf-validate-tfstate initializes _terraform-state offline when needed, then validates it" {
+  setup_tfstate
+  run tf-validate-tfstate
+  assert_success
+  run command grep -- "-chdir=" "${MOCK_TERRAFORM_CALLS_FILE}"
+  assert_line --index 0 "-chdir=${tfstate_dir} init -backend=false -input=false"
+  assert_line --index 1 "-chdir=${tfstate_dir} validate"
+}
+
+@test "tf-validate-tfstate needs no Azure subscription" {
+  setup_tfstate
+  mock_az_not_logged_in
+  run tf-validate-tfstate
+  assert_success
+}
+
+@test "tf-validate-tfstate fails when terraform validate fails" {
+  setup_tfstate
+  export MOCK_TERRAFORM_FAIL_VALIDATE=1
+  run tf-validate-tfstate
+  assert_failure
+}
+
+@test "tf-validate-tfstate fails when the offline init fails" {
+  setup_tfstate
+  terraform() { echo "$*" >>"${MOCK_TERRAFORM_CALLS_FILE}"; [[ "${2:-}" != "init" ]]; }
+  export -f terraform
+  run tf-validate-tfstate
+  assert_failure
+  run terraform_calls_in "envs/_terraform-state" "validate"
+  assert_output ""
+}
+
+@test "tf-init-tfstate-offline initializes _terraform-state offline, also when it is initialized" {
+  setup_tfstate
+  init_root envs/_terraform-state
+  run tf-init-tfstate-offline
+  assert_success
+  run terraform_calls_in "envs/_terraform-state" "init"
+  assert_output "-chdir=${tfstate_dir} init -backend=false -input=false"
+}
+
+@test "tf-init-tfstate-offline keeps the backend state of an earlier init" {
+  setup_tfstate
+  init_root envs/_terraform-state
+  echo '{"backend":{"type":"azurerm"}}' >"${tfstate_dir}/.terraform/terraform.tfstate"
+  terraform() {
+    echo "$*" >>"${MOCK_TERRAFORM_CALLS_FILE}"
+    # with the backend state in place, an offline init would use the backend it names
+    [[ ! -e "${1#-chdir=}/.terraform/terraform.tfstate" ]]
+  }
+  export -f terraform
+  run tf-init-tfstate-offline
+  assert_success
+  run cat "${tfstate_dir}/.terraform/terraform.tfstate"
+  assert_output '{"backend":{"type":"azurerm"}}'
+}
+
+@test "_terraform-state stays out of the environments" {
+  setup_tfstate
+  source "${SUT}"
+  [[ " ${_dsbTfAvailableEnvs[*]} " != *" _terraform-state "* ]]
+  run tf-list-envs
+  refute_output --partial "_terraform-state"
+}
+
+@test "tf-lint-all includes _terraform-state" {
+  setup_tfstate
+  init_root envs/dev
+  init_root envs/prod
+  run tf-lint-all
+  assert_success
+  run lint_calls_in "${tfstate_dir}"
+  assert_equal "${#lines[@]}" 2
+  run lint_calls_in "${project_dir}/envs/dev"
+  assert_equal "${#lines[@]}" 1
+}
+
+@test "tf-lint-all fails when _terraform-state fails" {
+  setup_tfstate
+  init_root envs/dev
+  init_root envs/prod
+  export MOCK_TFLINT_FAIL_DIR="${tfstate_dir}"
+  run tf-lint-all
+  assert_failure
+}
+
+@test "tf-validate-all includes _terraform-state" {
+  setup_tfstate
+  run tf-validate-all
+  assert_success
+  run terraform_calls_in "envs/_terraform-state" "validate"
+  assert_output "-chdir=${tfstate_dir} validate"
+  run terraform_calls_in "envs/dev" "validate"
+  assert_output --partial "validate"
+}
+
+@test "tf-validate-all fails when _terraform-state fails validation" {
+  setup_tfstate
+  init_root envs/_terraform-state
+  terraform() {
+    echo "$*" >>"${MOCK_TERRAFORM_CALLS_FILE}"
+    [[ "${1:-}" != *"_terraform-state"* || "${2:-}" != "validate" ]]
+  }
+  export -f terraform
+  run tf-validate-all
+  assert_failure
+}
+
+@test "tf-help lists the _terraform-state commands" {
+  run tf-help commands
+  assert_clean_output_contains "tf-lint-tfstate"
+  assert_clean_output_contains "tf-validate-tfstate"
+  assert_clean_output_contains "tf-init-tfstate-offline"
+  local cmd
+  for cmd in tf-lint-tfstate tf-validate-tfstate tf-init-tfstate-offline; do
+    run tf-help "${cmd}"
+    assert_clean_output_contains "${cmd}"
+    assert_clean_output_contains "_terraform-state"
+  done
+}
+
+@test "tf-lint-tfstate completes --use-version" {
+  run complete -p tf-lint-tfstate
+  assert_output --partial "_dsb_tf_completions_for_lint_flags"
+}
+
+@test "tf-status shows whether the project has _terraform-state" {
+  run tf-status
+  assert_clean_output_contains "_terraform-state"
+  assert_clean_output_contains "not found"
+  setup_tfstate
+  run tf-status
+  assert_clean_output_contains "envs/_terraform-state/"
+}
+
+# -------------------------------------------------------
 # help
 # -------------------------------------------------------
 
