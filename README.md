@@ -6,10 +6,10 @@ Collection of helper scripts for Terraform projects and module repos.
 
 ### Overview
 
-`dsb-tf-proj-helpers.sh` is a collection of helper functions designed to streamline and automate various tasks in Terraform projects and module repositories. The script provides 83 user-facing commands and automatically detects whether it's running in a project repo or a module repo, adapting its behavior accordingly.
+`dsb-tf-proj-helpers.sh` is a collection of helper functions designed to streamline and automate various tasks in Terraform projects and module repositories. The script provides 86 user-facing commands and automatically detects whether it's running in a project repo or a module repo, adapting its behavior accordingly.
 
 Features include:
-- **Project repos**: Environment management, terraform init/validate/plan/apply, version bumping, linting, Azure CLI integration
+- **Project repos**: Environment management, terraform init/validate/plan/apply, version bumping, linting (also of `envs/_terraform-state`), Azure CLI integration
 - **Module repos**: Init/validate/lint at root and per-example, terraform test support (unit and integration), documentation generation, version bumping
 - Built-in help system (`tf-help`)
 - Tab completion for all commands
@@ -52,6 +52,29 @@ The script detects the repo type automatically:
 - **Module repo** (has root `.tf` files, no `main/` or `envs/`): Module-specific commands -- init/validate/lint at root and per-example, terraform testing, documentation generation, version bumping
 
 Run `tf-help` after loading to see commands available for your repo type.
+
+### Linting
+
+The lint commands follow the same lint contract as CI, so linting locally gives the result CI gives. The contract is written down in [github-actions-terraform: docs/Linting.md](https://github.com/dsb-norge/github-actions-terraform/blob/main/docs/Linting.md). In short:
+
+- **Directories**: the root being linted (an environment, `envs/_terraform-state`, a module repo's root or an example), then every local module directory in the root's `.terraform/modules/modules.json`, each linted on its own. Remote modules are not linted.
+- **Preparation**: none for the root, which must be initialized when it calls modules (`tf-init-env-offline <env>`, `tf-init`, `tf-init-example <example>`). Each module directory is linted against a manifest derived from the root's, in a temporary `TF_DATA_DIR`, so it sees exactly the modules the root installed. Nothing is written into the repository.
+- **Config**: `<root>/.tflint.hcl`, else the repository root's `.tflint.hcl`. An example always uses the module root's. When there is none, the default config is written into the root (never into a project repo's root), with its plugins bumped to their latest versions; review it and commit it.
+- **Var files**: the root is linted once per `*.tfvars` in it other than `terraform.tfvars` and `*.auto.tfvars`, which tflint reads itself. Module directories never get var files.
+- **tflint version**: the `tflint-version` of the GitHub workflow that calls the shared terraform workflow, the latest release when it is `latest` or not set. `--use-version <version>` overrides it.
+
+tflint is installed once per user and version into `${XDG_CACHE_HOME:-~/.cache}/dsb-tf-proj-helpers/tflint/<version>/`, and the download is verified against the release's `checksums.txt`. Installing needs `unzip`.
+
+| Repo type | Command | Lints |
+|---|---|---|
+| project | `tf-lint [env]` | the environment and its local module directories |
+| project | `tf-lint-tfstate` | `envs/_terraform-state`, once per `env.<env>.tfvars`, initialized offline when needed |
+| project | `tf-lint-all` | every environment, and `envs/_terraform-state` |
+| module | `tf-lint` | the module root and its sub-modules |
+| module | `tf-lint-example <example>`, `tf-lint-all-examples` | each example and the local module directories inside it |
+| module | `tf-lint-all` | the module root and its sub-modules, then every example |
+
+`envs/_terraform-state` is not an environment, as one directory serves every environment, so the environment commands leave it out. `tf-validate-tfstate` validates it and `tf-init-tfstate-offline` initializes it without backend, neither needing an Azure subscription; `tf-validate-all` includes it. Plan and apply of it stay the terraform commands in its README.
 
 ### Develop
 
