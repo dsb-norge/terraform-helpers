@@ -499,6 +499,11 @@ _dsb_tf_report_status() {
     _dsb_i "  Environments directory  : $(_dsb_tf_get_rel_dir "${envsDir}")/"
     _dsb_i "  Modules directory       : $(_dsb_tf_get_rel_dir "${modulesDir}")/"
     _dsb_i "  Available modules       : ${availableModulesCommaSeparated}"
+    if [ -d "${envsDir}/_terraform-state" ]; then
+      _dsb_i "  _terraform-state        : $(_dsb_tf_get_rel_dir "${envsDir}/_terraform-state")/ (tf-lint-tfstate, tf-validate-tfstate)"
+    else
+      _dsb_i "  _terraform-state        : not found"
+    fi
   fi
   _dsb_i ""
   if [ "${_dsbTfRepoType}" != "module" ]; then
@@ -924,6 +929,9 @@ _dsb_tf_help_get_commands_supported_by_help() {
     "tf-validate"
     "tf-validate-all"
     "tf-lint-all"
+    "tf-init-tfstate-offline"
+    "tf-validate-tfstate"
+    "tf-lint-tfstate"
     "tf-outputs"
     "tf-plan"
     "tf-apply"
@@ -1212,6 +1220,9 @@ _dsb_tf_help_group_terraform() {
   _dsb_i "    tf-validate [env]         -> Make Terraform validate the project with selected or given environment"
   _dsb_i "    tf-validate-all           -> Validate all environments (project) or root + examples (module)"
   _dsb_i "    tf-lint-all               -> Lint all environments (project) or root + examples (module)"
+  _dsb_i "    tf-init-tfstate-offline   -> Initialize envs/_terraform-state, without backend"
+  _dsb_i "    tf-validate-tfstate       -> Validate envs/_terraform-state (initializes it offline when needed)"
+  _dsb_i "    tf-lint-tfstate           -> Lint envs/_terraform-state, once per env.*.tfvars (initializes it offline when needed)"
   _dsb_i "    tf-outputs [env]          -> Show Terraform outputs for selected or given environment"
   _dsb_i "    tf-plan [env] [-flags]    -> Create a plan (supports terraform flags and --log)"
   _dsb_i "    tf-apply [env] [-flags]   -> Apply changes (supports terraform flags and --log)"
@@ -1235,6 +1246,7 @@ _dsb_tf_help_group_offline() {
   _dsb_i "    tf-init-all-offline           -> Initialize entire Terraform project, all environments"
   _dsb_i "    tf-lock-env-offline [env]     -> Add missing providers and platform hashes to the lock file, without upgrading"
   _dsb_i "    tf-lock-all-offline           -> Same as 'tf-lock-env-offline', for all environments"
+  _dsb_i "    tf-init-tfstate-offline       -> Initialize envs/_terraform-state, without backend"
   _dsb_i ""
   _dsb_i "  Upgrade Offline Commands:"
   _dsb_i "    tf-bump-env-offline [env]     -> Upgrade Terraform deps. for selected or given environment and list provider versions, latest vs. lock file"
@@ -1333,7 +1345,7 @@ _dsb_tf_help_group_flags() {
   _dsb_i "    A version like v0.61.0, or 'latest'. Also accepted as --use-version=<version>."
   _dsb_i ""
   _dsb_i "    Supported by:"
-  _dsb_i "      tf-lint, tf-lint-all, tf-lint-example, tf-lint-all-examples"
+  _dsb_i "      tf-lint, tf-lint-all, tf-lint-tfstate, tf-lint-example, tf-lint-all-examples"
   _dsb_i ""
   _dsb_i "  Terraform passthrough flags  (single dash)"
   _dsb_i "    Flags starting with a single dash are passed through directly to terraform."
@@ -1796,7 +1808,8 @@ _dsb_tf_help_specific_command() {
     _dsb_i "tf-validate-all:"
     _dsb_i "  Validate all Terraform configurations."
     _dsb_i ""
-    _dsb_i "  In project repos, validates all environments."
+    _dsb_i "  In project repos, validates all environments, and envs/_terraform-state when there is one"
+    _dsb_i "  (see 'tf-help tf-validate-tfstate')."
     _dsb_i "  In module repos, validates the module root and all examples."
     _dsb_i ""
     _dsb_i "  Related commands: tf-validate, tf-init-all."
@@ -1808,8 +1821,49 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  In project repos, lints every environment."
     _dsb_i "  In module repos, lints the module root and its local sub-modules, then every example"
     _dsb_i "  (see 'tf-help tf-lint-example')."
+    _dsb_i "  In project repos, it also lints envs/_terraform-state when there is one, see 'tf-help tf-lint-tfstate'."
     _dsb_i ""
-    _dsb_i "  Related commands: tf-lint, tf-validate-all."
+    _dsb_i "  Related commands: tf-lint, tf-lint-tfstate, tf-validate-all."
+    ;;
+  tf-init-tfstate-offline)
+    _dsb_i "tf-init-tfstate-offline:"
+    _dsb_i "  Initialize envs/_terraform-state without backend (project repo only):"
+    _dsb_i "    terraform init -backend=false -input=false"
+    _dsb_i ""
+    _dsb_i "  _terraform-state bootstraps the state storage of every environment. It is not an environment:"
+    _dsb_i "  one directory serves them all, with each environment's values in env.<env>.tfvars."
+    _dsb_i "  This downloads its modules and providers so it can be linted and validated."
+    _dsb_i "  Needs no backend and no Azure subscription."
+    _dsb_i ""
+    _dsb_i "  A backend that an earlier 'terraform init' configured there is kept: its state in"
+    _dsb_i "  .terraform/terraform.tfstate is moved aside during the init and put back after."
+    _dsb_i "  To plan or apply, initialize with an environment's backend config, as its README describes."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-lint-tfstate, tf-validate-tfstate."
+    ;;
+  tf-validate-tfstate)
+    _dsb_i "tf-validate-tfstate:"
+    _dsb_i "  Make Terraform validate envs/_terraform-state (project repo only)."
+    _dsb_i ""
+    _dsb_i "  Initializes it first, offline, when it is not initialized (see 'tf-help tf-init-tfstate-offline')."
+    _dsb_i "  Needs no backend and no Azure subscription."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-lint-tfstate, tf-init-tfstate-offline, tf-validate-all."
+    ;;
+  tf-lint-tfstate)
+    _dsb_i "tf-lint-tfstate [--use-version <version>]:"
+    _dsb_i "  Lint envs/_terraform-state with tflint (project repo only), by the same contract as 'tf-lint',"
+    _dsb_i "  see 'tf-help tf-lint'."
+    _dsb_i ""
+    _dsb_i "  _terraform-state bootstraps the state storage of every environment. It is not an environment:"
+    _dsb_i "  one directory serves them all, with each environment's values in env.<env>.tfvars."
+    _dsb_i "  It is linted once per env.<env>.tfvars, and its local module directories once, without var files."
+    _dsb_i ""
+    _dsb_i "  Initializes it first, offline, when it is not initialized (see 'tf-help tf-init-tfstate-offline')."
+    _dsb_i "  Needs no backend and no Azure subscription."
+    _dsb_i "  When neither it nor the repository root has a .tflint.hcl, the default config is written into it."
+    _dsb_i ""
+    _dsb_i "  Related commands: tf-validate-tfstate, tf-init-tfstate-offline, tf-lint-all."
     ;;
   tf-outputs)
     _dsb_i "tf-outputs [env]:"
@@ -2485,6 +2539,7 @@ _dsb_tf_completions_for_lint_examples() {
 _dsb_tf_register_completions_for_tf_lint() {
   complete -F _dsb_tf_completions_for_tf_lint tf-lint
   complete -F _dsb_tf_completions_for_lint_flags tf-lint-all
+  complete -F _dsb_tf_completions_for_lint_flags tf-lint-tfstate
   complete -F _dsb_tf_completions_for_lint_examples tf-lint-example
   complete -F _dsb_tf_completions_for_lint_examples tf-lint-all-examples
 }
@@ -3756,12 +3811,13 @@ _dsb_tf_get_rel_dir() {
 #   if no known log line pattern is found or the selected environment is not set, the line is echoed as is.
 # input:
 #   line(s) on stdin
+#   $1: directory the paths are relative to (optional, defaults to the selected environment's directory)
 # on info:
 #   nothing
 # returns:
 #   echos the modified line(s)
 _dsb_tf_fixup_paths_from_stdin() {
-  local appendPath=${_dsbTfSelectedEnvDir:-}
+  local appendPath=${1:-${_dsbTfSelectedEnvDir:-}}
   local line path modified_path relative_path modified_line
 
   # this loop reads each line from the input and stores it in the variable 'line'.
@@ -5934,7 +5990,7 @@ _dsb_tf_validate_env() {
 }
 
 # what:
-#   validate all environments in a project repo
+#   validate all environments in a project repo, and envs/_terraform-state when there is one
 #   iterates all environments, runs terraform validate in each
 # input:
 #   none
@@ -5978,8 +6034,22 @@ _dsb_tf_validate_all_project() {
     fi
   done
 
+  local totalCount="${envCount}"
+  if [ -d "${_dsbTfEnvsDir}/_terraform-state" ]; then
+    ((totalCount++))
+    _dsb_i ""
+    _dsb_i "Validating: _terraform-state"
+    if ! _dsb_tf_validate_tfstate; then
+      _dsb_tf_error_push "validate failed for _terraform-state"
+      returnCode=1
+      ((failCount++))
+    else
+      ((successCount++))
+    fi
+  fi
+
   _dsb_i ""
-  _dsb_i "Validate all summary: ${successCount} succeeded, ${failCount} failed out of ${envCount}"
+  _dsb_i "Validate all summary: ${successCount} succeeded, ${failCount} failed out of ${totalCount}"
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_e "Some environments failed validation."
   else
@@ -7241,6 +7311,12 @@ _dsb_tf_lint_env() {
     return 1
   fi
 
+  if [ "${selectedEnv}" == "_terraform-state" ]; then
+    _dsb_e "'_terraform-state' is not an environment, lint it with 'tf-lint-tfstate'"
+    _dsb_tf_error_push "_terraform-state given as environment"
+    return 1
+  fi
+
   # validate the environment (linting is local, does not need Azure or lock file)
   if ! _dsb_tf_set_env_offline "${selectedEnv}" 1; then # $2 = 1: skip lock check
     _dsb_tf_error_push "environment '${selectedEnv}' could not be selected"
@@ -7270,8 +7346,8 @@ _dsb_tf_lint_env() {
 }
 
 # what:
-#   lint all environments in a project repo
-#   prepares tflint once, then lints each environment by the lint contract
+#   lint all environments in a project repo, and envs/_terraform-state when there is one
+#   prepares tflint once, then lints each by the lint contract
 # input:
 #   $1: tflint version given with --use-version (optional)
 # on info:
@@ -7322,8 +7398,22 @@ _dsb_tf_lint_all_project() {
     fi
   done
 
+  local totalCount="${envCount}"
+  if [ -d "${_dsbTfEnvsDir}/_terraform-state" ]; then
+    ((totalCount++))
+    _dsb_i ""
+    _dsb_i "Linting: _terraform-state"
+    if ! _dsb_tf_lint_tfstate "${useVersion}" 1; then # $2 = 1: tflint is prepared
+      _dsb_tf_error_push "tflint failed for _terraform-state"
+      returnCode=1
+      ((failCount++))
+    else
+      ((successCount++))
+    fi
+  fi
+
   _dsb_i ""
-  _dsb_i "Lint all summary: ${successCount} succeeded, ${failCount} failed out of ${envCount}"
+  _dsb_i "Lint all summary: ${successCount} succeeded, ${failCount} failed out of ${totalCount}"
   if [ "${returnCode}" -ne 0 ]; then
     _dsb_e "Some environments failed linting."
   else
@@ -7376,6 +7466,168 @@ _dsb_tf_lint_all_module() {
 
 
 
+
+###################################################################################################
+#
+# _terraform-state functions
+#
+###################################################################################################
+
+# envs/_terraform-state bootstraps the state storage of every environment. It is not an environment:
+# one directory serves them all, its backend is partial and completed per environment with
+# backend-config.<env>.hcl, its values per environment are in env.<env>.tfvars, and it has no
+# subscription hint. That is why environment enumeration leaves out directories starting with '_'.
+# Linting and validating it need neither a backend nor a subscription, so the CLI does both, offline.
+# Plan and apply of it are done by hand, as its README describes.
+
+# what:
+#   checks that the project has an envs/_terraform-state directory
+# input:
+#   none
+# on info:
+#   error message when it does not
+# returns:
+#   exit code directly
+_dsb_tf_look_for_tfstate_dir() {
+  if [ ! -d "${_dsbTfEnvsDir}/_terraform-state" ]; then
+    _dsb_e "Directory 'envs/_terraform-state' not found in: ${_dsbTfRootDir}"
+    _dsb_tf_error_push "envs/_terraform-state not found"
+    return 1
+  fi
+  return 0
+}
+
+# what:
+#   initializes envs/_terraform-state without backend: terraform init -backend=false -input=false
+#   the backend state an earlier init left in .terraform/terraform.tfstate is moved aside during the
+#   init, so the init does not use that backend, and put back after
+# input:
+#   $1: force, 1 to initialize also when it is initialized (optional, defaults to 0: only when .terraform is missing)
+# on info:
+#   terraform init output
+# returns:
+#   exit code directly
+_dsb_tf_init_tfstate_offline() {
+  local force="${1:-0}"
+
+  if ! _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_terraform; then
+    _dsb_e "Terraform check failed, please run 'tf-check-tools'"
+    _dsb_tf_error_push "terraform not available"
+    return 1
+  fi
+
+  _dsbTfLogInfo=0 _dsbTfLogErrors=0 _dsb_tf_check_current_dir
+  # shellcheck disable=SC2181 # inline var assignment requires $?
+  if [ $? -ne 0 ]; then
+    _dsb_e "Directory check(s) fails, please run 'tf-check-dir'"
+    _dsb_tf_error_push "directory check failed"
+    return 1
+  fi
+
+  if ! _dsb_tf_look_for_tfstate_dir; then
+    return 1
+  fi
+
+  local tfstateDir="${_dsbTfEnvsDir}/_terraform-state"
+  if [ "${force}" -ne 1 ] && [ -d "${tfstateDir}/.terraform" ]; then
+    _dsb_d "envs/_terraform-state is initialized"
+    return 0
+  fi
+
+  local localStateFile="${tfstateDir}/.terraform/terraform.tfstate"
+  local localStateFileOld="${localStateFile}.tf-helpers-old"
+  if [ -f "${localStateFile}" ]; then
+    _dsb_d "moving aside: ${localStateFile}"
+    if ! "${_dsbTfMvCmd}" --force "${localStateFile}" "${localStateFileOld}"; then
+      _dsb_tf_error_push "failed to move local state file aside: ${localStateFile}"
+      return 1
+    fi
+  fi
+
+  _dsb_i ""
+  _dsb_i "Initializing envs/_terraform-state, offline (without backend) ..."
+
+  # paths in terraform's output are relative to the directory, make them relative to the repository root
+  terraform -chdir="${tfstateDir}" init -backend=false -input=false 2>&1 | _dsb_tf_fixup_paths_from_stdin "${tfstateDir}"
+  local initRC="${PIPESTATUS[0]}"
+
+  if [ -f "${localStateFileOld}" ]; then
+    _dsb_d "putting back: ${localStateFile}"
+    if ! "${_dsbTfMvCmd}" --force "${localStateFileOld}" "${localStateFile}"; then
+      _dsb_tf_error_push "failed to restore local state file: ${localStateFile}"
+      return 1
+    fi
+  fi
+
+  if [ "${initRC}" -ne 0 ]; then
+    _dsb_e "terraform init in ./envs/_terraform-state failed"
+    _dsb_tf_error_push "terraform init failed in ${tfstateDir}"
+    return 1
+  fi
+  return 0
+}
+
+# what:
+#   validates envs/_terraform-state, initializing it offline first when it is not initialized
+# input:
+#   none
+# on info:
+#   terraform validate output
+# returns:
+#   exit code directly
+_dsb_tf_validate_tfstate() {
+  if ! _dsb_tf_init_tfstate_offline 0; then
+    _dsb_tf_error_push "could not initialize envs/_terraform-state"
+    return 1
+  fi
+
+  local tfstateDir="${_dsbTfEnvsDir}/_terraform-state"
+  _dsb_i ""
+  _dsb_i "Validating: envs/_terraform-state"
+
+  terraform -chdir="${tfstateDir}" validate 2>&1 | _dsb_tf_fixup_paths_from_stdin "${tfstateDir}"
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then
+    _dsb_e "terraform validate in ./envs/_terraform-state failed"
+    _dsb_tf_error_push "terraform validate failed in ${tfstateDir}"
+    return 1
+  fi
+  return 0
+}
+
+# what:
+#   lints envs/_terraform-state by the lint contract, see _dsb_tf_tflint_lint_root:
+#   once per env.<env>.tfvars, and its local module directories once, without var files
+#   initializes it offline first when it is not initialized
+# input:
+#   $1: tflint version given with --use-version (optional)
+#   $2: skip preparing tflint, set to 1 when the caller has done it (optional, defaults to 0)
+# on info:
+#   status messages and linting results are printed
+# returns:
+#   exit code directly
+_dsb_tf_lint_tfstate() {
+  local useVersion="${1:-}"
+  local skipPrepare="${2:-0}"
+
+  if ! _dsb_tf_init_tfstate_offline 0; then
+    _dsb_tf_error_push "could not initialize envs/_terraform-state"
+    return 1
+  fi
+
+  if [ "${skipPrepare}" -ne 1 ]; then
+    if ! _dsb_tf_tflint_prepare "${useVersion}"; then
+      _dsb_tf_error_push "tflint is not available"
+      return 1
+    fi
+  fi
+
+  local tfstateDir="${_dsbTfEnvsDir}/_terraform-state"
+  if ! _dsb_tf_tflint_lint_root "${tfstateDir}" "${tfstateDir}" "tf-init-tfstate-offline"; then
+    _dsb_tf_error_push "lint of envs/_terraform-state failed"
+    return 1
+  fi
+  return 0
+}
 
 ###################################################################################################
 #
@@ -7437,6 +7689,10 @@ _dsb_tf_get_dot_dirs() {
       searchInDirs+=("${_dsbTfRootDir}")
       if [ "${envDirsCount}" -gt 0 ]; then
         searchInDirs+=("${envDirs[@]}")
+      fi
+      # not an environment, see _dsb_tf_look_for_tfstate_dir
+      if [ -d "${_dsbTfEnvsDir}/_terraform-state" ]; then
+        searchInDirs+=("${_dsbTfEnvsDir}/_terraform-state")
       fi
       searchInDirs+=("${_dsbTfMainDir}")
       if [ "${moduleDirsCount}" -gt 0 ]; then
@@ -11636,6 +11892,60 @@ tf-lint-all() {
     returnCode=$?
   else
     _dsb_tf_lint_all_project "${lintUseVersion}"
+    returnCode=$?
+  fi
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+# _terraform-state functions (project repo only)
+# ----------------------------------------------
+
+tf-init-tfstate-offline() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-init-tfstate-offline "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  _dsb_tf_init_tfstate_offline 1 # $1 = 1: also when it is initialized
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-validate-tfstate() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-validate-tfstate "$@"; local rc=$?; set -e; return "${rc}"; fi
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  _dsb_tf_validate_tfstate
+  local returnCode=$?
+  if [ "${returnCode}" -ne 0 ]; then
+    _dsb_tf_error_dump
+  fi
+  _dsb_tf_restore_shell
+  return "${returnCode}"
+}
+
+tf-lint-tfstate() {
+  if [[ "${-}" == *e* ]]; then set +e; tf-lint-tfstate "$@"; local rc=$?; set -e; return "${rc}"; fi
+  local lintPositional="" lintUseVersion="" lintArgsError=""
+  local -a lintUnknownFlags=()
+  _dsb_tf_lint_parse_args "$@"
+  if [ -n "${lintPositional}" ]; then
+    lintUnknownFlags+=("${lintPositional}")
+  fi
+
+  _dsb_tf_configure_shell
+  if ! _dsb_tf_require_project_repo; then _dsb_tf_error_dump; _dsb_tf_restore_shell; return 1; fi
+  local returnCode=0
+  if ! _dsb_tf_lint_check_args; then
+    returnCode=1
+  else
+    _dsb_tf_lint_tfstate "${lintUseVersion}"
     returnCode=$?
   fi
   if [ "${returnCode}" -ne 0 ]; then
