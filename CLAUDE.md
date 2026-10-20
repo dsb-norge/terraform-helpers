@@ -11,7 +11,7 @@
 
 ## What this is
 
-A single bash script (`dsb-tf-proj-helpers.sh`, ~11600 lines) sourced into the user's interactive shell. It provides ~83 `tf-*` and `az-*` commands for Terraform project and module development. **It must never crash or corrupt the user's shell.**
+A single bash script (`dsb-tf-proj-helpers.sh`, ~13000 lines) sourced into the user's interactive shell. It provides ~86 `tf-*` and `az-*` commands for Terraform project and module development. **It must never crash or corrupt the user's shell.**
 
 ## Key documentation
 
@@ -32,6 +32,14 @@ Read CONTRIBUTING.md before making any code changes.
 - **The `{ }` download guard** wrapping the entire file prevents partial-download execution. Do not remove.
 - **Lock files in module repos are gitignored.** Never check for their existence as a prerequisite.
 - **Lock files in project repos live in `envs/<env>/` only.** Never leave one in `main/` or `modules/`. Run `providers lock` in environment directories only, with the platforms from `_dsbTfLockPlatforms`; never hard-code `-platform=` (a test enforces it). Initializing main and modules is for downloading dependencies (`tf-init`, `tf-init-all`); lock commands do not do it. See ARCHITECTURE.md "Lock Files".
+
+## Linting
+
+The lint commands (`tf-lint*`) follow the lint contract shared with CI, [github-actions-terraform: docs/Linting.md](https://github.com/dsb-norge/github-actions-terraform/blob/main/docs/Linting.md); ARCHITECTURE.md "Linting" maps it to the functions. Change what is linted, how, or with which config, var files or tflint version only together with that contract and CI.
+
+- tflint is installed by the CLI into `${XDG_CACHE_HOME:-~/.cache}/dsb-tf-proj-helpers/tflint/<version>/`, verified against the release checksums. There is no wrapper script and nothing tflint-related is written into the repository, except the default `.tflint.hcl` written into a root that has no config.
+- `envs/_terraform-state` is not an environment and stays out of environment enumeration; the `tf-*-tfstate` commands handle it.
+- In tests, `install_fake_tflint` puts a fake tflint in the cache and `mock_tflint_release` serves a fake release; see TESTING.md "Testing the lint commands".
 
 ## Repo type detection
 
