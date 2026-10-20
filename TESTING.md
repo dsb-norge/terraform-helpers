@@ -253,7 +253,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide on adding commands and
 
 ## Parallelization
 
-The test runner script (`test/run.sh`) automatically installs GNU parallel and runs tests in parallel using all available CPU cores:
+The test runner script (`test/run.sh`) runs the tests in parallel on all available CPU cores when GNU parallel is installed (`sudo apt-get install parallel`, `brew install parallel`), and one file at a time when it is not:
 
 ```bash
 # Recommended: uses parallel execution

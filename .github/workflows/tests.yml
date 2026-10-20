@@ -27,14 +27,17 @@ jobs:
 
       - name: Install GNU parallel
         run: |
-          curl -s https://raw.githubusercontent.com/martinda/gnu-parallel/master/src/parallel > /tmp/parallel
-          chmod +x /tmp/parallel
+          # bats --jobs needs GNU parallel; the Ubuntu archive has it when the runner image does not
+          if ! command -v parallel &>/dev/null; then
+            sudo apt-get update -q
+            sudo apt-get install -y -q parallel
+          fi
+          parallel --version | head -1
 
       - name: Run tests
         id: tests
         shell: bash
         run: |
-          export PATH="/tmp:$PATH"
           set +e
           npx bats --jobs "$(nproc)" test/*.bats 2>&1 | tee "$RUNNER_TEMP/test-output.txt"
           exit_code=${PIPESTATUS[0]}
