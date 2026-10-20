@@ -6966,6 +6966,26 @@ _dsb_tf_tflint_resolve_config() {
 }
 
 # what:
+#   true when the .tf files directly in a directory declare a module call
+# input:
+#   $1: directory
+# on info:
+#   nothing
+# returns:
+#   0 when there is a module block, else 1
+_dsb_tf_dir_has_module_calls() {
+  local dir="${1}"
+  local tfFile
+  for tfFile in "${dir}"/*.tf; do
+    [ -f "${tfFile}" ] || continue
+    if grep -qE '^[[:space:]]*module[[:space:]]+"' "${tfFile}" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# what:
 #   true when module key $1 is shorter than module key $2:
 #   fewer segments, then fewer characters, then first in sort order
 # input:
@@ -7146,7 +7166,9 @@ _dsb_tf_tflint_lint_root() {
   local relRoot
   relRoot="$(_dsb_tf_get_rel_dir "${rootDir}")"
 
-  if [ ! -d "${rootDir}/.terraform" ]; then
+  # terraform init creates no .terraform where there is nothing to install (no providers, no modules),
+  # and a root that calls no modules needs no manifest, so only a root with module calls must have one
+  if [ ! -d "${rootDir}/.terraform" ] && _dsb_tf_dir_has_module_calls "${rootDir}"; then
     _dsb_e "'${relRoot}' is not initialized, please run '${initCommand}' first"
     _dsb_tf_error_push "'${relRoot}' is not initialized"
     return 1
