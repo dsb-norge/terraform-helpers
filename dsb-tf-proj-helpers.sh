@@ -82,9 +82,10 @@ fi
 #     project-only functions are gated with _dsb_tf_require_project_repo
 #     functions that work in both repo types branch on _dsbTfRepoType
 #
-# TODO: future functionality
-#   other
-#     tf-* functions support for _terraform-state env
+#   _terraform-state:
+#     envs/_terraform-state is not an environment and stays out of environment enumeration,
+#     the tf-*-tfstate commands lint, validate and initialize it offline,
+#     plan and apply of it stay the terraform commands in its README
 #
 
 ###################################################################################################

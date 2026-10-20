@@ -44,7 +44,7 @@ Describe the situation instead, for example "a module bump that brings in a new 
 
 ## Code Organization
 
-The script is a single file (`dsb-tf-proj-helpers.sh`, ~11600 lines, ~270 functions) organized in a strict top-to-bottom dependency order:
+The script is a single file (`dsb-tf-proj-helpers.sh`, ~13000 lines, ~300 functions) organized in a strict top-to-bottom dependency order:
 
 1. Download guard and bash version check
 2. Cleanup of previous state
@@ -370,3 +370,5 @@ When using `--log`, the output passes through `tee`. The exit code of the left s
 - **`PIPESTATUS` with `tee`**: When using `--log` (which adds `tee` to the pipeline), `PIPESTATUS[0]` MUST be read on the very next line. There is a test that enforces this.
 - **The download guard (`{ }` braces) is structural.** Don't remove them.
 - **Lock files in module repos are gitignored.** Never check for their existence as a prerequisite. `tf-init` creates them, `tf-clean` deletes them.
+- **Logging goes to stdout.** A function whose output a caller captures with `$(…)` or `< <(…)` must send its `_dsb_d`, `_dsb_w` and `_dsb_e` messages to stderr (`>&2`), or they end up in the captured data, at the latest when debug logging is enabled. See `_dsb_tf_tflint_module_dirs`.
+- **The lint commands follow a contract shared with CI.** Change what they lint, how, or with what, only together with [github-actions-terraform: docs/Linting.md](https://github.com/dsb-norge/github-actions-terraform/blob/main/docs/Linting.md) and its CI implementation, so a local lint keeps giving the result CI gives. See ARCHITECTURE.md "Linting".

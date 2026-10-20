@@ -38,7 +38,7 @@ The test suite uses [bats-core](https://github.com/bats-core/bats-core) (Bash Au
 
 All dependencies are managed via npm and listed in `package.json`.
 
-**Current state**: 697 tests across 35 files. All external tools are mocked -- tests run without any dependencies installed.
+**Current state**: 801 tests across 36 files. All external tools are mocked -- tests run without any dependencies installed.
 
 ---
 
@@ -57,6 +57,7 @@ test/
     project_no_main/          # Project missing the main/ directory.
     project_empty/            # Empty directory.
     project_module/           # Terraform module repo (root .tf files, examples, tests).
+    lint/                     # Module manifests (.terraform/modules/modules.json) for the lint tests.
   01_source_init.bats         # Script sourcing, function definitions, arch detection.
   02_logging.bats             # _dsb_e, _dsb_i, _dsb_w, _dsb_d, mute flags.
   03_error_handling.bats      # Error context stack, configure/restore lifecycle.
@@ -66,7 +67,7 @@ test/
   07_environment_management.bats # tf-list-envs, tf-set-env, tf-select-env, tf-clear-env, tf-check-env.
   08_azure_cli.bats           # az-whoami, az-logout, az-set-sub, enumerate_account, is_logged_in.
   09_terraform_operations.bats   # tf-init, tf-validate, tf-plan, tf-apply, tf-destroy, tf-fmt.
-  10_linting.bats             # tf-lint, tflint wrapper download and execution.
+  10_linting.bats             # The lint contract: directories, derived manifests, config, var files, examples, _terraform-state.
   11_clean.bats               # tf-clean, tf-clean-tflint, tf-clean-all.
   12_upgrade_github.bats      # tf-bump-cicd (GitHub workflow version bumping).
   13_upgrade_modules.bats     # tf-bump-modules (registry module version bumping).
@@ -87,6 +88,7 @@ test/
   33_passthrough_and_log.bats   # Terraform arg passthrough, --log output capture, PIPESTATUS discipline.
   34_setup_commands.bats        # tf-install-helpers, tf-uninstall-helpers, tf-update-helpers, tf-reload-helpers.
   37_providers_lock.bats        # Lock file maintenance: init with/without -upgrade, providers lock platforms.
+  38_tflint_install.bats        # tflint version (workflow tflint-version, --use-version) and install into the per-user cache.
 ```
 
 Files are numbered so output reads in a logical order, but **tests must not depend on execution order**. Each file is fully self-contained.
@@ -185,6 +187,17 @@ Environment directories in `_dsbTfEnvsDirList` end with a slash, so a recorded c
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add a new mock.
 
+### Testing the lint commands
+
+The lint commands run tflint from their per-user cache, `${XDG_CACHE_HOME}/dsb-tf-proj-helpers/tflint/<version>/tflint`. `test_helper.bash` points `XDG_CACHE_HOME` at the test's own directory, so no test reads or writes the user's cache. Two helpers in `mock_helper.bash` provide tflint:
+
+- `install_fake_tflint [version]` puts a fake tflint in the cache, as if it were installed (default `v0.55.0`, the latest release `mock_gh` and `mock_curl` report). It records every call in `${MOCK_TFLINT_CALLS_FILE}` (`bin=…|pwd=…|tf_data_dir=…|github_token=…|args=…`), copies the manifest it finds in `TF_DATA_DIR` (read it with `fake_tflint_manifest_for <dir>`), fails a lint run whose `--chdir` matches `${MOCK_TFLINT_FAIL_DIR}`, and fails `--init` with `${MOCK_TFLINT_INIT_EXIT}`. `tflint_lint_calls` prints the lint runs, without `--init`.
+- `mock_tflint_release` serves a fake release for `gh release download` and `curl` to download, with a matching `checksums.txt`, and mocks `unzip`. Use it to test the install itself.
+
+`mock_yq` emulates the query for the `tflint-version` of the job that calls the shared workflow with grep, so a test sets the version by writing a workflow file.
+
+A test initializes a root the way `terraform init` leaves it by creating `.terraform/modules/` and copying a manifest from `test/fixtures/lint/` (`init_root` in `10_linting.bats`).
+
 ---
 
 ## Test Fixtures
@@ -196,6 +209,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add a new mock.
 | `project_no_main/` | Missing main/ directory |
 | `project_empty/` | Empty directory |
 | `project_module/` | Terraform module repo (root .tf files, examples/, tests/, .tflint.hcl, .github/workflows) |
+| `lint/` | Module manifests a lint test copies into a root's `.terraform/modules/modules.json`, as `terraform init` would leave them |
 
 Fixtures are **copied** to `$BATS_TEST_TMPDIR` before each test. Tests modify the copy freely.
 
@@ -233,6 +247,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide on adding commands and
 - **Associative array iteration order is non-deterministic.** Don't assert on line order for env lists.
 - **Interactive functions need stdin piped.** Use `<<< "1"` for `read -r -p` prompts.
 - **The script scrolls the terminal on source.** `\033[2J\033[H` appears in captured output -- harmless.
+- **Mocks run under the script's `set -u`.** An exposed function enables `set -u`, and a mock it calls inherits it. A mock that reads `$2` when called with one argument (for example `hcledit version` in a tool check, whose output goes to `/dev/null`) ends the test's subshell without a word. Read optional arguments as `${2:-}`.
 
 ---
 

@@ -4,7 +4,7 @@ Design and architecture reference. For the developer guide, see [CONTRIBUTING.md
 
 ## What This Script Is
 
-A collection of bash helper functions for working with DSB Terraform projects and module repos. It is **sourced** into the user's interactive shell (via `source <(curl ...)` or `eval "$(gh api ...)"`), and optionally installed locally. It provides 83 user-facing commands prefixed with `tf-` and `az-`. The script is a single file (~11600 lines, ~270 functions) and requires no installation beyond sourcing (though local install is supported via `tf-install-helpers`).
+A collection of bash helper functions for working with DSB Terraform projects and module repos. It is **sourced** into the user's interactive shell (via `source <(curl ...)` or `eval "$(gh api ...)"`), and optionally installed locally. It provides 86 user-facing commands prefixed with `tf-` and `az-`. The script is a single file (~13000 lines, ~300 functions) and requires no installation beyond sourcing (though local install is supported via `tf-install-helpers`).
 
 The script automatically detects whether it's running in a **project repo** (has `main/` + `envs/`) or a **module repo** (has root `.tf` files, no `main/` or `envs/`) and adapts its behavior accordingly.
 
@@ -76,9 +76,53 @@ Module repos are different: their lock files are gitignored, and no command runs
 
 ---
 
+## Linting
+
+The lint commands follow the lint contract CI follows, written down once in [github-actions-terraform: docs/Linting.md](https://github.com/dsb-norge/github-actions-terraform/blob/main/docs/Linting.md). A local lint gives the result CI gives: the same directories, prepared the same way, with the same config, tflint version and var files. Earlier versions ran an external tflint wrapper script instead; it is retired, and nothing of it is left in the CLI.
+
+### The contract (`_dsb_tf_tflint_lint_root`)
+
+Every lint command lints one or more **roots**: an environment directory, `envs/_terraform-state`, a module repo's root, or a module example.
+
+| Step | What the CLI does |
+|---|---|
+| Directories | The root first, then every local module directory in the root's `.terraform/modules/modules.json` (a `Dir` not under `.terraform/`), each linted as its own root with `--chdir` (`_dsb_tf_tflint_module_dirs`). No manifest: the root only. |
+| Preparation | None for the root, which must be initialized; the message names the init command. A root whose `.tf` files call no modules needs no manifest, and is linted without `.terraform` (`terraform init` creates none where there is nothing to install). Each module directory gets a temporary `TF_DATA_DIR` holding a manifest derived from the root's: the entries at or below the directory's key, that prefix stripped, every `Dir` made absolute (`_dsb_tf_tflint_write_derived_manifest`). A directory reached through several keys uses the shortest: fewest segments, then fewest characters, then sort order. Nothing is written into the repository, and the temporary directories are removed. |
+| Config | `<root>/.tflint.hcl`, else the repository root's, for every directory of the root (`_dsb_tf_tflint_resolve_config`). An example always uses the module root's. When there is none, the embedded default config (`_dsb_tf_tflint_default_config`) is written into the root, never into a project repo's root, its plugins are bumped with the `tf-bump-tflint-plugins` code when hcledit and gh authentication are available, and the user is told to commit it. |
+| Plugins | `tflint --init --config=<config>` once per root, with `GITHUB_TOKEN` from `gh auth token` when available. |
+| Var files | The root once per `*.tfvars` in it other than `terraform.tfvars` and `*.auto.tfvars`, as `--var-file=<absolute path>`; once without when there is none. Module directories never get var files: tflint matches values by variable name, so a module would get the root's value for a variable of the same name that its caller never passed. |
+| Result | One exit code per (directory, var file) run, a summary of every run, and failure when any run fails. |
+
+tflint runs from the repository root (`_dsb_tf_tflint_run`, in a subshell), so the paths in its output are relative to the repository root.
+
+Which roots each command lints:
+
+| Repo | Command | Roots |
+|---|---|---|
+| project | `tf-lint [env]` | the environment |
+| project | `tf-lint-tfstate` | `envs/_terraform-state`, initialized offline when it is not initialized |
+| project | `tf-lint-all` | every environment, then `envs/_terraform-state` when there is one |
+| module | `tf-lint` | the module root, whose manifest also lists its submodules |
+| module | `tf-lint-example`, `tf-lint-all-examples` | each example, with the module root's config, and only the local module directories inside the example; the module root and its submodules are left to the root lint |
+| module | `tf-lint-all` | the module root, then every example |
+
+In a module repo, `terraform init` at the root also installs the modules that the `run` blocks of `tests/*.tftest.hcl` call (keys `test.<dir>.<file>.<run>` in the manifest), such as the examples. The root lint lints them too: the contract lints every local directory in the root's manifest.
+
+### tflint version and install (`_dsb_tf_tflint_prepare`)
+
+- **Version** (`_dsb_tf_tflint_resolve_version`): `--use-version <version>` when given; else the `tflint-version` input of the job that calls the shared workflow, `terraform-ci-cd-default.yml` in a project repo or `terraform-module-ci.yaml` in a module repo (`_dsb_tf_tflint_workflow_version`), the highest when there are several; else, or for `latest`, the latest release. When the latest release cannot be looked up, the newest version in the cache is used.
+- **Install** (`_dsb_tf_tflint_install`): once per user and version, into `${XDG_CACHE_HOME:-~/.cache}/dsb-tf-proj-helpers/tflint/<version>/tflint`. The release archive for the platform (linux or darwin, amd64 or arm64) and the release's `checksums.txt` are downloaded with gh when authenticated, else with curl. The archive is refused when its sha256 does not match. No `.gitignore` is edited.
+- `tf-clean-tflint` removes the `.tflint/` directories the wrapper left behind.
+
+### `_terraform-state`
+
+`envs/_terraform-state` bootstraps the state storage of every environment. It is not an environment: one directory serves every environment, its backend is partial and completed per environment, its values per environment are in `env.<env>.tfvars`, and it has no subscription hint. Environment enumeration leaves out directories starting with `_` for that reason, and that stays. Linting and validating it need neither a backend nor a subscription, so `tf-init-tfstate-offline`, `tf-validate-tfstate` and `tf-lint-tfstate` work on it offline (`terraform init -backend=false -input=false`), moving aside the backend state a real init left in `.terraform/terraform.tfstate` and putting it back after. `tf-validate-all` and `tf-lint-all` include it. Plan and apply of it stay the terraform commands in its README.
+
+---
+
 ## Function Categories
 
-### Exposed functions (83, prefixed `tf-` and `az-`)
+### Exposed functions (86, prefixed `tf-` and `az-`)
 
 User-facing commands. Every exposed function includes the `set -e` neutralization guard and the configure/restore lifecycle.
 
@@ -93,6 +137,7 @@ User-facing commands. Every exposed function includes the `set -e` neutralizatio
 | Lock (env) | `tf-lock-env`, `tf-lock-env-offline`, `tf-lock-all`, `tf-lock-all-offline` |
 | Bump (env) | `tf-bump-env`, `tf-bump-env-offline`, `tf-bump-all`, `tf-bump-all-offline` |
 | Provider (env) | `tf-show-all-provider-upgrades` |
+| `_terraform-state` | `tf-init-tfstate-offline`, `tf-validate-tfstate`, `tf-lint-tfstate` |
 
 **Module commands** (available in module repos only):
 
@@ -109,7 +154,7 @@ User-facing commands. Every exposed function includes the `set -e` neutralizatio
 | Check | `tf-check-dir`, `tf-check-prereqs`, `tf-check-tools`, `tf-check-az-auth`, `tf-check-gh-auth` |
 | Status | `tf-status` |
 | Terraform | `tf-init`, `tf-init-offline`, `tf-validate`, `tf-validate-all`, `tf-fmt`, `tf-fmt-fix`, `tf-upgrade`, `tf-upgrade-offline`, `tf-outputs`, `tf-versions` |
-| Linting | `tf-lint`, `tf-lint-all` |
+| Linting | `tf-lint`, `tf-lint-all` (see [Linting](#linting)) |
 | Clean | `tf-clean`, `tf-clean-tflint`, `tf-clean-all` |
 | Bump | `tf-bump`, `tf-bump-offline`, `tf-bump-modules`, `tf-bump-cicd`, `tf-bump-tflint-plugins` |
 | Provider | `tf-show-provider-upgrades` |
@@ -158,8 +203,12 @@ All functions return exit codes directly. No ERR trap, no `set -e`, no global re
 | `terraform-config-inspect` | Yes | `_dsb_tf_check_terraform_config_inspect` |
 | `curl` | Yes | `_dsb_tf_check_curl` |
 | `go` | Yes | `_dsb_tf_check_golang` |
+| `unzip` | To install tflint | checked by `_dsb_tf_tflint_install` |
+| `sha256sum` / `shasum` | To verify the tflint download | `_dsb_tf_sha256` |
 | `realpath` / `grealpath` | Yes | `_dsb_tf_check_realpath` |
 | `terraform-docs` | Module repos only | `_dsb_tf_check_terraform_docs` |
+
+tflint is not a prerequisite: the lint commands install the version they need into a per-user cache, see [Linting](#linting).
 
 ---
 
@@ -168,34 +217,35 @@ All functions return exit codes directly. No ERR trap, no `set -e`, no global re
 | Lines | Section |
 |---|---|
 | 1-10 | Download guard, bash version check |
-| 92-158 | Init: cleanup of previous state |
-| 159-205 | Init: global variable declarations |
-| 207-295 | Utility: logging |
-| 297-323 | Init: architecture detection |
-| 325-550 | Utility: general (`_dsb_tf_report_status`, etc.) |
-| 552-714 | Utility: debug |
-| 716-819 | Utility: error handling (error stack, signal handler, configure/restore) |
-| 821-870 | Utility: `--log` output capture |
-| 872-2208 | Utility: help system |
-| 2210-2428 | Utility: tab completion |
-| 2430-2611 | Utility: version parsing |
-| 2613-3355 | Internal: checks |
-| 3357-4052 | Internal: directory enumeration (includes repo type detection) |
-| 4054-4301 | Internal: environment management |
-| 4303-4776 | Internal: Azure CLI |
-| 4778-5522 | Internal: terraform operations |
-| 5524-5684 | Internal: linting |
-| 5686-5876 | Internal: clean |
-| 5878-7700 | Internal: upgrade/bump |
-| 7702-8080 | Internal: module repo operations |
-| 8082-8346 | Internal: module examples support |
-| 8348-8571 | Internal: terraform test support |
-| 8573-8692 | Internal: documentation generation |
-| 8694-9095 | Internal: version information |
-| 9097-9288 | Internal: setup/install management |
-| 9290-10919 | Exposed functions |
-| 10921-10951 | Init: final setup |
-
+| 91-157 | Init: cleanup of previous state |
+| 158-210 | Init: global variable declarations |
+| 211-300 | Utility: logging |
+| 301-328 | Init: architecture detection |
+| 329-560 | Utility: general (`_dsb_tf_report_status`, etc.) |
+| 561-724 | Utility: debug |
+| 725-829 | Utility: error handling (error stack, signal handler, configure/restore) |
+| 830-880 | Utility: `--log` output capture |
+| 881-2373 | Utility: help system |
+| 2374-2858 | Utility: tab completion |
+| 2859-3041 | Utility: version parsing |
+| 3042-3756 | Internal: checks |
+| 3757-3788 | Internal: repo type gating |
+| 3789-4481 | Internal: directory enumeration (includes repo type detection) |
+| 4482-4734 | Internal: environment management |
+| 4735-5209 | Internal: Azure CLI |
+| 5210-6292 | Internal: terraform operations |
+| 6293-7492 | Internal: linting (tflint install, default config, lint contract) |
+| 7493-7654 | Internal: `_terraform-state` |
+| 7655-7850 | Internal: clean |
+| 7851-9433 | Internal: upgrade/bump |
+| 9434-9783 | Internal: module repo operations |
+| 9784-10037 | Internal: module examples support |
+| 10038-10419 | Internal: terraform test support |
+| 10420-10540 | Internal: documentation generation |
+| 10541-10943 | Internal: version information |
+| 10944-11178 | Internal: setup/install management |
+| 11179-13014 | Exposed functions |
+| 13015-13047 | Init: final setup |
 ---
 
 ## Platform Support
@@ -215,7 +265,7 @@ Bash 4.3+ required. Unsupported platforms or old bash versions abort sourcing wi
 See [TESTING.md](TESTING.md) for the full guide.
 
 - **Framework**: bats-core with bats-support, bats-assert, bats-file
-- **Tests**: 697 across 35 files
+- **Tests**: 801 across 36 files
 - **Mocking**: All external tools mocked via function overrides
 - **CI**: GitHub Actions on PRs, posts updatable comment with results
 
@@ -225,11 +275,11 @@ See [TESTING.md](TESTING.md) for the full guide.
 
 | File | Purpose |
 |---|---|
-| `dsb-tf-proj-helpers.sh` | The script (~11600 lines, ~270 functions) |
+| `dsb-tf-proj-helpers.sh` | The script (~13000 lines, ~300 functions) |
 | [README.md](README.md) | User-facing: how to load and use |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | This document |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Developer guide: patterns, conventions, how to add features |
 | [TESTING.md](TESTING.md) | Test suite guide: how to run, write, and maintain tests |
 | `package.json` | npm manifest for test dependencies |
 | `.github/workflows/tests.yml` | CI workflow for running tests on PRs |
-| `test/` | Test suite (35 `.bats` files, helpers, fixtures) |
+| `test/` | Test suite (36 `.bats` files, helpers, fixtures) |
