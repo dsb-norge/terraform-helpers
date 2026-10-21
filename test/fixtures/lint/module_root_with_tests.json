@@ -1,0 +1,34 @@
+{
+  "Modules": [
+    {
+      "Key": "",
+      "Source": "",
+      "Dir": "."
+    },
+    {
+      "Key": "naming",
+      "Source": "./modules/naming",
+      "Dir": "modules/naming"
+    },
+    {
+      "Key": "test.tests.integration-test-01-basic.validate_basic_example",
+      "Source": "./examples/01-basic",
+      "Dir": "examples/01-basic"
+    },
+    {
+      "Key": "test.tests.integration-test-01-basic.validate_basic_example.example",
+      "Source": "../../",
+      "Dir": "."
+    },
+    {
+      "Key": "test.tests.integration-test-01-basic.validate_basic_example.example.naming",
+      "Source": "./modules/naming",
+      "Dir": "modules/naming"
+    },
+    {
+      "Key": "test.tests.unit-tests.setup",
+      "Source": "./tests/fixtures/setup",
+      "Dir": "tests/fixtures/setup"
+    }
+  ]
+}

@@ -102,11 +102,11 @@ Which roots each command lints:
 | project | `tf-lint [env]` | the environment |
 | project | `tf-lint-tfstate` | `envs/_terraform-state`, initialized offline when it is not initialized |
 | project | `tf-lint-all` | every environment, then `envs/_terraform-state` when there is one |
-| module | `tf-lint` | the module root, whose manifest also lists its submodules |
+| module | `tf-lint` | the module root, and every local directory its manifest records |
 | module | `tf-lint-example`, `tf-lint-all-examples` | each example, with the module root's config, and only the local module directories inside the example; the module root and its submodules are left to the root lint |
-| module | `tf-lint-all` | the module root, then every example |
+| module | `tf-lint-all` | the module root, leaving out the directories under `examples/`, then every example as its own root |
 
-In a module repo, `terraform init` at the root also installs the modules that the `run` blocks of `tests/*.tftest.hcl` call (keys `test.<dir>.<file>.<run>` in the manifest), such as the examples. The root lint lints them too: the contract lints every local directory in the root's manifest.
+In a module repo, `terraform init` at the root also installs the modules that the `run` blocks of `tests/*.tftest.hcl` call (keys `test.<dir>.<file>.<run>` in the manifest), such as the examples and test fixture directories. `tf-lint` lints them all from the root. `tf-lint-all`, which also lints each example as its own root, leaves the directories under `<root>/examples/` out of the root lint (`_dsb_tf_lint_module_root` with its third argument, the excluded directory of `_dsb_tf_tflint_module_dirs`), so each example is linted once, with the module root's config, as CI does with `examples: true`. The test fixture directories are still linted from the root.
 
 ### tflint version and install (`_dsb_tf_tflint_prepare`)
 
