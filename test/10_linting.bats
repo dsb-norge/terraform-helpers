@@ -581,6 +581,57 @@ setup_module_repo() {
     "${module_dir}/examples/02-advanced")"
 }
 
+# the module root's manifest also records the modules the run blocks of tests/*.tftest.hcl
+# call, under test.<dir>.<file>.<run> keys: here an example and a test fixture directory
+setup_module_repo_with_test_modules() {
+  setup_module_repo
+  mkdir -p tests/fixtures/setup
+  printf 'variable "x" {\n  type = string\n}\n' >tests/fixtures/setup/main.tf
+  init_root . module_root_with_tests.json
+  init_root examples/01-basic
+  init_root examples/02-advanced
+}
+
+@test "tf-lint-all in a module repo lints each example once, as its own root" {
+  setup_module_repo_with_test_modules
+  run tf-lint-all
+  assert_success
+  run lint_chdirs
+  assert_output "$(printf '%s\n' \
+    "${module_dir}" \
+    "${module_dir}/modules/naming" \
+    "${module_dir}/tests/fixtures/setup" \
+    "${module_dir}/examples/01-basic" \
+    "${module_dir}/examples/02-advanced")"
+  run lint_calls_in "${module_dir}/examples/01-basic"
+  assert_equal "${#lines[@]}" 1
+  assert_output --partial "|tf_data_dir=|"
+}
+
+@test "tf-lint-all in a module repo still lints the test fixture directories from the root" {
+  setup_module_repo_with_test_modules
+  run tf-lint-all
+  assert_success
+  run lint_calls_in "${module_dir}/tests/fixtures/setup"
+  assert_equal "${#lines[@]}" 1
+  refute_output --partial "|tf_data_dir=|"
+}
+
+@test "tf-lint in a module repo lints everything the root manifest records, examples included" {
+  setup_module_repo_with_test_modules
+  run tf-lint
+  assert_success
+  run lint_chdirs
+  assert_output "$(printf '%s\n' \
+    "${module_dir}" \
+    "${module_dir}/examples/01-basic" \
+    "${module_dir}/modules/naming" \
+    "${module_dir}/tests/fixtures/setup")"
+  run lint_calls_in "${module_dir}/examples/01-basic"
+  assert_equal "${#lines[@]}" 1
+  refute_output --partial "|tf_data_dir=|"
+}
+
 @test "tf-lint-all in a module repo fails when an example fails" {
   setup_module_repo
   init_root .

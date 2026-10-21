@@ -1576,7 +1576,8 @@ _dsb_tf_help_specific_command() {
     _dsb_i "tf-lint [env] [--use-version <version>]:"
     _dsb_i "  Lint the specified environment with tflint."
     _dsb_i "  If environment is not specified, the selected environment is used."
-    _dsb_i "  In module repos it lints the module root and its local sub-modules, see 'tf-help tf-lint-all'."
+    _dsb_i "  In module repos it lints the module root and every local directory its manifest records:"
+    _dsb_i "  its sub-modules, and the examples and other directories its tests call. See 'tf-help tf-lint-all'."
     _dsb_i ""
     _dsb_i "  It follows the lint contract CI follows, so a local lint gives the result CI gives:"
     _dsb_i "    https://github.com/dsb-norge/github-actions-terraform/blob/main/docs/Linting.md"
@@ -1820,8 +1821,8 @@ _dsb_tf_help_specific_command() {
     _dsb_i "  Lint all Terraform configurations, each as 'tf-lint' does, see 'tf-help tf-lint'."
     _dsb_i ""
     _dsb_i "  In project repos, lints every environment."
-    _dsb_i "  In module repos, lints the module root and its local sub-modules, then every example"
-    _dsb_i "  (see 'tf-help tf-lint-example')."
+    _dsb_i "  In module repos, lints the module root as 'tf-lint' does, but leaves out the directories"
+    _dsb_i "  under examples/, then lints every example once, as its own root (see 'tf-help tf-lint-example')."
     _dsb_i "  In project repos, it also lints envs/_terraform-state when there is one, see 'tf-help tf-lint-tfstate'."
     _dsb_i ""
     _dsb_i "  Related commands: tf-lint, tf-lint-tfstate, tf-validate-all."
@@ -7020,6 +7021,7 @@ _dsb_tf_module_key_is_shorter() {
 # input:
 #   $1: root directory, absolute
 #   $2: scope directory (optional), when set only directories inside it are listed
+#   $3: excluded directory (optional), when set directories inside it are left out
 # on info:
 #   warning for a directory in the manifest that does not exist
 # returns:
@@ -7029,6 +7031,7 @@ _dsb_tf_module_key_is_shorter() {
 _dsb_tf_tflint_module_dirs() {
   local rootDir="${1}"
   local scopeDir="${2:-}"
+  local excludeDir="${3:-}"
   local manifest="${rootDir}/.terraform/modules/modules.json"
 
   if [ ! -f "${manifest}" ]; then
@@ -7062,6 +7065,10 @@ _dsb_tf_tflint_module_dirs() {
     fi
     if [ -n "${scopeDir}" ] && [[ "${absDir}" != "${scopeDir}/"* ]]; then
       _dsb_d "leaving out ${absDir}, outside ${scopeDir}" >&2
+      continue
+    fi
+    if [ -n "${excludeDir}" ] && [[ "${absDir}" == "${excludeDir}/"* ]]; then
+      _dsb_d "leaving out ${absDir}, inside ${excludeDir}" >&2
       continue
     fi
     if [ -z "${keyByDir[${absDir}]:-}" ] || _dsb_tf_module_key_is_shorter "${key}" "${keyByDir[${absDir}]}"; then
@@ -7153,6 +7160,7 @@ _dsb_tf_tflint_run() {
 #   $2: directory whose config is used, the root itself except for module examples
 #   $3: the command that initializes the root, named when it is not initialized
 #   $4: scope directory (optional), only module directories inside it are linted
+#   $5: excluded directory (optional), module directories inside it are not linted
 # on info:
 #   tflint's output and a summary of every run
 # returns:
@@ -7163,6 +7171,8 @@ _dsb_tf_tflint_lint_root() {
   local initCommand="${3}"
   local scopeDir="${4:-}"
   scopeDir="${scopeDir%/}"
+  local excludeDir="${5:-}"
+  excludeDir="${excludeDir%/}"
 
   local relRoot
   relRoot="$(_dsb_tf_get_rel_dir "${rootDir}")"
@@ -7201,7 +7211,11 @@ _dsb_tf_tflint_lint_root() {
   done
 
   local moduleDirLines
-  if ! moduleDirLines=$(_dsb_tf_tflint_module_dirs "${rootDir}" "${scopeDir}"); then
+  if [ -n "${excludeDir}" ] && [ -d "${excludeDir}" ]; then
+    # same form as the module directories, so they compare equal
+    excludeDir="$(cd "${excludeDir}" && pwd)"
+  fi
+  if ! moduleDirLines=$(_dsb_tf_tflint_module_dirs "${rootDir}" "${scopeDir}" "${excludeDir}"); then
     _dsb_tf_error_push "could not list the module directories of '${relRoot}'"
     return 1
   fi
@@ -7447,7 +7461,9 @@ _dsb_tf_lint_all_project() {
 
 # what:
 #   lint module root and all examples in a module repo
-#   the root lint covers the root and its submodules, each example lint the example and the local directories inside it
+#   the root lint covers the root and the local directories its manifest records, except those under examples/:
+#   the run blocks of the module's tests call examples, and terraform init records them in the root's manifest,
+#   but here each example is linted once, as its own root, covering the example and the local directories inside it
 # input:
 #   $1: tflint version given with --use-version (optional)
 # on info:
@@ -7466,7 +7482,7 @@ _dsb_tf_lint_all_module() {
     return 1
   fi
 
-  _dsb_tf_lint_module_root "${useVersion}" 1 # $2 = 1: tflint is prepared
+  _dsb_tf_lint_module_root "${useVersion}" 1 1 # $2 = 1: tflint is prepared, $3 = 1: examples are linted below
   local rootRC=$?
   if [ "${rootRC}" -ne 0 ]; then
     returnCode=1
@@ -9542,11 +9558,14 @@ _dsb_tf_validate_module_root() {
 
 
 # what:
-#   runs tflint at the module root directory by the lint contract: the root and its submodules
+#   runs tflint at the module root directory by the lint contract: the root and every local directory
+#   its manifest records, its submodules and the directories its tests call included
 #   used for module repos -- no environment selection
 # input:
 #   $1: tflint version given with --use-version (optional)
 #   $2: skip preparing tflint, set to 1 when the caller has done it (optional, defaults to 0)
+#   $3: leave out the directories under examples/, set to 1 when the caller lints each example
+#       as its own root (optional, defaults to 0)
 # on info:
 #   status messages are printed
 # returns:
@@ -9554,6 +9573,7 @@ _dsb_tf_validate_module_root() {
 _dsb_tf_lint_module_root() {
   local useVersion="${1:-}"
   local skipPrepare="${2:-0}"
+  local excludeExamples="${3:-0}"
 
   _dsb_d "called with useVersion: ${useVersion}, skipPrepare: ${skipPrepare}"
 
@@ -9574,7 +9594,12 @@ _dsb_tf_lint_module_root() {
     fi
   fi
 
-  if ! _dsb_tf_tflint_lint_root "${_dsbTfRootDir}" "${_dsbTfRootDir}" "tf-init"; then
+  local excludeDir=""
+  if [ "${excludeExamples}" -eq 1 ]; then
+    excludeDir="${_dsbTfRootDir}/examples"
+  fi
+
+  if ! _dsb_tf_tflint_lint_root "${_dsbTfRootDir}" "${_dsbTfRootDir}" "tf-init" "" "${excludeDir}"; then
     _dsb_tf_error_push "lint of the module root failed"
     return 1
   fi

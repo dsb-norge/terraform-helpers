@@ -70,9 +70,9 @@ tflint is installed once per user and version into `${XDG_CACHE_HOME:-~/.cache}/
 | project | `tf-lint [env]` | the environment and its local module directories |
 | project | `tf-lint-tfstate` | `envs/_terraform-state`, once per `env.<env>.tfvars`, initialized offline when needed |
 | project | `tf-lint-all` | every environment, and `envs/_terraform-state` |
-| module | `tf-lint` | the module root and its sub-modules |
+| module | `tf-lint` | the module root and every local directory its manifest records: its sub-modules, and the examples and other directories its tests call |
 | module | `tf-lint-example <example>`, `tf-lint-all-examples` | each example and the local module directories inside it |
-| module | `tf-lint-all` | the module root and its sub-modules, then every example |
+| module | `tf-lint-all` | the module root as `tf-lint` does, leaving out the directories under `examples/`, then every example once, as its own root |
 
 `envs/_terraform-state` is not an environment, as one directory serves every environment, so the environment commands leave it out. `tf-validate-tfstate` validates it and `tf-init-tfstate-offline` initializes it without backend, neither needing an Azure subscription; `tf-validate-all` includes it. Plan and apply of it stay the terraform commands in its README.
 
